@@ -7,6 +7,7 @@ Bài được tách riêng theo từng nhóm chức năng trong ảnh:
 2. `audit` - Nhật ký truy cập và thao tác hệ thống.
 3. `route` - Quản lý tuyến đường, trạm dừng và giá vé.
 4. `feedback` - Khiếu nại và đánh giá chất lượng chuyến đi.
+5. `booking` - Giữ chỗ 10 phút, xác nhận thanh toán, tự nhả ghế hết hạn.
 
 ## Yêu cầu
 - JDK 17+
@@ -58,3 +59,12 @@ Mỗi lần chạy lại chương trình dữ liệu mẫu sẽ được tạo l
 - Đánh giá 1-5 sao và nhận xét.
 - Quản lý phản ánh.
 - Cập nhật trạng thái: CHUA_XU_LY / DANG_XU_LY / DA_XU_LY.
+
+### 5. Hành khách - giữ chỗ (US3)
+- Giữ ghế 10 phút khi đang thanh toán; ghế đang giữ hoặc đã bán thì người khác không đặt được.
+- Thanh toán trong 10 phút thì vé chuyển sang VALID; quá hạn thì từ chối.
+- `SeatHoldReleaseJob` chạy nền định kỳ, chuyển vé HELD quá hạn sang EXPIRED để nhả ghế.
+- Trạng thái vé khớp cột `tickets.status` trong `backend/database/schema.sql`.
+
+### Vai trò phụ xe (US14, US15)
+- Thêm `Role.CONDUCTOR`; phụ xe và tài xế có quyền `SOAT_VE`.

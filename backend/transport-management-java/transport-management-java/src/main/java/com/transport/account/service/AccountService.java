@@ -65,7 +65,13 @@ public class AccountService {
             ).contains(permission);
             case DRIVER -> Set.of(
                     "XEM_TUYEN",
-                    "XEM_LICH_CHAY"
+                    "XEM_LICH_CHAY",
+                    "SOAT_VE"
+            ).contains(permission);
+            case CONDUCTOR -> Set.of(
+                    "XEM_TUYEN",
+                    "XEM_LICH_CHAY",
+                    "SOAT_VE"
             ).contains(permission);
             case PASSENGER -> Set.of(
                     "XEM_TUYEN",
