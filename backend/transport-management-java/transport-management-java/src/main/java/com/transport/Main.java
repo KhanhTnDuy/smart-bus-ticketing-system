@@ -4,6 +4,9 @@ import com.transport.account.controller.AccountController;
 import com.transport.account.model.Role;
 import com.transport.account.service.AccountService;
 import com.transport.audit.service.AuditLogService;
+import com.transport.booking.controller.BookingController;
+import com.transport.booking.service.BookingService;
+import com.transport.booking.service.SeatHoldReleaseJob;
 import com.transport.feedback.controller.FeedbackController;
 import com.transport.feedback.model.Feedback;
 import com.transport.feedback.model.FeedbackStatus;
@@ -12,6 +15,9 @@ import com.transport.route.controller.RouteController;
 import com.transport.route.model.Route;
 import com.transport.route.model.Stop;
 import com.transport.route.service.RouteService;
+
+import java.time.LocalDateTime;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class Main {
     public static void main(String[] args) {
@@ -36,7 +42,9 @@ public class Main {
         accountController.add("A001", "admin", "Nguyễn Admin", Role.ADMIN);
         accountController.add("M001", "manager", "Trần Quản Lý", Role.MANAGER);
         accountController.add("D001", "driver", "Lê Tài Xế", Role.DRIVER);
+        accountController.add("C001", "conductor", "Vũ Phụ Xe", Role.CONDUCTOR);
         accountController.add("P001", "passenger", "Phạm Hành Khách", Role.PASSENGER);
+        accountController.add("P002", "passenger2", "Đỗ Hành Khách", Role.PASSENGER);
 
         accountController.list();
 
@@ -45,6 +53,10 @@ public class Main {
                 + accountService.hasPermission("admin", "QUAN_LY_TAI_KHOAN"));
         System.out.println("driver -> QUAN_LY_TAI_KHOAN: "
                 + accountService.hasPermission("driver", "QUAN_LY_TAI_KHOAN"));
+        System.out.println("conductor -> SOAT_VE: "
+                + accountService.hasPermission("conductor", "SOAT_VE"));
+        System.out.println("passenger -> SOAT_VE: "
+                + accountService.hasPermission("passenger", "SOAT_VE"));
 
         accountController.update("P001", "Phạm Hành Khách VIP", Role.PASSENGER);
         accountController.delete("D001");
@@ -96,8 +108,28 @@ public class Main {
         feedbackController.updateStatus("F001", FeedbackStatus.DA_XU_LY);
         feedbackController.show("F001");
 
+        // ================= BOOKING =================
+        System.out.println("\n--- 4. GIỮ CHỖ 10 PHÚT ---");
+
+        AtomicReference<LocalDateTime> demoNow = new AtomicReference<>(LocalDateTime.of(2026, 10, 1, 6, 30));
+        BookingService bookingService = new BookingService(auditLogService, demoNow::get);
+        BookingController bookingController = new BookingController(bookingService);
+        SeatHoldReleaseJob releaseJob = new SeatHoldReleaseJob(bookingService);
+
+        bookingController.holdSeat("T001", "TRIP-R001-0700", "A1", "P001");
+        bookingController.holdSeat("T002", "TRIP-R001-0700", "A1", "P002");
+        bookingController.holdSeat("T003", "TRIP-R001-0700", "A2", "P002");
+        bookingController.confirmPayment("T003");
+
+        System.out.println("... 11 phút sau, P001 chưa thanh toán ...");
+        demoNow.set(demoNow.get().plusMinutes(11));
+        releaseJob.runOnce();
+        bookingController.confirmPayment("T001");
+        bookingController.holdSeat("T004", "TRIP-R001-0700", "A1", "P002");
+        bookingController.list();
+
         // ================= AUDIT LOG =================
-        System.out.println("\n--- 4. NHẬT KÝ HỆ THỐNG ---");
+        System.out.println("\n--- 5. NHẬT KÝ HỆ THỐNG ---");
         auditLogService.printAll();
 
         System.out.println("\n==============================================");
