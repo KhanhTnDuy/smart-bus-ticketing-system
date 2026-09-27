@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { Route, RouteStatus } from '@/types/route';
 import { useRouteContext } from '@/context/RouteContext';
-import { StatusBadge } from '@/components/common/Badge';
+import { StatusBadge } from '@/components/common/RouteBadge';
 import { RouteModal } from '@/components/routes/RouteModal';
 import { ConfirmModal } from '@/components/common/ConfirmModal';
 import { formatDistance } from '@/utils/formatters';
