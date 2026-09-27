@@ -1,0 +1,10 @@
+/* SCRUM-17: Tailwind đã cấu hình (postcss.config.cjs, tailwind.config.ts) nhưng chưa từng
+   được import vào app Vite, nên mọi class Tailwind trong RouteTab/StopTab/PricingTab và các
+   modal (Route/Stop/Price) không có hiệu lực (modal mở ra nhưng vô hình vì mất overlay/z-index).
+
+   Chỉ lấy theme (biến màu, font...) + utilities, KHÔNG lấy "tailwindcss/preflight":
+   phần còn lại của app (login, sidebar, users...) là CSS viết tay ở styles/index.css và
+   không tương thích với CSS reset (box-sizing, margin:0...) của Tailwind Preflight — từng
+   thử bật "@tailwind base"/"tailwindcss/preflight" và làm vỡ giao diện các trang đó. */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";

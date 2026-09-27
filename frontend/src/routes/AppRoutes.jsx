@@ -11,7 +11,7 @@ import { ProtectedRoute } from './ProtectedRoute';
 import { LoginPage } from '../pages/auth/LoginPage';
 import { UserManagementPage } from '../pages/admin/UserManagementPage';
 import { RoleMatrixPage } from '../pages/admin/RoleMatrixPage';
-import { ManagerPlaceholder } from '../pages/manager/ManagerPlaceholder';
+import { RouteManagementPage } from '../pages/manager/RouteManagementPage';
 import { DriverPlaceholder } from '../pages/driver/DriverPlaceholder';
 import { PassengerPlaceholder } from '../pages/passenger/PassengerPlaceholder';
 import { UnauthorizedPage } from '../pages/common/UnauthorizedPage';
@@ -65,9 +65,10 @@ export const AppRoutes = () => {
 
         {/* 2. Phân hệ MANAGER (Quản lý & Admin được truy cập) */}
         <Route element={<ProtectedRoute allowedRoles={[ROLES.MANAGER, ROLES.ADMIN]} />}>
-          <Route path="/manager/routes" element={<ManagerPlaceholder title="Quản lý Tuyến xe buýt" />} />
-          <Route path="/manager/stations" element={<ManagerPlaceholder title="Quản lý Trạm dừng" />} />
-          <Route path="/manager/fares" element={<ManagerPlaceholder title="Quản lý Biểu phí & Vé" />} />
+          {/* SCRUM-17/18/19: cùng một trang 3 tab (tuyến/trạm/giá vé), khác tab mặc định theo route */}
+          <Route path="/manager/routes" element={<RouteManagementPage defaultTab="routes" />} />
+          <Route path="/manager/stations" element={<RouteManagementPage defaultTab="stops" />} />
+          <Route path="/manager/fares" element={<RouteManagementPage defaultTab="pricing" />} />
         </Route>
 
         {/* 3. Phân hệ DRIVER: Dành riêng cho Tài xế */}

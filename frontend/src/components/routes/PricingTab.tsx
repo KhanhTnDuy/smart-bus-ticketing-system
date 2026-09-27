@@ -5,7 +5,7 @@ import { TicketPrice, VehicleType } from '@/types/route';
 import { useRouteContext } from '@/context/RouteContext';
 import { PriceModal } from '@/components/routes/PriceModal';
 import { ConfirmModal } from '@/components/common/ConfirmModal';
-import { VehicleBadge } from '@/components/common/Badge';
+import { VehicleBadge } from '@/components/common/RouteBadge';
 import { formatCurrencyVND } from '@/utils/formatters';
 import {
   DollarSign,

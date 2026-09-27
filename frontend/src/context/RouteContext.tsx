@@ -1,16 +1,9 @@
-'use client';
-
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { Route, Stop, TicketPrice, VehicleType, RouteStatistics } from '@/types/route';
 import { INITIAL_ROUTES, INITIAL_STOPS, INITIAL_PRICES } from '@/data/mockRoutes';
+import { useToast } from '../context/ToastContext';
 
 export type TabType = 'routes' | 'stops' | 'pricing';
-
-export interface ToastMessage {
-  id: string;
-  message: string;
-  type: 'success' | 'error' | 'info' | 'warning';
-}
 
 interface RouteContextType {
   // Tabs & Navigation
@@ -47,10 +40,7 @@ interface RouteContextType {
   deletePrice: (id: string) => void;
   generateDefaultPrices: (routeId: string) => void;
 
-  // Notifications & State reset
-  toasts: ToastMessage[];
-  showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
-  removeToast: (id: string) => void;
+  // State reset (thông báo dùng chung ToastContext của app, không lưu ở đây)
   resetToMockData: () => void;
 }
 
@@ -66,7 +56,8 @@ export const RouteProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [activeTab, setActiveTab] = useState<TabType>('routes');
   const [selectedRouteId, setSelectedRouteId] = useState<string>('route-sg-dl');
   const [selectedVehicleType, setSelectedVehicleType] = useState<VehicleType>('sleeper');
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  // ToastContext.jsx là file JS thuần (không kiểu), ép kiểu rõ ràng để tránh TS suy luận sai
+  const { showToast: showAppToast } = useToast() as { showToast: (message: string, type?: string) => void };
 
   // Initialize data with localStorage or mock fallback
   const [routes, setRoutes] = useState<Route[]>(() => {
@@ -118,19 +109,11 @@ export const RouteProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [prices]);
 
-  // Toast notification management
-  const removeToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
-
+  // Thông báo: dùng chung ToastContext của app (render 1 nơi duy nhất ở App.jsx).
+  // 'error' được ánh xạ sang 'danger' vì Toast dùng chung phân biệt 4 loại: success/danger/warning/info.
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success') => {
-    const id = Date.now().toString() + Math.random().toString(36).substring(2, 6);
-    setToasts((prev) => [...prev, { id, message, type }]);
-
-    setTimeout(() => {
-      removeToast(id);
-    }, 4000);
-  }, [removeToast]);
+    showAppToast(message, type === 'error' ? 'danger' : type);
+  }, [showAppToast]);
 
   // Reset to mock data
   const resetToMockData = useCallback(() => {
@@ -454,9 +437,6 @@ export const RouteProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         updatePrice,
         deletePrice,
         generateDefaultPrices,
-        toasts,
-        showToast,
-        removeToast,
         resetToMockData,
       }}
     >
