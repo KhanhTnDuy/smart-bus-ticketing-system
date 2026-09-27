@@ -9,11 +9,36 @@ import java.util.List;
 import java.util.Set;
 
 public class AccountService {
+    // SCRUM-11: quyền quản lý tài khoản, chỉ Admin (hasPermission trả về true cho mọi permission)
+    public static final String PERMISSION_QUAN_LY_TAI_KHOAN = "QUAN_LY_TAI_KHOAN";
+
     private final AccountRepository repository = new AccountRepository();
     private final AuditLogService auditLogService;
 
     public AccountService(AuditLogService auditLogService) {
         this.auditLogService = auditLogService;
+    }
+
+    /**
+     * SCRUM-11: Kiểm tra đăng nhập. Từ chối username/mật khẩu sai hoặc tài khoản đã bị khóa (active=false).
+     */
+    public Account login(String username, String password) {
+        Account account = repository.findByUsername(username)
+                .orElseThrow(() -> new SecurityException("Sai tên đăng nhập hoặc mật khẩu."));
+
+        if (!account.checkPassword(password)) {
+            throw new SecurityException("Sai tên đăng nhập hoặc mật khẩu.");
+        }
+        if (!account.isActive()) {
+            throw new SecurityException("Tài khoản đã bị khóa.");
+        }
+
+        auditLogService.log(username, "DANG_NHAP");
+        return account;
+    }
+
+    public void logout(String username) {
+        auditLogService.log(username, "DANG_XUAT");
     }
 
     public Account add(String id, String username, String fullName, Role role) {
@@ -54,6 +79,11 @@ public class AccountService {
     public boolean hasPermission(String username, String permission) {
         Account account = repository.findByUsername(username)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy tài khoản."));
+
+        // SCRUM-11: tài khoản bị khóa (active=false) không còn quyền gì, kể cả Admin
+        if (!account.isActive()) {
+            return false;
+        }
 
         return switch (account.getRole()) {
             case ADMIN -> true;
