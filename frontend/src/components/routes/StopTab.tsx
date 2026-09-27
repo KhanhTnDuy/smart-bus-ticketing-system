@@ -5,7 +5,7 @@ import { Route, Stop } from '@/types/route';
 import { useRouteContext } from '@/context/RouteContext';
 import { StopModal } from '@/components/routes/StopModal';
 import { ConfirmModal } from '@/components/common/ConfirmModal';
-import { StatusBadge } from '@/components/common/Badge';
+import { StatusBadge } from '@/components/common/RouteBadge';
 import { formatDistance, formatStopDuration } from '@/utils/formatters';
 import {
   MapPin,
