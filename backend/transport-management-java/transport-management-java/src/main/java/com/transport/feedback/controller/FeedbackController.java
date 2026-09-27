@@ -11,11 +11,16 @@ public class FeedbackController {
         this.service = service;
     }
 
-    public Feedback create(String id, String passengerId, String routeId,
-                           int rating, String content) {
-        Feedback feedback = service.create(
-                id, passengerId, routeId, rating, content
-        );
+    // SCRUM-21: gửi khiếu nại/phản ánh, không cần chấm sao
+    public Feedback create(String id, String passengerId, String routeId, String content) {
+        Feedback feedback = service.create(id, passengerId, routeId, content);
+        System.out.println("[OK] Đã gửi phản ánh: " + id);
+        return feedback;
+    }
+
+    // SCRUM-22: đánh giá chuyến đi kèm số sao
+    public Feedback create(String id, String passengerId, String routeId, Integer rating, String content) {
+        Feedback feedback = service.create(id, passengerId, routeId, rating, content);
         System.out.println("[OK] Đã gửi phản ánh: " + id);
         return feedback;
     }

@@ -33,7 +33,7 @@ public class Main {
         RouteService routeService = new RouteService(auditLogService);
         RouteController routeController = new RouteController(routeService);
 
-        FeedbackService feedbackService = new FeedbackService(auditLogService);
+        FeedbackService feedbackService = new FeedbackService(auditLogService, routeService);
         FeedbackController feedbackController = new FeedbackController(feedbackService);
 
         // ================= ACCOUNT =================
@@ -139,6 +139,17 @@ public class Main {
         feedbackController.updateStatus("F001", FeedbackStatus.DANG_XU_LY);
         feedbackController.updateStatus("F001", FeedbackStatus.DA_XU_LY);
         feedbackController.show("F001");
+
+        // SCRUM-21: gửi khiếu nại thuần túy, không cần chấm sao
+        feedbackController.create("F002", "P002", "R001", "Xe trễ giờ 20 phút, không thông báo trước.");
+        feedbackController.show("F002");
+
+        System.out.println("Gửi phản ánh với tuyến không tồn tại (phải bị từ chối):");
+        try {
+            feedbackController.create("F003", "P002", "R999", "Test tuyến không tồn tại.");
+        } catch (IllegalArgumentException e) {
+            System.out.println("[TỪ CHỐI] " + e.getMessage());
+        }
 
         // ================= BOOKING =================
         System.out.println("\n--- 4. GIỮ CHỖ 10 PHÚT ---");
