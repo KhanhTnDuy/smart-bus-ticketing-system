@@ -62,6 +62,38 @@ public class Main {
         accountController.delete("D001");
         accountController.list();
 
+        // ================= ĐĂNG NHẬP & QUYỀN TRUY CẬP (SCRUM-11) =================
+        System.out.println("\n--- 1b. ĐĂNG NHẬP & KIỂM TRA QUYỀN TRUY CẬP ---");
+
+        accountController.login("admin", "password123");
+        try {
+            accountController.login("admin", "sai_mat_khau");
+        } catch (SecurityException e) {
+            System.out.println("[TỪ CHỐI] " + e.getMessage());
+        }
+
+        System.out.println("passenger thử quản lý tài khoản (phải bị từ chối):");
+        try {
+            accountController.list("passenger");
+        } catch (SecurityException e) {
+            System.out.println("[TỪ CHỐI] " + e.getMessage());
+        }
+
+        System.out.println("admin quản lý tài khoản (phải thành công):");
+        accountController.list("admin");
+
+        System.out.println("Khóa tài khoản manager rồi thử đăng nhập lại:");
+        accountService.getAll().stream()
+                .filter(a -> a.getUsername().equals("manager"))
+                .findFirst()
+                .ifPresent(a -> a.setActive(false));
+        try {
+            accountController.login("manager", "password123");
+        } catch (SecurityException e) {
+            System.out.println("[TỪ CHỐI] " + e.getMessage());
+        }
+        accountController.logout("admin");
+
         // ================= ROUTE =================
         System.out.println("\n--- 2. QUẢN LÝ TUYẾN ĐƯỜNG ---");
 
