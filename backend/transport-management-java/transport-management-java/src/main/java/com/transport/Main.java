@@ -164,6 +164,19 @@ public class Main {
         System.out.println("\n--- 5. NHẬT KÝ HỆ THỐNG ---");
         auditLogService.printAll();
 
+        // ================= TÌM KIẾM & LỌC NHẬT KÝ (SCRUM-16) =================
+        System.out.println("\n--- 5b. TÌM KIẾM & LỌC NHẬT KÝ ---");
+
+        LocalDateTime moc = LocalDateTime.now().minusSeconds(1);
+        System.out.println("Nhật ký từ " + moc + " trở đi (" + auditLogService.findByTimeRange(moc, null).size() + " dòng):");
+        auditLogService.findByTimeRange(moc, null).forEach(l -> System.out.println("  " + l));
+
+        System.out.println("Nhật ký trước " + moc + " (phải rỗng): "
+                + auditLogService.findByTimeRange(null, moc).size() + " dòng");
+
+        System.out.println("Lọc kết hợp: user=admin, action=DANG_NHAP, trong khoảng hợp lệ: "
+                + auditLogService.findByFilters("admin", "DANG_NHAP", moc, LocalDateTime.now()).size() + " dòng");
+
         System.out.println("\n==============================================");
         System.out.println("Demo hoàn tất.");
         System.out.println("Bạn có thể mở từng package để phát triển tiếp.");
