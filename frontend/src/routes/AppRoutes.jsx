@@ -13,7 +13,7 @@ import { UserManagementPage } from '../pages/admin/UserManagementPage';
 import { RoleMatrixPage } from '../pages/admin/RoleMatrixPage';
 import { RouteManagementPage } from '../pages/manager/RouteManagementPage';
 import { DriverPlaceholder } from '../pages/driver/DriverPlaceholder';
-import { PassengerPlaceholder } from '../pages/passenger/PassengerPlaceholder';
+import { PassengerFeedbackPage } from '../pages/passenger/PassengerFeedbackPage';
 import { UnauthorizedPage } from '../pages/common/UnauthorizedPage';
 import { NotFoundPage } from '../pages/common/NotFoundPage';
 
@@ -79,8 +79,9 @@ export const AppRoutes = () => {
 
         {/* 4. Phân hệ PASSENGER: Dành riêng cho Hành khách */}
         <Route element={<ProtectedRoute allowedRoles={[ROLES.PASSENGER]} />}>
-          <Route path="/passenger/feedback" element={<PassengerPlaceholder title="Gửi Phản ánh & Góp ý" />} />
-          <Route path="/passenger/rating" element={<PassengerPlaceholder title="Đánh giá Chuyến xe" />} />
+          {/* SCRUM-21: gửi phản ánh (không bắt buộc chấm sao) / SCRUM-22: đánh giá (bắt buộc chấm sao) */}
+          <Route path="/passenger/feedback" element={<PassengerFeedbackPage mode="feedback" />} />
+          <Route path="/passenger/rating" element={<PassengerFeedbackPage mode="rating" />} />
         </Route>
 
         {/* Trang 403 Forbidden trực tiếp (nếu cần truy cập) */}
