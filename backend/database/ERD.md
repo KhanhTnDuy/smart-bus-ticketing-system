@@ -1,7 +1,7 @@
 # Thiết kế cơ sở dữ liệu – Smart Bus Ticketing System
 
 - **DBMS:** MySQL 8.0 (utf8mb4) · **Database:** `smart_bus_ticketing`
-- **Script:** [`backend/database/schema.sql`](../../backend/database/schema.sql) — 27 bảng, 2 view báo cáo
+- **Script:** [`backend/database/schema.sql`](./schema.sql) — 27 bảng, 2 view báo cáo
 - **Nguồn:** Product Backlog (24 user story, 7 epic) + model Java hiện có (`Role`, `FeedbackStatus`) + thiết kế `audit_logs`/`feedbacks` của thành viên C (nhánh `feature/thanh-vien-c`)
 
 Chạy thử:
