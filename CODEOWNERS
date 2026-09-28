@@ -1,0 +1,8 @@
+# Default owner - Scrum Master reviews anything not matched below
+* @KhanhTnDuy
+
+# Backend team - reviewed by Backend Leader (must come after * to override it)
+/backend/ @lucthuhue
+
+# Frontend team - reviewed by Frontend Leader (must come after * to override it)
+/frontend/ @quanghoahoe206
