@@ -1,12 +1,25 @@
-import './App.css'
+import React from 'react';
+import { BrowserRouter } from 'react-router-dom';
+import { ThemeProvider } from './context/ThemeContext';
+import { ToastProvider } from './context/ToastContext';
+import { AuthProvider } from './context/AuthContext';
+import { DataProvider } from './context/DataContext';
+import { AppRoutes } from './routes/AppRoutes';
 
-function App() {
+export function App() {
   return (
-    <div className="app">
-      <h1>Smart Bus Ticketing System</h1>
-      <p>Frontend scaffold — React + TypeScript + Vite</p>
-    </div>
-  )
+    <BrowserRouter>
+      <ThemeProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <DataProvider>
+              <AppRoutes />
+            </DataProvider>
+          </AuthProvider>
+        </ToastProvider>
+      </ThemeProvider>
+    </BrowserRouter>
+  );
 }
 
-export default App
+export default App;

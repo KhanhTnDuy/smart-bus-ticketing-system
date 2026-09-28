@@ -1,12 +1,27 @@
 <!doctype html>
-<html lang="en">
+<html lang="vi">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Smart Bus Ticketing</title>
+    <title>Hệ Thống Quản Lý & Điều Hành Vé Xe Buýt Thông Minh — Smart Bus Ticketing Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+      // Prevent theme flash
+      (function() {
+        var theme = localStorage.getItem('smart_bus_theme');
+        if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches) || !theme) {
+          // Default to dark mode as per prompt ("Use a dark navy / dark gray content background in the default visual design")
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      })();
+    </script>
   </head>
-  <body>
+  <body class="min-h-screen bg-[#f1f5f9] dark:bg-[#0b1329] text-slate-800 dark:text-slate-100 font-sans">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
