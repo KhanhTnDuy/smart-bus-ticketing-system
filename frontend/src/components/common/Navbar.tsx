@@ -24,6 +24,7 @@ import {
   RotateCcw,
   Search,
   LifeBuoy,
+  TrendingUp,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -206,6 +207,14 @@ export const Navbar: React.FC = () => {
                       >
                         <Calendar className="w-4 h-4 text-sky-400" />
                         <span>Lịch trình chuyến xe</span>
+                      </NavLink>
+                      <NavLink
+                        to="/manager/revenue"
+                        onClick={() => setActiveDropdown(null)}
+                        className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-blue-800/50 hover:text-white"
+                      >
+                        <TrendingUp className="w-4 h-4 text-amber-400" />
+                        <span>Báo cáo doanh thu vé</span>
                       </NavLink>
                     </div>
                   )}
@@ -426,6 +435,21 @@ export const Navbar: React.FC = () => {
                 >
                   <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
                   <span>Theo dõi GPS</span>
+                </NavLink>
+
+                {/* 5. Báo cáo doanh thu bán vé */}
+                <NavLink
+                  to="/manager/revenue"
+                  className={({ isActive }) =>
+                    `flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold uppercase tracking-wider transition-colors ${
+                      isActive
+                        ? 'bg-institutional-800 text-amber-300 shadow-inner'
+                        : 'text-slate-100 hover:bg-white/10 hover:text-white'
+                    }`
+                  }
+                >
+                  <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Báo cáo doanh thu</span>
                 </NavLink>
               </>
             )}
@@ -774,6 +798,13 @@ export const Navbar: React.FC = () => {
                 <AlertTriangle className="w-4 h-4 text-rose-400" />
                 <span>Quản lý sự cố xe</span>
               </NavLink>
+              <NavLink
+                to="/manager/revenue"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <TrendingUp className="w-4 h-4 text-amber-400" />
+                <span>Báo cáo doanh thu vé</span>
+              </NavLink>
             </>
           )}
 
@@ -824,8 +855,15 @@ export const Navbar: React.FC = () => {
               </NavLink>
 
               <div className="pt-2 pb-1 px-3 text-[10px] font-bold text-amber-400 uppercase tracking-wider">
-                Nghiệp vụ & Giám sát
+                Nghiệp vụ & Báo cáo tài chính
               </div>
+              <NavLink
+                to="/manager/revenue"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-amber-300 bg-blue-800/60 font-semibold"
+              >
+                <TrendingUp className="w-4 h-4 text-amber-400" />
+                <span>Báo cáo doanh thu bán vé</span>
+              </NavLink>
               <NavLink
                 to="/manager/refunds"
                 className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
