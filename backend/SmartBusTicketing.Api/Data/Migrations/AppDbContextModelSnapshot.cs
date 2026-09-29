@@ -569,6 +569,36 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("passenger_types", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Code = "STANDARD",
+                            DiscountPercent = 0m,
+                            Name = "Hành khách thường"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Code = "STUDENT",
+                            DiscountPercent = 50m,
+                            Name = "Học sinh / Sinh viên"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Code = "ELDERLY",
+                            DiscountPercent = 50m,
+                            Name = "Người cao tuổi"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Code = "WORKER",
+                            DiscountPercent = 20m,
+                            Name = "Người đi làm (vé tháng)"
+                        });
                 });
 
             modelBuilder.Entity("SmartBusTicketing.Api.Models.PassengerVerification", b =>
@@ -653,7 +683,7 @@ namespace SmartBusTicketing.Api.Data.Migrations
 
                     b.ToTable("payments", null, t =>
                         {
-                            t.HasCheckConstraint("CK_payments_target", "(booking_id IS NOT NULL AND monthly_pass_id IS NULL) OR (booking_id IS NULL AND monthly_pass_id IS NOT NULL)");
+                            t.HasCheckConstraint("CK_payments_target", "(`BookingId` IS NOT NULL AND `MonthlyPassId` IS NULL) OR (`BookingId` IS NULL AND `MonthlyPassId` IS NOT NULL)");
                         });
                 });
 
@@ -812,7 +842,7 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.Property<string>("ActiveSeatKey")
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("varchar(255)")
-                        .HasComputedColumnSql("(CASE WHEN `status` IN ('Held','Valid','Used') THEN CONCAT(`trip_id`, '-', `seat_id`) END)", true);
+                        .HasComputedColumnSql("(CASE WHEN `Status` IN ('Held','Valid','Used') THEN CONCAT(`TripId`, '-', `SeatId`) END)", true);
 
                     b.Property<long>("AlightStopId")
                         .HasColumnType("bigint");
