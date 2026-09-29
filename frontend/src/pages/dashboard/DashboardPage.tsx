@@ -23,6 +23,7 @@ import {
   UserCheck,
   RotateCcw,
   Search,
+  TrendingUp,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
@@ -275,6 +276,25 @@ export const DashboardPage: React.FC = () => {
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
                         Bản đồ mô phỏng định vị trực tuyến {runningBuses.length} xe đang di chuyển trên tuyến.
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => navigate('/manager/revenue')}
+                    className="flex items-start gap-3 p-3.5 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-[#1f1a10] hover:bg-amber-100/70 dark:hover:bg-amber-900/40 transition-all text-left group sm:col-span-2"
+                  >
+                    <div className="p-2.5 rounded-lg bg-amber-500 text-slate-950 shrink-0 shadow-sm">
+                      <TrendingUp className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-400 flex items-center justify-between">
+                        <span>Báo Cáo & Thống Kê Doanh Thu Bán Vé ({totalRevenue.toLocaleString('vi-VN')} đ)</span>
+                        <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                        Tổng hợp doanh thu theo ngày, tháng, tuyến xe, trực quan hóa biểu đồ và xuất báo cáo tài chính.
                       </p>
                     </div>
                   </button>

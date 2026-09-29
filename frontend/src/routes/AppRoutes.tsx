@@ -23,6 +23,7 @@ import { ComplaintManagementPage } from '../pages/manager/ComplaintManagementPag
 import { ScheduleManagementPage } from '../pages/manager/ScheduleManagementPage';
 import { AssignmentManagementPage } from '../pages/manager/AssignmentManagementPage';
 import { RefundManagementPage } from '../pages/manager/RefundManagementPage';
+import { RevenueReportPage } from '../pages/manager/RevenueReportPage';
 
 // Driver Pages (Sprint 1 & Sprint 2)
 import { DriverSchedulePage } from '../pages/driver/DriverSchedulePage';
@@ -83,6 +84,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/manager/assignments" element={<AssignmentManagementPage />} />
           <Route path="/manager/refunds" element={<RefundManagementPage />} />
           <Route path="/manager/incidents" element={<IncidentPage />} />
+          <Route path="/manager/revenue" element={<RevenueReportPage />} />
         </Route>
 
         {/* DRIVER ROUTES (Sprint 1 & Sprint 2) */}

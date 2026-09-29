@@ -22,7 +22,7 @@ import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { EmptyState } from '../../components/common/EmptyState';
 
 export const RouteManagementPage: React.FC = () => {
-  const { routes, stops, addRoute, updateRoute, deleteRoute } = useData();
+  const { routes, stops, fares, addRoute, updateRoute, deleteRoute } = useData();
   const { success, error } = useToast();
 
   // Search & Filter
@@ -185,6 +185,16 @@ export const RouteManagementPage: React.FC = () => {
       .filter((s) => s.routeId === selectedRoute.id)
       .sort((a, b) => a.order - b.order);
   }, [stops, selectedRoute]);
+
+  const linkedStopsCount = useMemo(() => {
+    if (!selectedRoute) return 0;
+    return stops.filter((s) => s.routeId === selectedRoute.id).length;
+  }, [stops, selectedRoute]);
+
+  const linkedFaresCount = useMemo(() => {
+    if (!selectedRoute) return 0;
+    return fares.filter((f) => f.routeId === selectedRoute.id).length;
+  }, [fares, selectedRoute]);
 
   return (
     <div className="space-y-6">
@@ -854,7 +864,7 @@ export const RouteManagementPage: React.FC = () => {
         onClose={() => setIsDeleteOpen(false)}
         onConfirm={handleConfirmDelete}
         title="Xác Nhận Xóa Tuyến Xe Buýt"
-        message="Bạn có chắc chắn muốn xóa tuyến này? Thao tác này sẽ xóa toàn bộ các trạm dừng và biểu giá vé liên kết thuộc tuyến này."
+        message={`Bạn có chắc chắn muốn xóa tuyến này? Thao tác này sẽ đồng thời xóa toàn bộ ${linkedStopsCount} trạm dừng và ${linkedFaresCount} cấu hình giá vé đang liên kết để đảm bảo tính toàn vẹn dữ liệu hệ thống.`}
         itemName={selectedRoute ? `[${selectedRoute.code}] ${selectedRoute.name}` : ''}
         confirmLabel="Xác nhận xóa"
         cancelLabel="Hủy"
