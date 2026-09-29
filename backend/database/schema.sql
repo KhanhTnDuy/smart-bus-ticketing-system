@@ -1,3 +1,7 @@
+-- CANH BAO: file nay KHONG khop code EF (ten cot snake_case, EF dung PascalCase nhu StartPoint).
+-- Khong dung de dung database. Dung migration: cd SmartBusTicketing.Api && dotnet ef database update
+-- Giu lai chi de tham khao thiet ke bang.
+
 -- Smart Bus Ticketing System - MySQL 8.0 schema
 -- Derived from Product_Backlog_Smart_Bus_Ticketing_System_ictu_Avengers (24 user stories)
 
