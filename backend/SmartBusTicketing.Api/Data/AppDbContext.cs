@@ -64,6 +64,12 @@ public class AppDbContext : DbContext
             e.ToTable("passenger_types");
             e.HasIndex(p => p.Code).IsUnique();
             e.Property(p => p.DiscountPercent).HasPrecision(5, 2);
+            // Dữ liệu mặc định (cần có để tạo giá vé và đăng ký ưu đãi).
+            e.HasData(
+                new PassengerType { Id = 1, Code = "STANDARD", Name = "Hành khách thường", DiscountPercent = 0 },
+                new PassengerType { Id = 2, Code = "STUDENT", Name = "Học sinh / Sinh viên", DiscountPercent = 50 },
+                new PassengerType { Id = 3, Code = "ELDERLY", Name = "Người cao tuổi", DiscountPercent = 50 },
+                new PassengerType { Id = 4, Code = "WORKER", Name = "Người đi làm (vé tháng)", DiscountPercent = 20 });
         });
 
         modelBuilder.Entity<PassengerVerification>(e =>
@@ -173,7 +179,7 @@ public class AppDbContext : DbContext
             // Chống bán trùng ghế: MySQL không hỗ trợ unique index có điều kiện,
             // nên dùng cột sinh tự động (giống schema.sql) = "trip-seat" khi vé đang giữ chỗ, NULL khi đã hủy.
             e.Property<string?>("ActiveSeatKey")
-                .HasComputedColumnSql("(CASE WHEN `status` IN ('Held','Valid','Used') THEN CONCAT(`trip_id`, '-', `seat_id`) END)", stored: true);
+                .HasComputedColumnSql("(CASE WHEN `Status` IN ('Held','Valid','Used') THEN CONCAT(`TripId`, '-', `SeatId`) END)", stored: true);
             e.HasIndex("ActiveSeatKey").IsUnique();
         });
 
@@ -213,7 +219,7 @@ public class AppDbContext : DbContext
                 .HasForeignKey(p => p.MonthlyPassId).OnDelete(DeleteBehavior.Restrict);
             e.ToTable(t => t.HasCheckConstraint(
                 "CK_payments_target",
-                "(booking_id IS NOT NULL AND monthly_pass_id IS NULL) OR (booking_id IS NULL AND monthly_pass_id IS NOT NULL)"));
+                "(`BookingId` IS NOT NULL AND `MonthlyPassId` IS NULL) OR (`BookingId` IS NULL AND `MonthlyPassId` IS NOT NULL)"));
         });
 
         modelBuilder.Entity<Invoice>(e =>
