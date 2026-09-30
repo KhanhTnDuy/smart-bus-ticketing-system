@@ -141,3 +141,13 @@ public sealed class FaresController(IRouteManagementService service) : Controlle
         return result.Ok ? NoContent() : this.ToProblem(result);
     }
 }
+
+/// <summary>US3 - Danh mục đối tượng hành khách, dùng khi thiết lập giá vé.</summary>
+[ApiController]
+[Route("api/passenger-types")]
+public sealed class PassengerTypesController(IRouteManagementService service) : ControllerBase
+{
+    [HttpGet, AllowAnonymous]
+    public async Task<ActionResult<IReadOnlyList<PassengerTypeDto>>> Get(CancellationToken ct)
+        => Ok(await service.GetPassengerTypesAsync(ct));
+}

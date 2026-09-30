@@ -80,12 +80,6 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const handleQuickFill = (email: string, pass: string) => {
-    setIdentity(email);
-    setPassword(pass);
-    setErrorMessage('');
-  };
-
   return (
     <div className="min-h-screen bg-[#f1f5f9] dark:bg-[#0b1329] flex flex-col justify-center py-12 sm:px-6 lg:px-8 transition-colors relative">
       
@@ -214,57 +208,21 @@ export const LoginPage: React.FC = () => {
             </div>
           </form>
 
-          {/* Quick Mock Credentials Selection Helper */}
+
+          {/* Trước đây chỗ này là các nút điền nhanh tài khoản giả (admin123, manager123...).
+              Đăng nhập giờ gọi POST /api/auth/login nên tài khoản phải tồn tại thật trong
+              cơ sở dữ liệu với mật khẩu đã băm bằng PasswordService. */}
           <div className="mt-6 pt-6 border-t border-slate-200 dark:border-[#1e2f57]">
             <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
               <ShieldCheck className="w-4 h-4 text-institutional-600 dark:text-sky-400" />
-              <span>Tài khoản kiểm thử nhanh (Sprint 1):</span>
+              <span>Tài khoản kiểm thử:</span>
             </div>
-            <div className="grid grid-cols-2 gap-2 mt-2">
-              <button
-                type="button"
-                onClick={() => handleQuickFill('admin@bus.com', 'admin123')}
-                className="p-2 text-left rounded border border-purple-200 dark:border-purple-900/60 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/60 transition-colors"
-              >
-                <div className="text-[11px] font-bold text-purple-700 dark:text-purple-300">
-                  1. Quản trị viên (Admin)
-                </div>
-                <div className="text-[10px] text-slate-500 dark:text-slate-400">admin@bus.com</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickFill('manager@bus.com', 'manager123')}
-                className="p-2 text-left rounded border border-blue-200 dark:border-blue-900/60 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors"
-              >
-                <div className="text-[11px] font-bold text-blue-700 dark:text-blue-300">
-                  2. Quản lý tuyến (Manager)
-                </div>
-                <div className="text-[10px] text-slate-500 dark:text-slate-400">manager@bus.com</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickFill('driver@bus.com', 'driver123')}
-                className="p-2 text-left rounded border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors"
-              >
-                <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
-                  3. Tài xế (Driver)
-                </div>
-                <div className="text-[10px] text-slate-500 dark:text-slate-400">driver@bus.com</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickFill('passenger@bus.com', 'passenger123')}
-                className="p-2 text-left rounded border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors"
-              >
-                <div className="text-[11px] font-bold text-amber-700 dark:text-amber-300">
-                  4. Hành khách (Passenger)
-                </div>
-                <div className="text-[10px] text-slate-500 dark:text-slate-400">passenger@bus.com</div>
-              </button>
-            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Hệ thống xác thực với máy chủ thật, không còn tài khoản mẫu sẵn trong giao diện.
+              Hãy tạo tài khoản Admin đầu tiên trực tiếp trong cơ sở dữ liệu (mật khẩu băm bằng
+              <span className="font-mono"> PasswordService.Hash</span>), sau đó dùng chính tài khoản
+              đó để tạo các tài khoản còn lại ở trang Quản lý tài khoản.
+            </p>
           </div>
         </div>
       </div>

@@ -12,7 +12,7 @@ import {
   Clock,
   ArrowRight,
 } from 'lucide-react';
-import { useData } from '../../context/DataContext';
+import { useRouteManagement } from '../../hooks/useRouteManagement';
 import { useToast } from '../../context/ToastContext';
 import { BusRoute, RouteStatus } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -20,10 +20,22 @@ import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { EmptyState } from '../../components/common/EmptyState';
+import { LoadingState } from '../../components/common/LoadingState';
 
 export const RouteManagementPage: React.FC = () => {
-  const { routes, stops, fares, addRoute, updateRoute, deleteRoute } = useData();
+  const {
+    routes,
+    stops,
+    fares,
+    addRoute,
+    updateRoute,
+    deleteRoute,
+    loading,
+    error: loadError,
+    reload,
+  } = useRouteManagement();
   const { success, error } = useToast();
+  const [isSaving, setIsSaving] = useState(false);
 
   // Search & Filter
   const [searchTerm, setSearchTerm] = useState('');
@@ -44,11 +56,7 @@ export const RouteManagementPage: React.FC = () => {
     startPoint: '',
     endPoint: '',
     distance: 10,
-    durationMinutes: 40,
     status: 'ACTIVE' as RouteStatus,
-    operatingHours: '05:00 — 21:00',
-    frequencyMinutes: 12,
-    description: '',
   });
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -80,11 +88,7 @@ export const RouteManagementPage: React.FC = () => {
       startPoint: '',
       endPoint: '',
       distance: 12,
-      durationMinutes: 45,
       status: 'ACTIVE',
-      operatingHours: '05:00 — 21:00',
-      frequencyMinutes: 15,
-      description: '',
     });
     setFormErrors({});
     setIsAddModalOpen(true);
@@ -103,11 +107,7 @@ export const RouteManagementPage: React.FC = () => {
       startPoint: route.startPoint,
       endPoint: route.endPoint,
       distance: route.distance,
-      durationMinutes: route.durationMinutes,
       status: route.status,
-      operatingHours: route.operatingHours,
-      frequencyMinutes: route.frequencyMinutes,
-      description: route.description || '',
     });
     setFormErrors({});
     setIsEditModalOpen(true);
@@ -128,23 +128,21 @@ export const RouteManagementPage: React.FC = () => {
     if (isNaN(formData.distance) || formData.distance <= 0) {
       errs.distance = 'Cự ly tuyến phải lớn hơn 0 km.';
     }
-    if (isNaN(formData.durationMinutes) || formData.durationMinutes <= 0) {
-      errs.durationMinutes = 'Thời gian hành trình phải lớn hơn 0 phút.';
-    }
-    if (!formData.operatingHours.trim()) {
-      errs.operatingHours = 'Khung giờ hoạt động không được để trống.';
-    }
+    // Thời gian hành trình, khung giờ hoạt động và tần suất thuộc về lịch trình
+    // (bảng schedules), bảng routes không lưu nên không kiểm tra ở đây nữa.
 
     setFormErrors(errs);
     return Object.keys(errs).length === 0;
   };
 
   // Submit Handlers
-  const handleSaveAdd = (e: React.FormEvent) => {
+  const handleSaveAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
 
-    const res = addRoute(formData);
+    setIsSaving(true);
+    const res = await addRoute(formData);
+    setIsSaving(false);
     if (res.success) {
       success(`Thêm mới tuyến [${formData.code}] thành công!`);
       setIsAddModalOpen(false);
@@ -153,12 +151,14 @@ export const RouteManagementPage: React.FC = () => {
     }
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRoute) return;
     if (!validateForm()) return;
 
-    const res = updateRoute(selectedRoute.id, formData);
+    setIsSaving(true);
+    const res = await updateRoute(selectedRoute.id, formData);
+    setIsSaving(false);
     if (res.success) {
       success(`Cập nhật thông tin tuyến [${selectedRoute.code}] thành công!`);
       setIsEditModalOpen(false);
@@ -167,11 +167,13 @@ export const RouteManagementPage: React.FC = () => {
     }
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!selectedRoute) return;
-    const res = deleteRoute(selectedRoute.id);
+    setIsSaving(true);
+    const res = await deleteRoute(selectedRoute.id);
+    setIsSaving(false);
     if (res.success) {
-      success(`Đã xóa hoàn toàn tuyến [${selectedRoute.code}] và dữ liệu liên quan!`);
+      success(`Đã xóa tuyến [${selectedRoute.code}] cùng trạm dừng và giá vé của tuyến!`);
       setIsDeleteOpen(false);
     } else {
       error(res.message || 'Xóa tuyến thất bại.');
@@ -220,6 +222,24 @@ export const RouteManagementPage: React.FC = () => {
           </button>
         }
       />
+
+      {/* Trạng thái tải dữ liệu từ API */}
+      {loadError && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-4 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50">
+          <span className="text-xs font-semibold text-rose-700 dark:text-rose-300">
+            Không tải được dữ liệu tuyến đường: {loadError}
+          </span>
+          <button
+            type="button"
+            onClick={reload}
+            className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded border border-rose-400 dark:border-rose-700 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 transition-colors shrink-0"
+          >
+            Thử lại
+          </button>
+        </div>
+      )}
+
+      {loading && <LoadingState message="Đang tải danh sách tuyến đường từ máy chủ..." />}
 
       {/* 2. Filter & Search Controls */}
       <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm space-y-3">
@@ -498,70 +518,12 @@ export const RouteManagementPage: React.FC = () => {
               )}
             </div>
 
-            {/* Thời gian hành trình */}
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Thời gian ước tính (phút) <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="number"
-                min="1"
-                value={formData.durationMinutes}
-                onChange={(e) =>
-                  setFormData({ ...formData, durationMinutes: parseInt(e.target.value) || 0 })
-                }
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
-              {formErrors.durationMinutes && (
-                <p className="text-[11px] text-rose-500 mt-1">{formErrors.durationMinutes}</p>
-              )}
-            </div>
-
-            {/* Khung giờ hoạt động */}
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Khung giờ hoạt động <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={formData.operatingHours}
-                onChange={(e) => setFormData({ ...formData, operatingHours: e.target.value })}
-                placeholder="05:00 — 21:00"
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
-              {formErrors.operatingHours && (
-                <p className="text-[11px] text-rose-500 mt-1">{formErrors.operatingHours}</p>
-              )}
-            </div>
-
-            {/* Tần suất giãn cách */}
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Tần suất giãn cách (phút/chuyến)
-              </label>
-              <input
-                type="number"
-                min="1"
-                value={formData.frequencyMinutes}
-                onChange={(e) =>
-                  setFormData({ ...formData, frequencyMinutes: parseInt(e.target.value) || 0 })
-                }
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
-            </div>
-
-            {/* Mô tả */}
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Mô tả chi tiết tuyến
-              </label>
-              <textarea
-                rows={2}
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Ghi chú về lưu lượng, đối tượng hành khách chính..."
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
+            {/* Thời gian hành trình, khung giờ hoạt động và tần suất giãn cách đã được
+                bỏ khỏi form: chúng thuộc lịch trình (bảng schedules), bảng routes
+                không có cột tương ứng nên nhập vào đây sẽ không được lưu. */}
+            <div className="sm:col-span-2 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-700 rounded px-3 py-2">
+              Khung giờ hoạt động, tần suất giãn cách và thời gian hành trình được thiết lập ở
+              phần Lập lịch trình, không thuộc thông tin tuyến.
             </div>
 
           </div>
@@ -576,9 +538,10 @@ export const RouteManagementPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-institutional-700 hover:bg-institutional-800 text-white shadow-sm transition-colors"
+              disabled={isSaving}
+              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-institutional-700 hover:bg-institutional-800 disabled:opacity-60 disabled:cursor-not-allowed text-white shadow-sm transition-colors"
             >
-              + Xác nhận thêm tuyến
+              {isSaving ? 'Đang lưu...' : '+ Xác nhận thêm tuyến'}
             </button>
           </div>
         </form>
@@ -613,9 +576,9 @@ export const RouteManagementPage: React.FC = () => {
               </div>
 
               <div className="p-3 rounded bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
-                <span className="text-[11px] text-slate-400 uppercase font-semibold">Thời gian chuyến:</span>
+                <span className="text-[11px] text-slate-400 uppercase font-semibold">Số trạm dừng:</span>
                 <div className="font-bold text-slate-900 dark:text-white mt-0.5">
-                  {selectedRoute.durationMinutes} phút
+                  {selectedRoute.stopCount} trạm
                 </div>
               </div>
 
@@ -642,7 +605,7 @@ export const RouteManagementPage: React.FC = () => {
                 </span>
               </div>
               <div className="text-[11px] text-slate-500 dark:text-slate-400 pl-6 pt-1">
-                Giờ phục vụ: {selectedRoute.operatingHours} • Tần suất: {selectedRoute.frequencyMinutes} phút/chuyến
+                Cự ly {selectedRoute.distance} km • {linkedStopsCount} trạm dừng • {linkedFaresCount} bản giá vé
               </div>
             </div>
 
@@ -794,46 +757,10 @@ export const RouteManagementPage: React.FC = () => {
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Thời gian ước tính (phút) <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="number"
-                min="1"
-                value={formData.durationMinutes}
-                onChange={(e) =>
-                  setFormData({ ...formData, durationMinutes: parseInt(e.target.value) || 0 })
-                }
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Khung giờ hoạt động
-              </label>
-              <input
-                type="text"
-                value={formData.operatingHours}
-                onChange={(e) => setFormData({ ...formData, operatingHours: e.target.value })}
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Tần suất giãn cách (phút)
-              </label>
-              <input
-                type="number"
-                min="1"
-                value={formData.frequencyMinutes}
-                onChange={(e) =>
-                  setFormData({ ...formData, frequencyMinutes: parseInt(e.target.value) || 0 })
-                }
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
+            {/* Các trường thuộc lịch trình đã bỏ khỏi form, xem chú thích ở modal thêm mới. */}
+            <div className="sm:col-span-2 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-700 rounded px-3 py-2">
+              Khung giờ hoạt động, tần suất giãn cách và thời gian hành trình được thiết lập ở
+              phần Lập lịch trình, không thuộc thông tin tuyến.
             </div>
 
           </div>
@@ -848,9 +775,10 @@ export const RouteManagementPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-colors"
+              disabled={isSaving}
+              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-amber-600 hover:bg-amber-700 disabled:opacity-60 disabled:cursor-not-allowed text-white shadow-sm transition-colors"
             >
-              Lưu thay đổi tuyến
+              {isSaving ? 'Đang lưu...' : 'Lưu thay đổi tuyến'}
             </button>
           </div>
         </form>

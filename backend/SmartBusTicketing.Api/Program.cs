@@ -7,36 +7,52 @@ using SmartBusTicketing.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
-builder.Services.AddScoped<IRouteManagementService, RouteManagementService>();
+builder.Services.AddProblemDetails();
 
+builder.Services.AddScoped<IRouteManagementService, RouteManagementService>();
+builder.Services.AddScoped<AuditLogService>();
+builder.Services.AddSingleton<JwtTokenService>();
+
+// Xác thực là bắt buộc: thiếu khóa thì dừng ngay khi khởi động, thay vì để mọi
+// endpoint có [Authorize] trả HTTP 500 với "No authenticationScheme was specified".
 var jwtKey = builder.Configuration["Jwt:Key"];
-if (!string.IsNullOrWhiteSpace(jwtKey) && Encoding.UTF8.GetByteCount(jwtKey) >= 32)
+if (string.IsNullOrWhiteSpace(jwtKey) || Encoding.UTF8.GetByteCount(jwtKey) < 32)
 {
-    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
-    {
-        // Giữ nguyên tên claim "role"/"name" trong token; nếu không, .NET đổi "role" thành URI dài và [Authorize(Roles=...)] luôn 403.
-        options.MapInboundClaims = false;
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"],
-            ValidateAudience = true,
-            ValidAudience = builder.Configuration["Jwt:Audience"],
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.FromSeconds(30),
-            RoleClaimType = "role",
-            NameClaimType = "name"
-        };
-    });
-    builder.Services.AddAuthorization();
+    throw new InvalidOperationException(
+        "Thiếu cấu hình 'Jwt:Key' hoặc khóa ngắn hơn 32 byte. " +
+        "Đặt qua biến môi trường Jwt__Key, dotnet user-secrets, hoặc appsettings.Development.json.");
 }
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
+{
+    // Giữ nguyên tên claim "role"/"name" trong token; nếu không, .NET đổi "role" thành URI dài và [Authorize(Roles=...)] luôn 403.
+    options.MapInboundClaims = false;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+        ValidateAudience = true,
+        ValidAudience = builder.Configuration["Jwt:Audience"],
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.FromSeconds(30),
+        RoleClaimType = JwtTokenService.RoleClaim,
+        NameClaimType = JwtTokenService.NameClaim
+    };
+});
+builder.Services.AddAuthorization();
+
+// Frontend Vite chạy ở origin khác nên cần CORS để gọi được API.
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? ["http://localhost:5173"];
+builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
+    .WithOrigins(allowedOrigins)
+    .AllowAnyHeader()
+    .AllowAnyMethod()));
 
 var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException("Connection string 'Default' not found.");
@@ -45,16 +61,20 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+else
+{
+    // Ngoài môi trường dev thì trả ProblemDetails, không để lộ stack trace ra client.
+    app.UseExceptionHandler();
+}
 
+app.UseStatusCodePages();
 app.UseHttpsRedirection();
-
-if (!string.IsNullOrWhiteSpace(jwtKey))
-    app.UseAuthentication();
+app.UseCors();
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
