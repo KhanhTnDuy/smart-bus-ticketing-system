@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SmartBusTicketing.Api.Data;
@@ -9,6 +10,7 @@ namespace SmartBusTicketing.Api.Controllers;
 
 [ApiController]
 [Route("api/accounts")]
+[Authorize(Roles = "Admin")]
 public class AccountsController(AppDbContext db, AuditLogService audit) : ControllerBase
 {
     [HttpGet]
@@ -87,6 +89,7 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
         return NoContent();
     }
 
-    private long? GetActorId() => Request.Headers.TryGetValue("X-User-Id", out var raw) && long.TryParse(raw, out var id) ? id : null;
-    private string GetActorName() => Request.Headers.TryGetValue("X-Username", out var raw) ? raw.ToString() : "system";
+    // Danh tính lấy từ JWT đã xác thực, không còn đọc từ header do client tự gửi.
+    private long? GetActorId() => User.AccountId();
+    private string GetActorName() => User.Username() ?? "system";
 }

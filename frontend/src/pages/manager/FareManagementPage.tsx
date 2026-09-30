@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   CreditCard,
   Plus,
@@ -12,18 +12,29 @@ import {
   AlertCircle,
   Tag,
 } from 'lucide-react';
-import { useData } from '../../context/DataContext';
+import { useRouteManagement } from '../../hooks/useRouteManagement';
 import { useToast } from '../../context/ToastContext';
-import { Fare, FareStatus, PassengerType } from '../../types';
+import { Fare, PassengerType } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { EmptyState } from '../../components/common/EmptyState';
+import { LoadingState } from '../../components/common/LoadingState';
 
 export const FareManagementPage: React.FC = () => {
-  const { routes, fares, addFare, updateFare, deleteFare } = useData();
+  const {
+    routes,
+    fares,
+    addFare,
+    updateFare,
+    deleteFare,
+    loading,
+    error: loadError,
+    reload,
+  } = useRouteManagement();
   const { success, error } = useToast();
+  const [isSaving, setIsSaving] = useState(false);
 
   // Search & Filter
   const [searchTerm, setSearchTerm] = useState('');
@@ -38,17 +49,24 @@ export const FareManagementPage: React.FC = () => {
 
   const [selectedFare, setSelectedFare] = useState<Fare | null>(null);
 
-  // Form State
+  // Form State. Trạng thái hiệu lực do backend tự tính từ EffectiveFrom
+  // (ACTIVE / UPCOMING / EXPIRED) nên không còn là trường nhập tay.
+  // Bảng fares cũng không có cột ghi chú.
   const [formData, setFormData] = useState({
-    routeId: routes[0]?.id || '',
+    routeId: '',
     passengerType: 'REGULAR' as PassengerType,
     price: 7000,
     effectiveDate: new Date().toISOString().split('T')[0],
-    status: 'ACTIVE' as FareStatus,
-    notes: '',
   });
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  // Tuyến được tải bất đồng bộ nên gán tuyến mặc định khi danh sách về.
+  useEffect(() => {
+    if (!formData.routeId && routes.length > 0) {
+      setFormData((prev) => ({ ...prev, routeId: routes[0].id }));
+    }
+  }, [routes, formData.routeId]);
 
   // Filtered Fares
   const filteredFares = useMemo(() => {
@@ -60,8 +78,7 @@ export const FareManagementPage: React.FC = () => {
       const matchSearch =
         routeCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
         routeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        f.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (f.notes && f.notes.toLowerCase().includes(searchTerm.toLowerCase()));
+        f.id.toLowerCase().includes(searchTerm.toLowerCase());
 
       const matchRoute = filterRoute === 'ALL' || f.routeId === filterRoute;
       const matchType = filterType === 'ALL' || f.passengerType === filterType;
@@ -83,8 +100,6 @@ export const FareManagementPage: React.FC = () => {
       passengerType: 'REGULAR',
       price: 7000,
       effectiveDate: new Date().toISOString().split('T')[0],
-      status: 'ACTIVE',
-      notes: '',
     });
     setFormErrors({});
     setIsAddModalOpen(true);
@@ -102,8 +117,6 @@ export const FareManagementPage: React.FC = () => {
       passengerType: fare.passengerType,
       price: fare.price,
       effectiveDate: fare.effectiveDate,
-      status: fare.status,
-      notes: fare.notes || '',
     });
     setFormErrors({});
     setIsEditModalOpen(true);
@@ -120,8 +133,11 @@ export const FareManagementPage: React.FC = () => {
     if (!formData.routeId) errs.routeId = 'Vui lòng chọn tuyến xe buýt áp dụng.';
     if (isNaN(formData.price)) {
       errs.price = 'Giá vé phải là một số hợp lệ.';
-    } else if (formData.price < 0) {
-      errs.price = 'Giá vé không được là số âm (cho phép 0 VNĐ nếu miễn phí).';
+    } else if (formData.price < 0.01) {
+      // Backend ràng buộc Price trong khoảng [0.01, 100000000] nên không nhận 0 đồng.
+      errs.price = 'Giá vé phải lớn hơn 0 VNĐ.';
+    } else if (formData.price > 100000000) {
+      errs.price = 'Giá vé không được vượt quá 100.000.000 VNĐ.';
     }
     if (!formData.effectiveDate) {
       errs.effectiveDate = 'Ngày áp dụng hiệu lực không được để trống.';
@@ -132,11 +148,13 @@ export const FareManagementPage: React.FC = () => {
   };
 
   // Submit Handlers
-  const handleSaveAdd = (e: React.FormEvent) => {
+  const handleSaveAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
 
-    const res = addFare(formData);
+    setIsSaving(true);
+    const res = await addFare(formData);
+    setIsSaving(false);
     if (res.success) {
       success(`Thêm mức giá vé ${formData.price.toLocaleString('vi-VN')} VNĐ thành công!`);
       setIsAddModalOpen(false);
@@ -145,12 +163,14 @@ export const FareManagementPage: React.FC = () => {
     }
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFare) return;
     if (!validateForm()) return;
 
-    const res = updateFare(selectedFare.id, formData);
+    setIsSaving(true);
+    const res = await updateFare(selectedFare.id, formData);
+    setIsSaving(false);
     if (res.success) {
       success(`Cập nhật biểu giá vé ID ${selectedFare.id} thành công!`);
       setIsEditModalOpen(false);
@@ -159,9 +179,11 @@ export const FareManagementPage: React.FC = () => {
     }
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!selectedFare) return;
-    const res = deleteFare(selectedFare.id);
+    setIsSaving(true);
+    const res = await deleteFare(selectedFare.id);
+    setIsSaving(false);
     if (res.success) {
       success(`Đã xóa biểu giá vé ID ${selectedFare.id} khỏi hệ thống!`);
       setIsDeleteOpen(false);
@@ -209,6 +231,24 @@ export const FareManagementPage: React.FC = () => {
           </button>
         }
       />
+
+      {/* Trạng thái tải dữ liệu từ API */}
+      {loadError && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-4 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50">
+          <span className="text-xs font-semibold text-rose-700 dark:text-rose-300">
+            Không tải được biểu giá vé: {loadError}
+          </span>
+          <button
+            type="button"
+            onClick={reload}
+            className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded border border-rose-400 dark:border-rose-700 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 transition-colors shrink-0"
+          >
+            Thử lại
+          </button>
+        </div>
+      )}
+
+      {loading && <LoadingState message="Đang tải biểu giá vé từ máy chủ..." />}
 
       {/* 2. Filter & Search Controls */}
       <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm space-y-3">
@@ -482,33 +522,12 @@ export const FareManagementPage: React.FC = () => {
               )}
             </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Trạng thái hiệu lực
-              </label>
-              <select
-                value={formData.status}
-                onChange={(e) => setFormData({ ...formData, status: e.target.value as FareStatus })}
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              >
-                <option value="ACTIVE">Đang áp dụng (ACTIVE)</option>
-                <option value="UPCOMING">Sắp áp dụng (UPCOMING)</option>
-                <option value="EXPIRED">Đã hết hiệu lực (EXPIRED)</option>
-              </select>
-            </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-              Ghi chú bổ sung / Căn cứ pháp lý
-            </label>
-            <textarea
-              rows={2}
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              placeholder="Ví dụ: Theo quyết định số 12/2026/QĐ-UBND thành phố..."
-              className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-            />
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-700 rounded px-3 py-2">
+            Trạng thái hiệu lực do máy chủ tự tính theo ngày áp dụng: bản giá mới nhất đã tới ngày
+            là ACTIVE, chưa tới ngày là UPCOMING, bị bản mới hơn thay thế là EXPIRED. Mỗi tuyến chỉ
+            được có một bản giá cho cùng loại vé, đối tượng và ngày áp dụng.
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
@@ -521,9 +540,10 @@ export const FareManagementPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-institutional-700 hover:bg-institutional-800 text-white shadow-sm transition-colors"
+              disabled={isSaving}
+              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-institutional-700 hover:bg-institutional-800 disabled:opacity-60 disabled:cursor-not-allowed text-white shadow-sm transition-colors"
             >
-              + Xác nhận thêm giá vé
+              {isSaving ? 'Đang lưu...' : '+ Xác nhận thêm giá vé'}
             </button>
           </div>
         </form>
@@ -574,9 +594,9 @@ export const FareManagementPage: React.FC = () => {
             </div>
 
             <div className="p-3 rounded bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
-              <span className="text-[11px] text-slate-400 uppercase font-semibold">Căn cứ & Ghi chú:</span>
+              <span className="text-[11px] text-slate-400 uppercase font-semibold">Loại vé áp dụng:</span>
               <p className="font-medium text-slate-800 dark:text-slate-200 mt-1">
-                {selectedFare.notes || 'Không có ghi chú bổ sung.'}
+                {selectedFare.passengerType === 'MONTHLY_PASS' ? 'Vé tháng (Monthly)' : 'Vé lượt (Single)'}
               </p>
             </div>
 
@@ -672,32 +692,10 @@ export const FareManagementPage: React.FC = () => {
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Trạng thái
-              </label>
-              <select
-                value={formData.status}
-                onChange={(e) => setFormData({ ...formData, status: e.target.value as FareStatus })}
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              >
-                <option value="ACTIVE">Đang áp dụng (ACTIVE)</option>
-                <option value="UPCOMING">Sắp áp dụng (UPCOMING)</option>
-                <option value="EXPIRED">Đã hết hiệu lực (EXPIRED)</option>
-              </select>
-            </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-              Ghi chú bổ sung
-            </label>
-            <textarea
-              rows={2}
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-            />
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-700 rounded px-3 py-2">
+            Trạng thái hiệu lực do máy chủ tự tính theo ngày áp dụng, không sửa trực tiếp được.
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
@@ -710,9 +708,10 @@ export const FareManagementPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-colors"
+              disabled={isSaving}
+              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-amber-600 hover:bg-amber-700 disabled:opacity-60 disabled:cursor-not-allowed text-white shadow-sm transition-colors"
             >
-              Lưu thay đổi giá vé
+              {isSaving ? 'Đang lưu...' : 'Lưu thay đổi giá vé'}
             </button>
           </div>
         </form>
