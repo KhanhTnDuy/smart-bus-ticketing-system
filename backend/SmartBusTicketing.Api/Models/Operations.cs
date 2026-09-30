@@ -60,6 +60,8 @@ public class Feedback
     public FeedbackStatus Status { get; set; } = FeedbackStatus.ChuaXuLy;
     public long? ProcessedBy { get; set; }
     public Account? Processor { get; set; }
+    /// <summary>Thời điểm hành khách gửi, giờ UTC. Trang quản lý sắp xếp và lọc theo cột này.</summary>
+    public DateTime CreatedAt { get; set; }
 
     public ICollection<FeedbackHistory> History { get; set; } = new List<FeedbackHistory>();
 }

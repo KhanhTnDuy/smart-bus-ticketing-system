@@ -318,6 +318,9 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<string>("ImagePath")
                         .HasColumnType("longtext");
 
