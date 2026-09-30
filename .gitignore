@@ -1,0 +1,30 @@
+# File nén không thuộc về repo.
+#
+# Trước đây repo chứa 63 MB gồm 11 file zip/rar: các bản sao cây nguồn backend
+# từ thời chưa gộp về một cây, và một frontend.zip chứa hơn 8.000 mục
+# node_modules. Chúng làm repo nặng, không review được qua diff, và dễ khiến
+# người sau sửa nhầm bản trong file nén thay vì bản đang chạy.
+#
+# Cần chia sẻ mã nguồn thì dùng nhánh và pull request.
+*.zip
+*.rar
+*.7z
+*.tar
+*.tar.gz
+*.tgz
+
+# Thư mục build và phụ thuộc
+node_modules/
+dist/
+bin/
+obj/
+
+# Biến môi trường chứa thông tin kết nối
+.env
+.env.local
+.env.*.local
+
+# File tạm của hệ điều hành và trình soạn thảo
+Thumbs.db
+.DS_Store
+*.swp
