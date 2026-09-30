@@ -75,6 +75,17 @@ public sealed class ReplaceRouteStopsRequest
     [Required, MinLength(2)] public List<RouteStopItem> Stops { get; init; } = [];
 }
 
+// ---------- Đối tượng hành khách ----------
+
+/// <summary>Danh mục đối tượng hành khách, để client chọn PassengerTypeId khi thiết lập giá vé.</summary>
+public sealed class PassengerTypeDto
+{
+    public int Id { get; init; }
+    public string Code { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public decimal DiscountPercent { get; init; }
+}
+
 // ---------- Giá vé ----------
 
 public sealed class FareDto

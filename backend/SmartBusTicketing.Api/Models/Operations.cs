@@ -50,6 +50,11 @@ public class Feedback
     public Trip? Trip { get; set; }
     public FeedbackType Type { get; set; }
     public string Subject { get; set; } = null!;
+    /// <summary>
+    /// Nội dung khiếu nại, hoặc nhận xét kèm theo khi hành khách đánh giá chuyến đi.
+    /// Cột feedbacks.content trong schema.sql là NOT NULL nên đánh giá chỉ có sao lưu chuỗi rỗng.
+    /// </summary>
+    public string Content { get; set; } = string.Empty;
     public byte Rating { get; set; }
     public string? ImagePath { get; set; }
     public FeedbackStatus Status { get; set; } = FeedbackStatus.ChuaXuLy;

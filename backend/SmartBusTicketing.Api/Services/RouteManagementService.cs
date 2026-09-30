@@ -35,6 +35,9 @@ public interface IRouteManagementService
     Task<ServiceResult<IReadOnlyList<RouteStopDto>>> GetRouteStopsAsync(long routeId, CancellationToken ct);
     Task<ServiceResult<IReadOnlyList<RouteStopDto>>> ReplaceRouteStopsAsync(long routeId, ReplaceRouteStopsRequest request, CancellationToken ct);
 
+    // Đối tượng hành khách
+    Task<IReadOnlyList<PassengerTypeDto>> GetPassengerTypesAsync(CancellationToken ct);
+
     // Giá vé
     Task<IReadOnlyList<FareDto>> GetFaresAsync(long? routeId, CancellationToken ct);
     Task<ServiceResult<FareDto>> CreateFareAsync(FareRequest request, CancellationToken ct);
@@ -240,6 +243,15 @@ public sealed class RouteManagementService(AppDbContext db) : IRouteManagementSe
             {
                 StopId = rs.StopId, StopName = rs.Stop.Name, Latitude = rs.Stop.Latitude, Longitude = rs.Stop.Longitude,
                 StopOrder = rs.StopOrder, MinutesFromStart = rs.MinutesFromStart
+            }).ToListAsync(ct);
+
+    // ===================== Đối tượng hành khách =====================
+
+    public async Task<IReadOnlyList<PassengerTypeDto>> GetPassengerTypesAsync(CancellationToken ct) =>
+        await db.PassengerTypes.AsNoTracking().OrderBy(p => p.Id)
+            .Select(p => new PassengerTypeDto
+            {
+                Id = p.Id, Code = p.Code, Name = p.Name, DiscountPercent = p.DiscountPercent
             }).ToListAsync(ct);
 
     // ===================== Giá vé =====================

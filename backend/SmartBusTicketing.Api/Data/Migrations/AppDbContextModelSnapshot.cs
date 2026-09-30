@@ -314,6 +314,10 @@ namespace SmartBusTicketing.Api.Data.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ImagePath")
                         .HasColumnType("longtext");
 
