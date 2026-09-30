@@ -282,6 +282,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Feedback>(e =>
         {
             e.ToTable("feedbacks");
+            e.Property(f => f.Content).HasColumnType("TEXT").IsRequired();
             e.HasOne(f => f.Passenger).WithMany().HasForeignKey(f => f.PassengerId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(f => f.BusRoute).WithMany().HasForeignKey(f => f.RouteId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(f => f.Trip).WithMany().HasForeignKey(f => f.TripId).OnDelete(DeleteBehavior.SetNull);
