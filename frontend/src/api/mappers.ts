@@ -144,8 +144,8 @@ const formatLocal = (date: Date): string =>
  * Giá trị được suy ra từ tiền tố của TargetResource và loại thao tác, dựa trên
  * các chỗ gọi AuditLogService.WriteAsync hiện có trong backend.
  *
- * Lưu ý: RouteManagementControllers chưa ghi nhật ký, nên các phân hệ ROUTE,
- * STOP và FARE sẽ không bao giờ xuất hiện cho tới khi backend bổ sung.
+ * Thêm tiền tố mới ở backend thì phải khai báo thêm ở đây, nếu không bản ghi sẽ
+ * rơi vào SYSTEM.
  */
 const auditModuleOf = (dto: AuditLogDto): AuditModule => {
   const target = dto.targetResource ?? '';
@@ -159,6 +159,9 @@ const auditModuleOf = (dto: AuditLogDto): AuditModule => {
   if (target.startsWith('USR-')) {
     return dto.actionType === AuditActionTypeCode.StatusChange ? 'ROLE' : 'ACCOUNT';
   }
+  if (target.startsWith('ROUTE-')) return 'ROUTE';
+  if (target.startsWith('STOP-')) return 'STOP';
+  if (target.startsWith('FARE-')) return 'FARE';
   if (dto.actionType === AuditActionTypeCode.Payment) return 'PAYMENT';
   if (dto.actionType === AuditActionTypeCode.TicketBuy) return 'TICKET';
   return 'SYSTEM';
