@@ -35,37 +35,8 @@ public sealed class UpdateRoleRequest
     [Required] public AccountRole Role { get; set; }
 }
 
-public sealed class RouteRequest
-{
-    [Required, StringLength(20)] public string Code { get; set; } = "";
-    [Required, StringLength(150)] public string Name { get; set; } = "";
-    [Required, StringLength(150)] public string StartPoint { get; set; } = "";
-    [Required, StringLength(150)] public string EndPoint { get; set; } = "";
-    [Range(0, 999999)] public decimal DistanceKm { get; set; }
-    public bool Active { get; set; } = true;
-}
-
-public sealed class StopRequest
-{
-    [Required, StringLength(150)] public string Name { get; set; } = "";
-    [Range(-90, 90)] public decimal Latitude { get; set; }
-    [Range(-180, 180)] public decimal Longitude { get; set; }
-}
-
-public sealed class RouteStopItem
-{
-    [Range(1, long.MaxValue)] public long StopId { get; set; }
-    [Range(1, int.MaxValue)] public int StopOrder { get; set; }
-    [Range(0, int.MaxValue)] public int MinutesFromStart { get; set; }
-}
-
-public sealed class FareRequest
-{
-    public TicketType TicketType { get; set; } = TicketType.Single;
-    public int PassengerTypeId { get; set; }
-    [Range(0, 999999999)] public decimal Price { get; set; }
-    public DateOnly EffectiveFrom { get; set; }
-}
+// RouteRequest, StopRequest, RouteStopItem và FareRequest đã được định nghĩa trong
+// RouteManagementDtos.cs (bản của US3, có validation đầy đủ hơn) nên không khai báo lại ở đây.
 
 public sealed class FeedbackRequest
 {
@@ -74,6 +45,9 @@ public sealed class FeedbackRequest
     public long? TripId { get; set; }
     public FeedbackType Type { get; set; } = FeedbackType.Complaint;
     [Required, StringLength(300)] public string Subject { get; set; } = "";
+    /// <summary>Nội dung khiếu nại, hoặc nhận xét khi đánh giá chuyến đi.</summary>
+    [StringLength(4000)] public string? Content { get; set; }
+    /// <summary>Số sao 1-5. Bắt buộc khi Type là Review, controller kiểm tra thêm (SCRUM-21).</summary>
     [Range(0, 5)] public byte Rating { get; set; }
     [StringLength(500)] public string? ImagePath { get; set; }
 }
