@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   MapPin,
   Plus,
@@ -12,23 +12,41 @@ import {
   RotateCcw,
   Compass,
 } from 'lucide-react';
-import { useData } from '../../context/DataContext';
+import { useRouteManagement } from '../../hooks/useRouteManagement';
 import { useToast } from '../../context/ToastContext';
-import { BusStop, StopStatus } from '../../types';
+import { BusStop } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { EmptyState } from '../../components/common/EmptyState';
+import { LoadingState } from '../../components/common/LoadingState';
 
 export const StopManagementPage: React.FC = () => {
-  const { routes, stops, addStop, updateStop, deleteStop, moveStopUp, moveStopDown } = useData();
+  const {
+    routes,
+    stops,
+    addStop,
+    updateStop,
+    deleteStop,
+    moveStopUp,
+    moveStopDown,
+    loading,
+    error: loadError,
+    reload,
+  } = useRouteManagement();
   const { success, error, warning } = useToast();
+  const [isSaving, setIsSaving] = useState(false);
 
   // Route selector & Filter state
-  const [selectedRouteId, setSelectedRouteId] = useState<string>(routes[0]?.id || '');
+  const [selectedRouteId, setSelectedRouteId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
+
+  // Tuyến được tải bất đồng bộ nên chọn tuyến đầu tiên khi danh sách về.
+  useEffect(() => {
+    if (!selectedRouteId && routes.length > 0) setSelectedRouteId(routes[0].id);
+  }, [routes, selectedRouteId]);
 
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -39,12 +57,13 @@ export const StopManagementPage: React.FC = () => {
   const [selectedStop, setSelectedStop] = useState<BusStop | null>(null);
 
   // Form State
+  // Bảng stops của backend chỉ có name, latitude, longitude. Trạng thái trạm và
+  // cờ "trạm đầu/cuối" không có cột riêng: cờ này được suy ra từ thứ tự dừng.
   const [formData, setFormData] = useState({
     name: '',
-    address: '',
-    routeId: selectedRouteId || (routes[0]?.id ?? ''),
-    status: 'ACTIVE' as StopStatus,
-    isTerminal: false,
+    routeId: '',
+    latitude: 0,
+    longitude: 0,
   });
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -63,13 +82,14 @@ export const StopManagementPage: React.FC = () => {
       list = list.filter(
         (s) =>
           s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          s.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
           s.id.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
-    if (filterStatus !== 'ALL') {
-      list = list.filter((s) => s.status === filterStatus);
+    if (filterStatus === 'TERMINAL') {
+      list = list.filter((s) => s.isTerminal);
+    } else if (filterStatus === 'INTERMEDIATE') {
+      list = list.filter((s) => !s.isTerminal);
     }
 
     return list.sort((a, b) => a.order - b.order);
@@ -84,10 +104,9 @@ export const StopManagementPage: React.FC = () => {
   const handleOpenAdd = () => {
     setFormData({
       name: '',
-      address: '',
       routeId: selectedRouteId && selectedRouteId !== 'ALL' ? selectedRouteId : routes[0]?.id || '',
-      status: 'ACTIVE',
-      isTerminal: false,
+      latitude: 0,
+      longitude: 0,
     });
     setFormErrors({});
     setIsAddModalOpen(true);
@@ -102,10 +121,9 @@ export const StopManagementPage: React.FC = () => {
     setSelectedStop(stop);
     setFormData({
       name: stop.name,
-      address: stop.address,
       routeId: stop.routeId,
-      status: stop.status,
-      isTerminal: !!stop.isTerminal,
+      latitude: stop.latitude ?? 0,
+      longitude: stop.longitude ?? 0,
     });
     setFormErrors({});
     setIsEditModalOpen(true);
@@ -117,8 +135,8 @@ export const StopManagementPage: React.FC = () => {
   };
 
   // Move Up / Down Handlers (TASK 3.2)
-  const handleMoveUp = (stop: BusStop) => {
-    const res = moveStopUp(stop.id);
+  const handleMoveUp = async (stop: BusStop) => {
+    const res = await moveStopUp(stop.id);
     if (res.success) {
       success(`Đã đẩy trạm "${stop.name}" lên vị trí trước!`);
     } else {
@@ -126,8 +144,8 @@ export const StopManagementPage: React.FC = () => {
     }
   };
 
-  const handleMoveDown = (stop: BusStop) => {
-    const res = moveStopDown(stop.id);
+  const handleMoveDown = async (stop: BusStop) => {
+    const res = await moveStopDown(stop.id);
     if (res.success) {
       success(`Đã chuyển trạm "${stop.name}" xuống vị trí sau!`);
     } else {
@@ -139,32 +157,41 @@ export const StopManagementPage: React.FC = () => {
   const validateForm = () => {
     const errs: Record<string, string> = {};
     if (!formData.name.trim()) errs.name = 'Tên trạm dừng không được để trống.';
-    if (!formData.address.trim()) errs.address = 'Địa chỉ vị trí trạm không được để trống.';
     if (!formData.routeId) errs.routeId = 'Vui lòng chọn tuyến đường liên kết.';
+    if (isNaN(formData.latitude) || formData.latitude < -90 || formData.latitude > 90) {
+      errs.latitude = 'Vĩ độ phải nằm trong khoảng -90 đến 90.';
+    }
+    if (isNaN(formData.longitude) || formData.longitude < -180 || formData.longitude > 180) {
+      errs.longitude = 'Kinh độ phải nằm trong khoảng -180 đến 180.';
+    }
     setFormErrors(errs);
     return Object.keys(errs).length === 0;
   };
 
   // Submit Handlers
-  const handleSaveAdd = (e: React.FormEvent) => {
+  const handleSaveAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
 
-    const res = addStop(formData);
+    setIsSaving(true);
+    const res = await addStop(formData);
+    setIsSaving(false);
     if (res.success) {
-      success(`Đã thêm trạm dừng "${formData.name}" thành công!`);
+      success(`Đã thêm trạm dừng "${formData.name}" vào tuyến thành công!`);
       setIsAddModalOpen(false);
     } else {
       error(res.message || 'Thêm trạm thất bại.');
     }
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStop) return;
     if (!validateForm()) return;
 
-    const res = updateStop(selectedStop.id, formData);
+    setIsSaving(true);
+    const res = await updateStop(selectedStop.id, formData);
+    setIsSaving(false);
     if (res.success) {
       success(`Cập nhật thông tin trạm "${formData.name}" thành công!`);
       setIsEditModalOpen(false);
@@ -173,14 +200,16 @@ export const StopManagementPage: React.FC = () => {
     }
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!selectedStop) return;
-    const res = deleteStop(selectedStop.id);
+    setIsSaving(true);
+    const res = await deleteStop(selectedStop.id);
+    setIsSaving(false);
     if (res.success) {
-      success(`Đã xóa trạm dừng "${selectedStop.name}" và sắp xếp lại thứ tự các trạm!`);
+      success(`Đã gỡ trạm "${selectedStop.name}" khỏi tuyến và sắp xếp lại thứ tự các trạm!`);
       setIsDeleteOpen(false);
     } else {
-      error(res.message || 'Xóa trạm thất bại.');
+      error(res.message || 'Gỡ trạm thất bại.');
     }
   };
 
@@ -213,6 +242,24 @@ export const StopManagementPage: React.FC = () => {
           </button>
         }
       />
+
+      {/* Trạng thái tải dữ liệu từ API */}
+      {loadError && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-4 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50">
+          <span className="text-xs font-semibold text-rose-700 dark:text-rose-300">
+            Không tải được dữ liệu trạm dừng: {loadError}
+          </span>
+          <button
+            type="button"
+            onClick={reload}
+            className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded border border-rose-400 dark:border-rose-700 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 transition-colors shrink-0"
+          >
+            Thử lại
+          </button>
+        </div>
+      )}
+
+      {loading && <LoadingState message="Đang tải trạm dừng của tuyến từ máy chủ..." />}
 
       {/* 2. Route Selector Tabs / Filter Box */}
       <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm space-y-3">
@@ -259,9 +306,9 @@ export const StopManagementPage: React.FC = () => {
               onChange={(e) => setFilterStatus(e.target.value)}
               className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
             >
-              <option value="ALL">-- Tất cả trạng thái --</option>
-              <option value="ACTIVE">Hoạt động (ACTIVE)</option>
-              <option value="INACTIVE">Tạm dừng (INACTIVE)</option>
+              <option value="ALL">-- Tất cả vị trí --</option>
+              <option value="TERMINAL">Trạm đầu / cuối tuyến</option>
+              <option value="INTERMEDIATE">Trạm trung gian</option>
             </select>
 
             <button
@@ -316,9 +363,9 @@ export const StopManagementPage: React.FC = () => {
                   <th className="px-4 py-3 text-center">Thứ tự</th>
                   <th className="px-4 py-3">Mã trạm</th>
                   <th className="px-4 py-3">Tên trạm dừng</th>
-                  <th className="px-4 py-3">Địa chỉ vị trí</th>
+                  <th className="px-4 py-3">Toạ độ</th>
                   <th className="px-4 py-3">Tuyến đường</th>
-                  <th className="px-4 py-3">Trạng thái</th>
+                  <th className="px-4 py-3">Vị trí trong tuyến</th>
                   <th className="px-4 py-3 text-center">Thứ tự di chuyển</th>
                   <th className="px-4 py-3 text-center">Thao tác riêng biệt</th>
                 </tr>
@@ -357,9 +404,9 @@ export const StopManagementPage: React.FC = () => {
                         </div>
                       </td>
 
-                      {/* Địa chỉ */}
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300 max-w-xs truncate" title={stop.address}>
-                        {stop.address}
+                      {/* Toạ độ */}
+                      <td className="px-4 py-3 font-mono text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                        {Number(stop.latitude ?? 0).toFixed(5)}, {Number(stop.longitude ?? 0).toFixed(5)}
                       </td>
 
                       {/* Tuyến đường */}
@@ -367,9 +414,9 @@ export const StopManagementPage: React.FC = () => {
                         {routes.find((r) => r.id === stop.routeId)?.code || stop.routeId}
                       </td>
 
-                      {/* Trạng thái */}
-                      <td className="px-4 py-3">
-                        <Badge variant="routeStatus" value={stop.status} size="sm" />
+                      {/* Vị trí trong tuyến */}
+                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                        {stop.isTerminal ? (isFirst ? 'Trạm đầu tuyến' : 'Trạm cuối tuyến') : 'Trạm trung gian'}
                       </td>
 
                       {/* Reorder Buttons: Lên, Xuống (TASK 3.2) */}
@@ -493,48 +540,46 @@ export const StopManagementPage: React.FC = () => {
             )}
           </div>
 
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-              Địa chỉ vị trí trạm <span className="text-rose-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={formData.address}
-              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-              placeholder="Ví dụ: 268 Lý Thường Kiệt, Phường 14, Quận 10"
-              className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-            />
-            {formErrors.address && (
-              <p className="text-[11px] text-rose-500 mt-1">{formErrors.address}</p>
-            )}
-          </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Trạng thái hoạt động
+                Vĩ độ (Latitude) <span className="text-rose-500">*</span>
               </label>
-              <select
-                value={formData.status}
-                onChange={(e) => setFormData({ ...formData, status: e.target.value as StopStatus })}
+              <input
+                type="number"
+                step="0.00001"
+                value={formData.latitude}
+                onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) || 0 })}
+                placeholder="21.02776"
                 className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              >
-                <option value="ACTIVE">Hoạt động (ACTIVE)</option>
-                <option value="INACTIVE">Tạm dừng đón khách (INACTIVE)</option>
-              </select>
+              />
+              {formErrors.latitude && (
+                <p className="text-[11px] text-rose-500 mt-1">{formErrors.latitude}</p>
+              )}
             </div>
 
-            <div className="flex items-center pt-6">
-              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={formData.isTerminal}
-                  onChange={(e) => setFormData({ ...formData, isTerminal: e.target.checked })}
-                  className="rounded text-institutional-600 focus:ring-institutional-500"
-                />
-                <span>Là trạm đầu hoặc trạm cuối</span>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                Kinh độ (Longitude) <span className="text-rose-500">*</span>
               </label>
+              <input
+                type="number"
+                step="0.00001"
+                value={formData.longitude}
+                onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) || 0 })}
+                placeholder="105.85114"
+                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+              />
+              {formErrors.longitude && (
+                <p className="text-[11px] text-rose-500 mt-1">{formErrors.longitude}</p>
+              )}
             </div>
+          </div>
+
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-700 rounded px-3 py-2">
+            Trạm mới được thêm vào cuối tuyến, mốc thời gian đặt sau trạm cuối hiện tại 5 phút; dùng
+            nút Lên / Xuống ở bảng để sắp xếp lại. Trạm đầu và trạm cuối được xác định theo thứ tự
+            dừng nên không cần khai báo. Backend yêu cầu mỗi tuyến có tối thiểu 2 trạm.
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
@@ -547,7 +592,8 @@ export const StopManagementPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-institutional-700 hover:bg-institutional-800 text-white shadow-sm transition-colors"
+              disabled={isSaving}
+              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-institutional-700 hover:bg-institutional-800 disabled:opacity-60 disabled:cursor-not-allowed text-white shadow-sm transition-colors"
             >
               + Xác nhận thêm trạm
             </button>
@@ -588,15 +634,18 @@ export const StopManagementPage: React.FC = () => {
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-[11px] text-slate-400 uppercase font-semibold">Trạng thái:</span>
-                <Badge variant="routeStatus" value={selectedStop.status} />
+                <span className="text-[11px] text-slate-400 uppercase font-semibold">Vị trí trong tuyến:</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                  Trạm số {selectedStop.order}
+                  {selectedStop.isTerminal ? ' (đầu/cuối tuyến)' : ''}
+                </span>
               </div>
             </div>
 
             <div className="p-3 rounded bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
-              <span className="text-[11px] text-slate-400 uppercase font-semibold">Địa chỉ chi tiết:</span>
-              <p className="font-medium text-slate-800 dark:text-slate-200 mt-1">
-                {selectedStop.address}
+              <span className="text-[11px] text-slate-400 uppercase font-semibold">Toạ độ GPS:</span>
+              <p className="font-mono font-medium text-slate-800 dark:text-slate-200 mt-1">
+                {Number(selectedStop.latitude ?? 0).toFixed(5)}, {Number(selectedStop.longitude ?? 0).toFixed(5)}
               </p>
             </div>
 
@@ -638,19 +687,38 @@ export const StopManagementPage: React.FC = () => {
             {formErrors.name && <p className="text-[11px] text-rose-500 mt-1">{formErrors.name}</p>}
           </div>
 
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-              Địa chỉ vị trí trạm <span className="text-rose-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={formData.address}
-              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-              className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-            />
-            {formErrors.address && (
-              <p className="text-[11px] text-rose-500 mt-1">{formErrors.address}</p>
-            )}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                Vĩ độ (Latitude) <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="number"
+                step="0.00001"
+                value={formData.latitude}
+                onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) || 0 })}
+                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+              />
+              {formErrors.latitude && (
+                <p className="text-[11px] text-rose-500 mt-1">{formErrors.latitude}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                Kinh độ (Longitude) <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="number"
+                step="0.00001"
+                value={formData.longitude}
+                onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) || 0 })}
+                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+              />
+              {formErrors.longitude && (
+                <p className="text-[11px] text-rose-500 mt-1">{formErrors.longitude}</p>
+              )}
+            </div>
           </div>
 
           <div>
@@ -659,8 +727,8 @@ export const StopManagementPage: React.FC = () => {
             </label>
             <select
               value={formData.routeId}
-              onChange={(e) => setFormData({ ...formData, routeId: e.target.value })}
-              className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+              disabled
+              className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-[#0c162d] text-slate-500 dark:text-slate-400 cursor-not-allowed"
             >
               {routes.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -668,34 +736,10 @@ export const StopManagementPage: React.FC = () => {
                 </option>
               ))}
             </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Trạng thái
-              </label>
-              <select
-                value={formData.status}
-                onChange={(e) => setFormData({ ...formData, status: e.target.value as StopStatus })}
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              >
-                <option value="ACTIVE">Hoạt động (ACTIVE)</option>
-                <option value="INACTIVE">Tạm dừng (INACTIVE)</option>
-              </select>
-            </div>
-
-            <div className="flex items-center pt-6">
-              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={formData.isTerminal}
-                  onChange={(e) => setFormData({ ...formData, isTerminal: e.target.checked })}
-                  className="rounded text-institutional-600 focus:ring-institutional-500"
-                />
-                <span>Trạm đầu / cuối</span>
-              </label>
-            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              Trạm là danh mục dùng chung nên có thể thuộc nhiều tuyến. Để chuyển trạm sang tuyến
+              khác, hãy gỡ trạm khỏi tuyến hiện tại rồi thêm vào tuyến mới.
+            </p>
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
@@ -708,9 +752,10 @@ export const StopManagementPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-colors"
+              disabled={isSaving}
+              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-amber-600 hover:bg-amber-700 disabled:opacity-60 disabled:cursor-not-allowed text-white shadow-sm transition-colors"
             >
-              Lưu thay đổi
+              {isSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
             </button>
           </div>
         </form>
@@ -725,7 +770,7 @@ export const StopManagementPage: React.FC = () => {
         onConfirm={handleConfirmDelete}
         title="Xác Nhận Xóa Trạm Dừng"
         message="Bạn có chắc chắn muốn xóa trạm dừng này khỏi lộ trình tuyến xe buýt? Các trạm dừng phía sau sẽ tự động được dồn thứ tự lên 1 nấc."
-        itemName={selectedStop ? `[${selectedStop.name}] - ${selectedStop.address}` : ''}
+        itemName={selectedStop ? `[${selectedStop.name}] - trạm số ${selectedStop.order}` : ''}
         confirmLabel="Xác nhận xóa"
         cancelLabel="Hủy"
         isDangerous={true}
