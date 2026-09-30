@@ -14,7 +14,8 @@
  * - Fare.notes: bảng fares không có cột này.
  */
 
-import { BusRoute, BusStop, Fare, PassengerType, RouteStatus } from '../types';
+import { AuditLog, AuditModule, AuditStatus, BusRoute, BusStop, Fare, PassengerType, RouteStatus } from '../types';
+import { AuditActionTypeCode, AuditLogDto, AuditStatusCode } from './auditLogs';
 import { FareDto, RouteDto, RouteStopDto, TicketTypeName } from './routeManagement';
 
 // ---------- Tuyến đường ----------
@@ -108,4 +109,71 @@ export const toFare = (dto: FareDto): Fare => ({
   price: dto.price,
   effectiveDate: String(dto.effectiveFrom).slice(0, 10),
   status: (dto.status as Fare['status']) ?? 'ACTIVE',
+});
+
+// ---------- Nhật ký hệ thống (US2) ----------
+
+const AUDIT_STATUS_BY_CODE: Record<AuditStatusCode, AuditStatus> = {
+  [AuditStatusCode.Success]: 'SUCCESS',
+  [AuditStatusCode.Failure]: 'FAILURE',
+  [AuditStatusCode.Warning]: 'WARNING',
+};
+
+/**
+ * EF đọc cột datetime từ SQL Server ra với DateTimeKind.Unspecified, nên chuỗi
+ * JSON thường không có hậu tố "Z" dù giá trị được ghi bằng DateTime.UtcNow.
+ * Nếu để nguyên, `new Date(...)` sẽ hiểu là giờ địa phương và lệch đúng bằng
+ * chênh lệch múi giờ. Vì vậy chuỗi không kèm offset được gắn thêm "Z".
+ */
+const parseUtc = (value: string): Date => {
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value);
+  return new Date(hasZone ? value : `${value}Z`);
+};
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** Hiển thị theo giờ địa phương, dạng DD/MM/YYYY HH:mm:ss. */
+const formatLocal = (date: Date): string =>
+  Number.isNaN(date.getTime())
+    ? ''
+    : `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ` +
+      `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+
+/**
+ * Backend không lưu "phân hệ" (module) — kiểu AuditLog của frontend lại cần.
+ * Giá trị được suy ra từ tiền tố của TargetResource và loại thao tác, dựa trên
+ * các chỗ gọi AuditLogService.WriteAsync hiện có trong backend.
+ *
+ * Lưu ý: RouteManagementControllers chưa ghi nhật ký, nên các phân hệ ROUTE,
+ * STOP và FARE sẽ không bao giờ xuất hiện cho tới khi backend bổ sung.
+ */
+const auditModuleOf = (dto: AuditLogDto): AuditModule => {
+  const target = dto.targetResource ?? '';
+
+  if (dto.actionType === AuditActionTypeCode.Login || dto.actionType === AuditActionTypeCode.Logout) {
+    return 'AUTH';
+  }
+  if (target.startsWith('FEEDBACK-') || dto.actionType === AuditActionTypeCode.FeedbackSubmit) {
+    return 'COMPLAINT';
+  }
+  if (target.startsWith('USR-')) {
+    return dto.actionType === AuditActionTypeCode.StatusChange ? 'ROLE' : 'ACCOUNT';
+  }
+  if (dto.actionType === AuditActionTypeCode.Payment) return 'PAYMENT';
+  if (dto.actionType === AuditActionTypeCode.TicketBuy) return 'TICKET';
+  return 'SYSTEM';
+};
+
+export const toAuditLog = (dto: AuditLogDto): AuditLog => ({
+  id: String(dto.id),
+  user: dto.username,
+  action: dto.action,
+  module: auditModuleOf(dto),
+  // Backend hiện chưa truyền `details` ở chỗ nào, nên phần lớn bản ghi sẽ rơi
+  // vào nhánh mô tả đối tượng tác động.
+  description: dto.details?.trim() || (dto.targetResource ? `Đối tượng: ${dto.targetResource}` : ''),
+  dateTime: formatLocal(parseUtc(dto.createdAt)),
+  status: AUDIT_STATUS_BY_CODE[dto.status] ?? 'WARNING',
+  ipAddress: dto.ipAddress ?? undefined,
+  targetId: dto.targetResource ?? undefined,
 });
