@@ -1,60 +1,53 @@
 import React, { useState, useMemo } from 'react';
-import {
-  FileText,
-  Search,
-  Filter,
-  RotateCcw,
-  Eye,
-  Calendar,
-  ShieldAlert,
-  CheckCircle2,
-  Clock,
-  User,
-  Activity,
-  Layers,
-} from 'lucide-react';
-import { useData } from '../../context/DataContext';
-import { AuditLog, AuditModule, AuditStatus } from '../../types';
+import { FileText, Search, Filter, RotateCcw, Eye, User, RefreshCw } from 'lucide-react';
+import { useAuditLogs } from '../../hooks/useAuditLogs';
+import { ACTION_TYPE_LABELS, AuditActionTypeCode, AuditStatusCode } from '../../api/auditLogs';
+import { AuditLog } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 import { EmptyState } from '../../components/common/EmptyState';
+import { LoadingState } from '../../components/common/LoadingState';
+
+const ACTION_TYPE_OPTIONS = Object.entries(ACTION_TYPE_LABELS).map(([code, label]) => ({
+  code: Number(code) as AuditActionTypeCode,
+  label,
+}));
 
 export const AuditLogPage: React.FC = () => {
-  const { auditLogs } = useData();
+  const {
+    logs,
+    loading,
+    error: loadError,
+    filters,
+    setFilter,
+    clearFilters,
+    hasActiveFilters,
+    reload,
+  } = useAuditLogs();
 
-  // Search & Filter state
-  const [searchTerm, setSearchTerm] = useState('');
+  // Phân hệ được suy ra khi ánh xạ chứ không có ở backend, nên lọc tại client.
   const [filterModule, setFilterModule] = useState<string>('ALL');
-  const [filterStatus, setFilterStatus] = useState<string>('ALL');
-  const [filterDate, setFilterDate] = useState<string>('');
 
   // Selected Log for View Detail
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
 
-  // Filtered Logs
-  const filteredLogs = useMemo(() => {
-    return auditLogs.filter((log) => {
-      const matchSearch =
-        log.user.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        log.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        log.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        log.id.toLowerCase().includes(searchTerm.toLowerCase());
+  // Chỉ liệt kê những phân hệ thực sự có trong dữ liệu đã tải, tránh hiển thị
+  // lựa chọn không bao giờ khớp bản ghi nào.
+  const moduleOptions = useMemo(
+    () => Array.from(new Set(logs.map((log) => log.module))).sort(),
+    [logs],
+  );
 
-      const matchModule = filterModule === 'ALL' || log.module === filterModule;
-      const matchStatus = filterStatus === 'ALL' || log.status === filterStatus;
-      const matchDate = !filterDate || log.dateTime.startsWith(filterDate);
-
-      return matchSearch && matchModule && matchStatus && matchDate;
-    });
-  }, [auditLogs, searchTerm, filterModule, filterStatus, filterDate]);
+  const filteredLogs = useMemo(
+    () => (filterModule === 'ALL' ? logs : logs.filter((log) => log.module === filterModule)),
+    [logs, filterModule],
+  );
 
   const handleClearFilters = () => {
-    setSearchTerm('');
+    clearFilters();
     setFilterModule('ALL');
-    setFilterStatus('ALL');
-    setFilterDate('');
   };
 
   const handleOpenViewDetail = (log: AuditLog) => {
@@ -77,29 +70,110 @@ export const AuditLogPage: React.FC = () => {
         icon={<FileText className="w-5 h-5 text-amber-500" />}
       />
 
+      {/* Trạng thái tải dữ liệu từ API */}
+      {loadError && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-4 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50">
+          <span className="text-xs font-semibold text-rose-700 dark:text-rose-300">
+            Không tải được nhật ký hệ thống: {loadError}
+          </span>
+          <button
+            type="button"
+            onClick={reload}
+            className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded border border-rose-400 dark:border-rose-700 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 transition-colors shrink-0"
+          >
+            Thử lại
+          </button>
+        </div>
+      )}
+
       {/* 2. Search & Multi-filter Controls (TASK 2.4) */}
       <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm space-y-3">
-        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-          <Filter className="w-3.5 h-3.5 text-institutional-600 dark:text-sky-400" />
-          <span>Bộ lọc nâng cao nhật ký thanh tra:</span>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+            <Filter className="w-3.5 h-3.5 text-institutional-600 dark:text-sky-400" />
+            <span>Bộ lọc nâng cao nhật ký thanh tra:</span>
+          </div>
+          <button
+            type="button"
+            onClick={reload}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
+            title="Tải lại nhật ký từ máy chủ"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <span>Làm mới</span>
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          {/* Search by user / action */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Lọc theo người dùng (backend: username) */}
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+              <User className="w-4 h-4" />
+            </div>
+            <input
+              type="text"
+              value={filters.username}
+              onChange={(e) => setFilter('username', e.target.value)}
+              placeholder="Tên đăng nhập..."
+              className="w-full pl-9 pr-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-institutional-500"
+            />
+          </div>
+
+          {/* Tìm trong thao tác / đối tượng / mô tả (backend: search) */}
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
               <Search className="w-4 h-4" />
             </div>
             <input
               type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Tìm người dùng, thao tác..."
+              value={filters.search}
+              onChange={(e) => setFilter('search', e.target.value)}
+              placeholder="Từ khóa thao tác, đối tượng..."
               className="w-full pl-9 pr-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-institutional-500"
             />
           </div>
 
-          {/* Filter by Module */}
+          {/* Loại thao tác (backend: actionType) */}
+          <div>
+            <select
+              value={filters.actionType ?? 'ALL'}
+              onChange={(e) =>
+                setFilter(
+                  'actionType',
+                  e.target.value === 'ALL' ? null : (Number(e.target.value) as AuditActionTypeCode),
+                )
+              }
+              className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+            >
+              <option value="ALL">-- Tất cả loại thao tác --</option>
+              {ACTION_TYPE_OPTIONS.map(({ code, label }) => (
+                <option key={code} value={code}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Trạng thái (backend: status) */}
+          <div>
+            <select
+              value={filters.status ?? 'ALL'}
+              onChange={(e) =>
+                setFilter(
+                  'status',
+                  e.target.value === 'ALL' ? null : (Number(e.target.value) as AuditStatusCode),
+                )
+              }
+              className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+            >
+              <option value="ALL">-- Tất cả trạng thái --</option>
+              <option value={AuditStatusCode.Success}>Thành công</option>
+              <option value={AuditStatusCode.Warning}>Cảnh báo</option>
+              <option value={AuditStatusCode.Failure}>Thất bại</option>
+            </select>
+          </div>
+
+          {/* Phân hệ: suy ra ở frontend nên lọc tại client */}
           <div>
             <select
               value={filterModule}
@@ -107,40 +181,34 @@ export const AuditLogPage: React.FC = () => {
               className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
             >
               <option value="ALL">-- Tất cả phân hệ --</option>
-              <option value="AUTH">Xác thực (AUTH)</option>
-              <option value="ACCOUNT">Tài khoản (ACCOUNT)</option>
-              <option value="ROLE">Phân quyền (ROLE)</option>
-              <option value="ROUTE">Tuyến đường (ROUTE)</option>
-              <option value="STOP">Trạm dừng (STOP)</option>
-              <option value="FARE">Giá vé (FARE)</option>
-              <option value="COMPLAINT">Khiếu nại (COMPLAINT)</option>
-              <option value="RATING">Đánh giá (RATING)</option>
-              <option value="SYSTEM">Hệ thống (SYSTEM)</option>
+              {moduleOptions.map((module) => (
+                <option key={module} value={module}>
+                  {module}
+                </option>
+              ))}
             </select>
           </div>
 
-          {/* Filter by Status */}
+          {/* Khoảng thời gian (backend: from / to, tính theo giờ UTC) */}
           <div>
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-            >
-              <option value="ALL">-- Tất cả trạng thái --</option>
-              <option value="SUCCESS">Thành công (SUCCESS)</option>
-              <option value="WARNING">Cảnh báo (WARNING)</option>
-              <option value="FAILURE">Thất bại (FAILURE)</option>
-            </select>
-          </div>
-
-          {/* Filter by Date */}
-          <div className="relative">
             <input
               type="date"
-              value={filterDate}
-              onChange={(e) => setFilterDate(e.target.value)}
+              value={filters.from}
+              max={filters.to || undefined}
+              onChange={(e) => setFilter('from', e.target.value)}
               className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              title="Lọc theo ngày"
+              title="Từ ngày"
+            />
+          </div>
+
+          <div>
+            <input
+              type="date"
+              value={filters.to}
+              min={filters.from || undefined}
+              onChange={(e) => setFilter('to', e.target.value)}
+              className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+              title="Đến ngày"
             />
           </div>
 
@@ -149,7 +217,8 @@ export const AuditLogPage: React.FC = () => {
             <button
               type="button"
               onClick={handleClearFilters}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              disabled={!hasActiveFilters && filterModule === 'ALL'}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>Xóa bộ lọc</span>
@@ -172,10 +241,16 @@ export const AuditLogPage: React.FC = () => {
           </span>
         </div>
 
-        {filteredLogs.length === 0 ? (
+        {loading && filteredLogs.length === 0 ? (
+          <LoadingState message="Đang tải nhật ký hệ thống từ máy chủ..." />
+        ) : filteredLogs.length === 0 ? (
           <EmptyState
             title="Không tìm thấy nhật ký"
-            description="Không có bản ghi kiểm toán nào khớp với tiêu chí tìm kiếm hoặc bộ lọc ngày giờ."
+            description={
+              loadError
+                ? 'Không đọc được dữ liệu từ máy chủ. Hãy thử lại sau khi kiểm tra kết nối.'
+                : 'Không có bản ghi kiểm toán nào khớp với tiêu chí tìm kiếm hoặc bộ lọc ngày giờ.'
+            }
             action={
               <button
                 type="button"
@@ -287,7 +362,7 @@ export const AuditLogPage: React.FC = () => {
               <div className="p-3 rounded bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
                 <span className="text-[11px] text-slate-400 uppercase font-semibold">Địa chỉ IP truy cập:</span>
                 <div className="font-mono font-bold text-slate-900 dark:text-white mt-0.5">
-                  {selectedLog.ipAddress || '192.168.1.15 (Nội bộ)'}
+                  {selectedLog.ipAddress || 'Không ghi nhận'}
                 </div>
               </div>
 
