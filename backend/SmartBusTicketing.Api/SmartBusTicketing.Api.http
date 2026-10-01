@@ -1,6 +1,155 @@
-@SmartBusTicketing.Api_HostAddress = http://localhost:5180
+@baseUrl = http://localhost:5180
+@token = YOUR_JWT_TOKEN_HERE
 
-GET {{SmartBusTicketing.Api_HostAddress}}/weatherforecast/
-Accept: application/json
+### 1. Đăng nhập để lấy Token (Admin hoặc Manager)
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
 
-###
+{
+  "username": "admin",
+  "password": "Admin@12345"
+}
+
+### 2. Tra cứu danh sách phân công xe & nhân sự theo chuyến (có lọc & phân trang)
+GET {{baseUrl}}/api/assignments?page=1&pageSize=10
+Authorization: Bearer {{token}}
+
+### 3. Lọc chuyến chưa phân công (Unassigned)
+GET {{baseUrl}}/api/assignments?state=Unassigned
+Authorization: Bearer {{token}}
+
+### 4. Lọc chuyến đã phân công đầy đủ (FullyAssigned)
+GET {{baseUrl}}/api/assignments?state=FullyAssigned
+Authorization: Bearer {{token}}
+
+### 5. Xem chi tiết phân công của chuyến chạy #1
+GET {{baseUrl}}/api/assignments/1
+Authorization: Bearer {{token}}
+
+### 6. Phân công xe buýt, tài xế và phụ xe cho chuyến chạy #1
+PUT {{baseUrl}}/api/assignments/1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "busId": 1,
+  "driverId": 2,
+  "conductorId": 4,
+  "notes": "Phân công tổ xe chạy ca sáng"
+}
+
+### 7. Gỡ phân công khỏi chuyến chạy #1
+DELETE {{baseUrl}}/api/assignments/1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "unassignBus": true,
+  "unassignDriver": true,
+  "unassignConductor": true
+}
+
+### 8. Kiểm tra xung đột trước khi phân công
+POST {{baseUrl}}/api/assignments/check-conflict
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "departureAt": "2026-10-01T08:00:00Z",
+  "routeId": 1,
+  "busId": 1,
+  "driverId": 2,
+  "conductorId": 4
+}
+
+### 9. Lấy danh sách xe buýt khả dụng cho chuyến xuất bến lúc 08:00
+GET {{baseUrl}}/api/assignments/available-buses?departureAt=2026-10-01T08:00:00Z&routeId=1
+Authorization: Bearer {{token}}
+
+### 10. Lấy danh sách tài xế khả dụng lúc 08:00
+GET {{baseUrl}}/api/assignments/available-staff?duty=Driver&departureAt=2026-10-01T08:00:00Z&routeId=1
+Authorization: Bearer {{token}}
+
+### 11. Lấy danh sách phụ xe khả dụng lúc 08:00
+GET {{baseUrl}}/api/assignments/available-staff?duty=Conductor&departureAt=2026-10-01T08:00:00Z&routeId=1
+Authorization: Bearer {{token}}
+
+### 12. Tài xế / Phụ xe tra cứu ca trực và chuyến chạy của cá nhân mình
+GET {{baseUrl}}/api/assignments/my-schedule
+Authorization: Bearer {{token}}
+
+### 13. Phân công hàng loạt cho nhiều chuyến chạy
+POST {{baseUrl}}/api/assignments/batch
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "tripIds": [1, 2],
+  "busId": 1,
+  "driverId": 2,
+  "conductorId": 4
+}
+
+### ==========================================
+### QUẢN LÝ CHUYẾN CHẠY (TRIPS)
+### ==========================================
+
+### 14. Lấy danh sách chuyến chạy công khai
+GET {{baseUrl}}/api/trips?page=1&pageSize=20
+
+### 15. Tạo chuyến chạy mới kèm gán xe & nhân sự
+POST {{baseUrl}}/api/trips
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "routeId": 1,
+  "departureAt": "2026-10-01T15:00:00Z",
+  "busId": 1,
+  "driverId": 2,
+  "conductorId": 4
+}
+
+### 16. Cập nhật trạng thái chuyến chạy (Đang chạy, trễ 10 phút)
+PUT {{baseUrl}}/api/trips/1/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "status": 1,
+  "delayMinutes": 10
+}
+
+### 17. Xóa chuyến chạy (khi chưa có vé)
+DELETE {{baseUrl}}/api/trips/3
+Authorization: Bearer {{token}}
+
+### ==========================================
+### QUẢN LÝ XE BUÝT (BUSES)
+### ==========================================
+
+### 18. Lấy danh sách xe buýt
+GET {{baseUrl}}/api/buses
+Authorization: Bearer {{token}}
+
+### 19. Thêm mới xe buýt (tự tạo 40 ghế ngồi)
+POST {{baseUrl}}/api/buses
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "plateNumber": "51B-555.99",
+  "capacity": 40,
+  "status": 0
+}
+
+### 20. Cập nhật xe buýt (chuyển sang Bảo trì = 1)
+PUT {{baseUrl}}/api/buses/1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "plateNumber": "51B-184.22",
+  "capacity": 47,
+  "status": 1
+}
