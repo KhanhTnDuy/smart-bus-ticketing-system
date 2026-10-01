@@ -78,7 +78,7 @@ export const Navbar: React.FC = () => {
 
   const isPassengerSupportActive =
     location.pathname.startsWith('/passenger/complaints') ||
-    location.pathname.startsWith('/passenger/ratings') ||
+    location.pathname.startsWith('/passenger/rating') ||
     location.pathname === '/incident/report';
 
   return (
@@ -675,7 +675,7 @@ export const Navbar: React.FC = () => {
                       </NavLink>
 
                       <NavLink
-                        to="/passenger/ratings"
+                        to="/passenger/rating"
                         onClick={() => setActiveDropdown(null)}
                         className={({ isActive }) =>
                           `flex items-center gap-2.5 px-4 py-2 text-xs font-medium transition-colors ${
@@ -996,7 +996,7 @@ export const Navbar: React.FC = () => {
                 <span>Gửi khiếu nại dịch vụ</span>
               </NavLink>
               <NavLink
-                to="/passenger/ratings"
+                to="/passenger/rating"
                 className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
               >
                 <Star className="w-4 h-4 text-amber-300" />
