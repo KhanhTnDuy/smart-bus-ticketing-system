@@ -146,11 +146,11 @@ export const AccountManagementPage: React.FC = () => {
   };
 
   // Submit Handlers
-  const handleSaveAdd = (e: React.FormEvent) => {
+  const handleSaveAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
 
-    const res = addAccount(formData);
+    const res = await addAccount(formData);
     if (res.success) {
       success(`Tạo mới tài khoản [${formData.username}] thành công!`);
       setIsAddModalOpen(false);
@@ -159,12 +159,12 @@ export const AccountManagementPage: React.FC = () => {
     }
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUser) return;
     if (!validateForm()) return;
 
-    const res = updateAccount(selectedUser.id, formData);
+    const res = await updateAccount(selectedUser.id, formData);
     if (res.success) {
       success(`Cập nhật thông tin tài khoản [${selectedUser.username}] thành công!`);
       setIsEditModalOpen(false);
@@ -173,11 +173,11 @@ export const AccountManagementPage: React.FC = () => {
     }
   };
 
-  const handleConfirmRoleAssign = (e: React.FormEvent) => {
+  const handleConfirmRoleAssign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUser) return;
 
-    const res = assignRole(selectedUser.id, targetRole);
+    const res = await assignRole(selectedUser.id, targetRole);
     if (res.success) {
       success(`Đã cập nhật vai trò cho [${selectedUser.fullName}] thành ${targetRole}!`);
       setIsRoleModalOpen(false);
@@ -186,9 +186,9 @@ export const AccountManagementPage: React.FC = () => {
     }
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!selectedUser) return;
-    const res = deleteAccount(selectedUser.id);
+    const res = await deleteAccount(selectedUser.id);
     if (res.success) {
       success(`Đã xóa hoàn toàn tài khoản [${selectedUser.fullName}] khỏi hệ thống!`);
       setIsDeleteOpen(false);

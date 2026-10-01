@@ -102,16 +102,20 @@ export const ComplaintManagementPage: React.FC = () => {
   };
 
   // Submit status update
-  const handleSaveProcess = (e: React.FormEvent) => {
+  const handleSaveProcess = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedComplaint) return;
 
-    const res = updateComplaintStatus(selectedComplaint.id, targetStatus, adminResponse);
-    if (res.success) {
-      success(`Cập nhật trạng thái khiếu nại [${selectedComplaint.id}] thành công!`);
-      setIsProcessModalOpen(false);
-    } else {
-      error(res.message || 'Cập nhật thất bại.');
+    try {
+      const res = await updateComplaintStatus(selectedComplaint.id, targetStatus, adminResponse);
+      if (res.success) {
+        success(`Cập nhật trạng thái khiếu nại [${selectedComplaint.id}] thành công!`);
+        setIsProcessModalOpen(false);
+      } else {
+        error(res.message || 'Cập nhật thất bại.');
+      }
+    } catch (err: any) {
+      error(err.message || 'Lỗi cập nhật trạng thái khiếu nại.');
     }
   };
 
