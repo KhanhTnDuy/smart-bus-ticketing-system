@@ -11,7 +11,7 @@ import {
   Check,
   UserCheck,
 } from 'lucide-react';
-import { useData } from '../../context/DataContext';
+import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { User, Role, UserStatus } from '../../types';
@@ -22,7 +22,16 @@ import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { EmptyState } from '../../components/common/EmptyState';
 
 export const AccountManagementPage: React.FC = () => {
-  const { users, addAccount, updateAccount, deleteAccount, assignRole } = useData();
+  const {
+    users,
+    loading: isLoading,
+    error: loadError,
+    reload,
+    addAccount,
+    updateAccount,
+    deleteAccount,
+    assignRole,
+  } = useAccountManagement();
   const { currentUser } = useAuth();
   const { success, error, warning } = useToast();
 
@@ -48,11 +57,11 @@ export const AccountManagementPage: React.FC = () => {
     phone: '',
     role: 'PASSENGER' as Role,
     status: 'ACTIVE' as UserStatus,
-    department: '',
   });
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [targetRole, setTargetRole] = useState<Role>('PASSENGER');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Filtered users
   const filteredUsers = useMemo(() => {
@@ -85,7 +94,6 @@ export const AccountManagementPage: React.FC = () => {
       phone: '',
       role: 'PASSENGER',
       status: 'ACTIVE',
-      department: '',
     });
     setFormErrors({});
     setIsAddModalOpen(true);
@@ -105,7 +113,6 @@ export const AccountManagementPage: React.FC = () => {
       phone: user.phone,
       role: user.role,
       status: user.status,
-      department: user.department || '',
     });
     setFormErrors({});
     setIsEditModalOpen(true);
@@ -133,8 +140,8 @@ export const AccountManagementPage: React.FC = () => {
     if (!formData.username.trim()) errs.username = 'Tên đăng nhập không được để trống.';
     if (!formData.email.trim()) {
       errs.email = 'Email không được để trống.';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      errs.email = 'Định dạng email không hợp lệ.';
+    } else if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(formData.email.trim())) {
+      errs.email = 'Định dạng email không hợp lệ (ví dụ: user@domain.com).';
     }
     if (!formData.phone.trim()) {
       errs.phone = 'Số điện thoại không được để trống.';
@@ -146,54 +153,74 @@ export const AccountManagementPage: React.FC = () => {
   };
 
   // Submit Handlers
-  const handleSaveAdd = (e: React.FormEvent) => {
+  const handleSaveAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
 
-    const res = addAccount(formData);
-    if (res.success) {
-      success(`Tạo mới tài khoản [${formData.username}] thành công!`);
-      setIsAddModalOpen(false);
-    } else {
-      error(res.message || 'Thêm tài khoản thất bại.');
+    setIsSubmitting(true);
+    try {
+      const res = await addAccount(formData);
+      if (res.success) {
+        success(`Tạo mới tài khoản [${formData.username}] thành công!`);
+        setIsAddModalOpen(false);
+      } else {
+        error(res.message || 'Thêm tài khoản thất bại.');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUser) return;
     if (!validateForm()) return;
 
-    const res = updateAccount(selectedUser.id, formData);
-    if (res.success) {
-      success(`Cập nhật thông tin tài khoản [${selectedUser.username}] thành công!`);
-      setIsEditModalOpen(false);
-    } else {
-      error(res.message || 'Cập nhật thất bại.');
+    setIsSubmitting(true);
+    try {
+      const res = await updateAccount(selectedUser.id, formData);
+      if (res.success) {
+        success(`Cập nhật thông tin tài khoản [${selectedUser.username}] thành công!`);
+        setIsEditModalOpen(false);
+      } else {
+        error(res.message || 'Cập nhật thất bại.');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleConfirmRoleAssign = (e: React.FormEvent) => {
+  const handleConfirmRoleAssign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUser) return;
 
-    const res = assignRole(selectedUser.id, targetRole);
-    if (res.success) {
-      success(`Đã cập nhật vai trò cho [${selectedUser.fullName}] thành ${targetRole}!`);
-      setIsRoleModalOpen(false);
-    } else {
-      error(res.message || 'Phân quyền thất bại.');
+    setIsSubmitting(true);
+    try {
+      const res = await assignRole(selectedUser.id, targetRole);
+      if (res.success) {
+        success(`Đã cập nhật vai trò cho [${selectedUser.fullName}] thành ${targetRole}!`);
+        setIsRoleModalOpen(false);
+      } else {
+        error(res.message || 'Phân quyền thất bại.');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!selectedUser) return;
-    const res = deleteAccount(selectedUser.id);
-    if (res.success) {
-      success(`Đã xóa hoàn toàn tài khoản [${selectedUser.fullName}] khỏi hệ thống!`);
-      setIsDeleteOpen(false);
-    } else {
-      error(res.message || 'Xóa tài khoản thất bại.');
+    setIsSubmitting(true);
+    try {
+      const res = await deleteAccount(selectedUser.id);
+      if (res.success) {
+        success(`Đã xóa tài khoản [${selectedUser.fullName}] khỏi hệ thống!`);
+        setIsDeleteOpen(false);
+      } else {
+        error(res.message || 'Vô hiệu hóa tài khoản thất bại.');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -220,6 +247,22 @@ export const AccountManagementPage: React.FC = () => {
           </button>
         }
       />
+
+      {/* Trạng thái tải dữ liệu từ API */}
+      {loadError && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-4 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50">
+          <span className="text-xs font-semibold text-rose-700 dark:text-rose-300">
+            Không thể đồng bộ với máy chủ: {loadError} (Đang hiển thị bản sao cục bộ)
+          </span>
+          <button
+            type="button"
+            onClick={reload}
+            className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded border border-rose-400 dark:border-rose-700 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 transition-colors shrink-0"
+          >
+            Thử lại
+          </button>
+        </div>
+      )}
 
       {/* 2. Search & Filter Bar */}
       <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm space-y-3">
@@ -268,7 +311,6 @@ export const AccountManagementPage: React.FC = () => {
               <option value="ALL">-- Tất cả trạng thái --</option>
               <option value="ACTIVE">Hoạt động (Active)</option>
               <option value="INACTIVE">Tạm ngưng (Inactive)</option>
-              <option value="LOCKED">Đã khóa (Locked)</option>
             </select>
           </div>
 
@@ -339,10 +381,7 @@ export const AccountManagementPage: React.FC = () => {
                     <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">
                       <div className="flex items-center gap-2">
                         <img
-                          src={
-                            user.avatarUrl ||
-                            `https://ui-avatars.com/api/?name=${encodeURIComponent(user.fullName)}&background=0c356a&color=fff`
-                          }
+                          src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user.fullName)}&background=0c356a&color=fff`}
                           alt=""
                           className="w-6 h-6 rounded-full object-cover shrink-0"
                         />
@@ -410,10 +449,10 @@ export const AccountManagementPage: React.FC = () => {
                           type="button"
                           onClick={() => handleOpenDelete(user)}
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/80 transition-colors"
-                          title="Xóa tài khoản"
+                          title="Vô hiệu hóa tài khoản"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                          <span>Xóa</span>
+                          <span>Vô hiệu hóa</span>
                         </button>
 
                       </div>
@@ -537,23 +576,9 @@ export const AccountManagementPage: React.FC = () => {
               >
                 <option value="ACTIVE">Hoạt động (ACTIVE)</option>
                 <option value="INACTIVE">Tạm ngưng (INACTIVE)</option>
-                <option value="LOCKED">Đã khóa (LOCKED)</option>
               </select>
             </div>
 
-            {/* Đơn vị công tác */}
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Phòng ban / Đơn vị công tác
-              </label>
-              <input
-                type="text"
-                value={formData.department}
-                onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                placeholder="Ví dụ: Đội Vận Tải Tuyến 01 hoặc Ban Giám Đốc"
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
-            </div>
 
           </div>
 
@@ -567,9 +592,10 @@ export const AccountManagementPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-institutional-700 hover:bg-institutional-800 text-white shadow-sm transition-colors"
+              disabled={isSubmitting}
+              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-institutional-700 hover:bg-institutional-800 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-sm transition-colors"
             >
-              + Xác nhận thêm tài khoản
+              {isSubmitting ? 'Đang thêm...' : '+ Xác nhận thêm tài khoản'}
             </button>
           </div>
         </form>
@@ -590,10 +616,7 @@ export const AccountManagementPage: React.FC = () => {
           <div className="space-y-4">
             <div className="flex items-center gap-4 p-4 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
               <img
-                src={
-                  selectedUser.avatarUrl ||
-                  `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedUser.fullName)}&background=0c356a&color=fff`
-                }
+                src={`https://ui-avatars.com/api/?name=${encodeURIComponent(selectedUser.fullName)}&background=0c356a&color=fff`}
                 alt=""
                 className="w-16 h-16 rounded-full object-cover ring-4 ring-institutional-500/20"
               />
@@ -637,13 +660,6 @@ export const AccountManagementPage: React.FC = () => {
                 <span className="text-[11px] text-slate-400 uppercase font-semibold">Ngày đăng ký:</span>
                 <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">
                   {selectedUser.createdAt}
-                </div>
-              </div>
-
-              <div className="col-span-2 p-3 rounded bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
-                <span className="text-[11px] text-slate-400 uppercase font-semibold">Đơn vị / Phòng ban:</span>
-                <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">
-                  {selectedUser.department || 'Chưa cập nhật'}
                 </div>
               </div>
             </div>
@@ -759,21 +775,9 @@ export const AccountManagementPage: React.FC = () => {
               >
                 <option value="ACTIVE">Hoạt động (ACTIVE)</option>
                 <option value="INACTIVE">Tạm ngưng (INACTIVE)</option>
-                <option value="LOCKED">Đã khóa (LOCKED)</option>
               </select>
             </div>
 
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Phòng ban / Đơn vị
-              </label>
-              <input
-                type="text"
-                value={formData.department}
-                onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
-            </div>
 
           </div>
 
@@ -787,9 +791,10 @@ export const AccountManagementPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-colors"
+              disabled={isSubmitting}
+              className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-sm transition-colors"
             >
-              Lưu thay đổi
+              {isSubmitting ? 'Đang lưu...' : 'Lưu thay đổi'}
             </button>
           </div>
         </form>
@@ -875,9 +880,10 @@ export const AccountManagementPage: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-purple-600 hover:bg-purple-700 text-white shadow-sm transition-colors"
+                disabled={isSubmitting}
+                className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-sm transition-colors"
               >
-                Xác nhận đổi quyền
+                {isSubmitting ? 'Đang cập nhật...' : 'Xác nhận đổi quyền'}
               </button>
             </div>
           </form>
@@ -891,10 +897,10 @@ export const AccountManagementPage: React.FC = () => {
         isOpen={isDeleteOpen}
         onClose={() => setIsDeleteOpen(false)}
         onConfirm={handleConfirmDelete}
-        title="Xác Nhận Xóa Tài Khoản"
-        message="Bạn có chắc chắn muốn xóa tài khoản này khỏi hệ thống? Dữ liệu tài khoản sẽ không thể phục hồi và hoạt động này sẽ được ghi nhận vào Nhật ký hệ thống."
+        title="Xác Nhận Vô Hiệu Hóa Tài Khoản"
+        message="Tài khoản sẽ bị vô hiệu hóa và không đăng nhập được nữa. Dữ liệu liên quan (vé, phản ánh, nhật ký) vẫn được giữ lại. Có thể kích hoạt lại bằng chức năng Sửa. Hoạt động này sẽ được ghi nhận vào Nhật ký hệ thống."
         itemName={selectedUser ? `${selectedUser.fullName} (${selectedUser.email})` : ''}
-        confirmLabel="Xác nhận xóa"
+        confirmLabel="Vô hiệu hóa"
         cancelLabel="Hủy"
         isDangerous={true}
       />

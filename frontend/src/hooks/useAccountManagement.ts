@@ -17,7 +17,6 @@ export interface AccountFormValues {
   phone: string;
   role: Role;
   status: UserStatus;
-  department?: string;
   password?: string;
 }
 
@@ -96,7 +95,6 @@ export const useAccountManagement = () => {
             role: formData.role,
             status: formData.status,
             createdAt: new Date().toISOString().split('T')[0],
-            department: formData.department,
           };
           setUsers((prev) => [fallbackUser, ...prev]);
           return { success: true, data: fallbackUser };
