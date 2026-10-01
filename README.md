@@ -1,71 +1,59 @@
-# 🚌 smart-bus-ticketing-system
-Hệ thống số hóa bán vé xe buýt thông minh - Smart Bus Ticketing System
+# 🚌 Smart Bus Ticketing System
 
-> **Thành viên C** | Audit Log & Feedback Module (Phản ánh & Đánh giá)  
-> Môn học: Lập trình Ứng dụng Web / Công nghệ Phần mềm
+Hệ thống số hóa bán vé xe buýt thông minh.
 
----
+Môn học: Lập trình Ứng dụng Web / Công nghệ Phần mềm
 
-## 📋 Mô tả module & Phân hệ Hành khách (Passenger Module)
+## Công nghệ
 
-| Màn hình | Vai trò | URL Route |
-|----------|---------|-----------|
-| Gửi phản ánh & Góp ý | Hành khách | `/passenger/feedback` |
-| Đánh giá chuyến xe (Sao) | Hành khách | `/passenger/rating` |
-| Quản lý Tuyến đường (SCRUM-17/18/19) | Quản lý / Admin | `/manager/routes` |
-| Quản trị Tài khoản & Phân quyền | Quản trị viên | `/users` |
-| Ma trận Quyền hạn (Role Matrix) | Quản trị viên | `/roles-matrix` |
+**Frontend:** React + TypeScript, Vite, TailwindCSS, React Router
 
----
+**Backend:** ASP.NET Core Web API (.NET 10), Entity Framework Core, Pomelo MySQL, JWT
 
-## 🛠️ Công nghệ sử dụng
+**Cơ sở dữ liệu:** MySQL 8+
 
-- **Frontend**: React 19, React Router v7, TailwindCSS v4, Lucide React, Vite 8
-- **Mock Service & Storage**: `feedbackService.js`, `userService.js`, LocalStorage persistence
-- **Backend / Java Web**: Java Servlet API 4.0, JSP, JSTL, MySQL 8.0+
-
----
-
-## 📁 Cấu trúc thư mục Frontend
+## Cấu trúc repo
 
 ```
-frontend/
-├── src/
-│   ├── api/
-│   │   ├── apiClient.js         ← HTTP client abstraction
-│   │   ├── authService.js       ← Dịch vụ xác thực & phiên đăng nhập
-│   │   ├── userService.js       ← Dịch vụ quản lý người dùng
-│   │   └── feedbackService.js   ← Dịch vụ phản hồi & đánh giá (LocalStorage)
-│   ├── components/
-│   │   ├── common/              ← Button, Modal, Badge, Input, Select, Toast...
-│   │   ├── layout/              ← MainLayout, Sidebar, Topbar, AuthLayout
-│   │   ├── routes/              ← RouteTab, StopTab, PricingTab (SCRUM-17/18/19)
-│   │   └── users/               ← UserTable, UserFilterBar, UserFormModal...
-│   ├── pages/
-│   │   ├── admin/               ← UserManagementPage, RoleMatrixPage
-│   │   ├── auth/                ← LoginPage
-│   │   └── passenger/           ← PassengerFeedbackPage (mode="feedback" vs mode="rating")
-│   ├── routes/
-│   │   ├── AppRoutes.jsx        ← Khai báo routes hệ thống
-│   │   ├── ProtectedRoute.jsx   ← Role Guard bảo vệ màn hình
-│   │   └── roleNavigation.js    ← Cấu hình menu & phân quyền
-│   ├── App.jsx
-│   └── main.jsx
+backend/    API ASP.NET Core (xem backend/README.md)
+frontend/   Ứng dụng React (xem frontend/README.md)
+database/   schema.sql và ERD.md, chỉ để tham khảo
 ```
 
----
+## Chức năng
 
-## 🚀 Khởi chạy ứng dụng Frontend
+| Nhóm | Chức năng | Vai trò |
+|---|---|---|
+| Xác thực | Đăng nhập JWT, phân quyền theo vai trò | Tất cả |
+| Tài khoản | Quản lý tài khoản, ma trận quyền | Admin |
+| Nhật ký | Audit Logs | Admin |
+| Tuyến xe | Quản lý tuyến, trạm, giá vé | Manager / Admin |
+| Phản ánh | Gửi phản ánh; tiếp nhận và xử lý | Hành khách / Manager |
+| Đánh giá | Đánh giá chuyến đi | Hành khách |
 
-```bash
+## Chạy nhanh
+
+**Bước 1 - Backend** (cần MySQL ở localhost:3306):
+
+```
+cd backend/SmartBusTicketing.Api
+dotnet ef database update
+export ASPNETCORE_ENVIRONMENT=Development
+dotnet run --no-launch-profile --urls http://localhost:5180
+```
+
+**Bước 2 - Frontend:**
+
+```
 cd frontend
 npm install
-npm run dev
+npm run dev -- --port 5173
 ```
 
-Truy cập: `http://localhost:5173`
+**Bước 3:** Mở http://localhost:5173
 
-Tài khoản thử nghiệm vai trò Hành khách:
-- Username: `passenger_an`
-- Mật khẩu: `password123`
-- Truy cập trực tiếp: `/passenger/feedback` hoặc `/passenger/rating`
+## Lưu ý
+
+Chưa seed tài khoản Admin: phải chèn tài khoản đầu tiên vào bảng accounts (xem backend/README.md).
+
+Một số trang frontend vẫn dùng dữ liệu giả từ DataContext (xem frontend/README.md).
