@@ -47,19 +47,13 @@ import {
   INITIAL_TIMETABLES,
 } from '../data/mockData';
 import { useAuth } from './AuthContext';
-import { isNetworkOrOfflineError } from '../services/apiClient';
-import { userService } from '../services/userService';
-import { auditService } from '../services/auditService';
-import { feedbackService } from '../services/feedbackService';
-import { routeService } from '../services/routeService';
-
 interface DataContextType {
   // Accounts (Sprint 1)
   users: User[];
-  addAccount: (userData: Omit<User, 'id' | 'createdAt'>) => Promise<{ success: boolean; message?: string; data?: User }>;
-  updateAccount: (id: string, updates: Partial<User>) => Promise<{ success: boolean; message?: string }>;
-  deleteAccount: (id: string) => Promise<{ success: boolean; message?: string }>;
-  assignRole: (userId: string, newRole: Role) => Promise<{ success: boolean; message?: string }>;
+  addAccount: (userData: Omit<User, 'id' | 'createdAt'>) => { success: boolean; message?: string; data?: User };
+  updateAccount: (id: string, updates: Partial<User>) => { success: boolean; message?: string };
+  deleteAccount: (id: string) => { success: boolean; message?: string };
+  assignRole: (userId: string, newRole: Role) => { success: boolean; message?: string };
 
   // Routes (Sprint 1)
   routes: BusRoute[];
@@ -85,17 +79,16 @@ interface DataContextType {
 
   // Complaints (Sprint 1)
   complaints: Complaint[];
-  addComplaint: (data: Omit<Complaint, 'id' | 'createdAt' | 'status'>) => Promise<{ success: boolean; message?: string; data?: Complaint }>;
-  updateComplaintStatus: (id: string, status: ComplaintStatus, response?: string) => Promise<{ success: boolean; message?: string }>;
+  addComplaint: (data: Omit<Complaint, 'id' | 'createdAt' | 'status'>) => { success: boolean; message?: string; data?: Complaint };
+  updateComplaintStatus: (id: string, status: ComplaintStatus, response?: string) => { success: boolean; message?: string };
 
   // Ratings (Sprint 1)
   ratings: TripRating[];
-  addRating: (data: Omit<TripRating, 'id' | 'createdAt'>) => Promise<{ success: boolean; message?: string; data?: TripRating }>;
+  addRating: (data: Omit<TripRating, 'id' | 'createdAt'>) => { success: boolean; message?: string; data?: TripRating };
 
   // Audit Logs (Sprint 1)
   auditLogs: AuditLog[];
   addAuditLog: (entry: Omit<AuditLog, 'id' | 'dateTime'>) => void;
-  refreshFromBackend: () => Promise<void>;
 
   // Notifications
   notifications: NotificationItem[];
@@ -348,58 +341,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   }, [stops]);
 
-  const refreshFromBackend = async () => {
-    try {
-      const backendUsers = await userService.getAll();
-      if (backendUsers && backendUsers.length > 0) {
-        setUsers(backendUsers);
-      }
-    } catch (e) {
-      // Backend offline, giữ dữ liệu hiện tại
-    }
-
-    try {
-      const backendLogs = await auditService.getAll();
-      if (backendLogs && backendLogs.length > 0) {
-        setAuditLogs(backendLogs);
-      }
-    } catch (e) {
-      // Backend offline
-    }
-
-    try {
-      const backendComplaints = await feedbackService.getComplaints();
-      if (backendComplaints && backendComplaints.length > 0) {
-        setComplaints(backendComplaints);
-      }
-    } catch (e) {
-      // Backend offline
-    }
-
-    try {
-      const backendRatings = await feedbackService.getRatings();
-      if (backendRatings && backendRatings.length > 0) {
-        setRatings(backendRatings);
-      }
-    } catch (e) {
-      // Backend offline
-    }
-
-    try {
-      const backendRoutes = await routeService.getRoutes();
-      if (backendRoutes && backendRoutes.length > 0) {
-        setRoutes(backendRoutes);
-      }
-    } catch (e) {
-      // Backend offline
-    }
-  };
-
-  // Tự động đồng bộ với backend khi khởi động ứng dụng
-  useEffect(() => {
-    refreshFromBackend();
-  }, []);
-
   const getActorName = () => {
     if (!currentUser) return 'Hệ thống (SYSTEM)';
     return `${currentUser.fullName} (${currentUser.username})`;
@@ -431,45 +372,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...entry,
     };
     setAuditLogs((prev) => [newLog, ...prev]);
-
-    // Thử đồng bộ log sang backend nếu backend có endpoint
-    auditService.create(entry).catch(() => {
-      // Bỏ qua nếu backend offline
-    });
   };
 
   // ------------------------------------------
   // SPRINT 1: USER / ACCOUNT OPERATIONS
   // ------------------------------------------
-  const addAccount = async (userData: Omit<User, 'id' | 'createdAt'>) => {
+  const addAccount = (userData: Omit<User, 'id' | 'createdAt'>) => {
     const validRoles: Role[] = ['ADMIN', 'MANAGER', 'DRIVER', 'PASSENGER'];
     if (!validRoles.includes(userData.role)) {
       return { success: false, message: 'Vai trò người dùng không hợp lệ.' };
     }
 
-    // 1. Thử gọi API Backend thật (/api/v1/users)
-    try {
-      const createdUser = await userService.create(userData);
-      setUsers((prev) => [createdUser, ...prev]);
-
-      addAuditLog({
-        user: getActorName(),
-        action: 'Thêm tài khoản người dùng',
-        module: 'ACCOUNT',
-        description: `Tạo mới tài khoản [${createdUser.username}] - ${createdUser.fullName} với vai trò ${createdUser.role}`,
-        status: 'SUCCESS',
-        targetId: createdUser.id,
-      });
-
-      return { success: true, data: createdUser };
-    } catch (err: any) {
-      if (!isNetworkOrOfflineError(err)) {
-        return { success: false, message: err.message };
-      }
-      // Backend offline -> tiếp tục lưu local
-    }
-
-    // 2. Fallback lưu nội bộ khi Backend offline
     const existsEmail = users.some(
       (u) => u.email.toLowerCase() === userData.email.toLowerCase().trim()
     );
@@ -505,7 +418,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true, data: newUser };
   };
 
-  const updateAccount = async (id: string, updates: Partial<User>) => {
+  const updateAccount = (id: string, updates: Partial<User>) => {
     const targetUser = users.find((u) => u.id === id);
     if (!targetUser) {
       return { success: false, message: 'Không tìm thấy tài khoản cần cập nhật.' };
@@ -518,31 +431,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // 1. Nếu ID là dạng số (được nạp từ backend) -> gọi API Backend thật (/api/v1/users/{id})
-    const isBackendNumericId = !isNaN(Number(id));
-    if (isBackendNumericId) {
-      try {
-        const updatedUser = await userService.update(id, updates);
-        setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...updatedUser } : u)));
-
-        addAuditLog({
-          user: getActorName(),
-          action: 'Cập nhật thông tin tài khoản',
-          module: 'ACCOUNT',
-          description: `Cập nhật thông tin tài khoản ${updatedUser.fullName} (${updatedUser.username})`,
-          status: 'SUCCESS',
-          targetId: id,
-        });
-
-        return { success: true };
-      } catch (err: any) {
-        if (!isNetworkOrOfflineError(err)) {
-          return { success: false, message: err.message };
-        }
-      }
-    }
-
-    // 2. Cập nhật local (cho mock user hoặc khi Backend offline)
     if (updates.email && updates.email.toLowerCase() !== targetUser.email.toLowerCase()) {
       const exists = users.some(
         (u) => u.id !== id && u.email.toLowerCase() === updates.email!.toLowerCase().trim()
@@ -568,7 +456,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
-  const deleteAccount = async (id: string) => {
+  const deleteAccount = (id: string) => {
     const target = users.find((u) => u.id === id);
     if (!target) {
       return { success: false, message: 'Không tìm thấy tài khoản để xóa.' };
@@ -578,31 +466,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Bạn không thể xóa chính tài khoản đang đăng nhập.' };
     }
 
-    // 1. Nếu ID là dạng số -> gọi API Backend thật
-    const isBackendNumericId = !isNaN(Number(id));
-    if (isBackendNumericId) {
-      try {
-        await userService.delete(id);
-        setUsers((prev) => prev.filter((u) => u.id !== id));
-
-        addAuditLog({
-          user: getActorName(),
-          action: 'Xóa tài khoản người dùng',
-          module: 'ACCOUNT',
-          description: `Đã xóa tài khoản ${target.fullName} (${target.username}), vai trò ${target.role}`,
-          status: 'SUCCESS',
-          targetId: id,
-        });
-
-        return { success: true };
-      } catch (err: any) {
-        if (!isNetworkOrOfflineError(err)) {
-          return { success: false, message: err.message };
-        }
-      }
-    }
-
-    // 2. Fallback xóa nội bộ khi Backend offline hoặc ID mock
     setUsers((prev) => prev.filter((u) => u.id !== id));
 
     addAuditLog({
@@ -617,7 +480,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
-  const assignRole = async (userId: string, newRole: Role) => {
+  const assignRole = (userId: string, newRole: Role) => {
     const target = users.find((u) => u.id === userId);
     if (!target) {
       return { success: false, message: 'Không tìm thấy tài khoản.' };
@@ -628,31 +491,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Vai trò không hợp lệ.' };
     }
 
-    // 1. Nếu ID là dạng số (từ backend) -> gọi API Backend thật (/api/v1/users/{id})
-    const isBackendNumericId = !isNaN(Number(userId));
-    if (isBackendNumericId) {
-      try {
-        const updated = await userService.assignRole(userId, newRole);
-        setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u)));
-
-        addAuditLog({
-          user: getActorName(),
-          action: 'Phân quyền vai trò',
-          module: 'ROLE',
-          description: `Thay đổi vai trò cho ${target.fullName} (${target.username}) từ ${target.role} thành ${newRole}`,
-          status: 'SUCCESS',
-          targetId: userId,
-        });
-
-        return { success: true };
-      } catch (err: any) {
-        if (!isNetworkOrOfflineError(err)) {
-          return { success: false, message: err.message };
-        }
-      }
-    }
-
-    // 2. Cập nhật nội bộ (cho mock user hoặc khi Backend offline)
     const oldRole = target.role;
     setUsers((prev) =>
       prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
@@ -1026,43 +864,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ------------------------------------------
   // SPRINT 1: COMPLAINTS
   // ------------------------------------------
-  const addComplaint = async (data: Omit<Complaint, 'id' | 'createdAt' | 'status'>) => {
+  const addComplaint = (data: Omit<Complaint, 'id' | 'createdAt' | 'status'>) => {
     if (!data.subject.trim() || !data.description.trim() || !data.routeId) {
       return { success: false, message: 'Vui lòng điền đầy đủ các thông tin bắt buộc.' };
     }
 
-    // 1. Thử gọi API Backend thật (/api/v1/complaints)
-    try {
-      const created = await feedbackService.createComplaint(data);
-      setComplaints((prev) => [created, ...prev]);
-
-      const newNotif: NotificationItem = {
-        id: 'NOTIF-' + Date.now(),
-        title: 'Khiếu nại mới từ hành khách',
-        message: `Hành khách ${data.passengerName} gửi khiếu nại: "${data.subject}"`,
-        createdAt: 'Vừa xong',
-        type: 'WARNING',
-        isRead: false,
-      };
-      setNotifications((prev) => [newNotif, ...prev]);
-
-      addAuditLog({
-        user: getActorName(),
-        action: 'Gửi khiếu nại dịch vụ',
-        module: 'COMPLAINT',
-        description: `Hành khách gửi khiếu nại mã [${created.id}] - Chủ đề: "${data.subject}"`,
-        status: 'SUCCESS',
-        targetId: created.id,
-      });
-
-      return { success: true, data: created };
-    } catch (err: any) {
-      if (!err.message?.includes('Offline') && !err.message?.includes('kết nối')) {
-        return { success: false, message: err.message };
-      }
-    }
-
-    // 2. Fallback lưu nội bộ khi Backend offline
     const formattedDate = getFormattedNow();
     const newId = `CMP-${new Date().getFullYear()}-${String(complaints.length + 1).padStart(3, '0')}`;
     const newComplaint: Complaint = {
@@ -1096,41 +902,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true, data: newComplaint };
   };
 
-  const updateComplaintStatus = async (
+  const updateComplaintStatus = (
     id: string,
     status: ComplaintStatus,
     adminResponse?: string
   ) => {
-    const formattedDate = getFormattedNow();
-    const processor = currentUser ? `${currentUser.fullName} (${currentUser.role})` : 'Quản lý vận hành';
-
-    // 1. Thử gọi API Backend thật (/api/v1/complaints/{id}/status)
-    try {
-      const updated = await feedbackService.updateComplaintStatus(id, status, adminResponse, processor);
-      setComplaints((prev) => prev.map((c) => (c.id === id ? { ...c, ...updated } : c)));
-
-      addAuditLog({
-        user: getActorName(),
-        action: 'Xử lý khiếu nại',
-        module: 'COMPLAINT',
-        description: `Cập nhật trạng thái khiếu nại [${id}] sang "${status}"`,
-        status: 'SUCCESS',
-        targetId: id,
-      });
-
-      return { success: true };
-    } catch (err: any) {
-      if (!err.message?.includes('Offline') && !err.message?.includes('kết nối')) {
-        return { success: false, message: err.message };
-      }
-    }
-
-    // 2. Fallback lưu nội bộ khi Backend offline
     const target = complaints.find((c) => c.id === id);
     if (!target) {
       return { success: false, message: 'Không tìm thấy khiếu nại.' };
     }
 
+    const formattedDate = getFormattedNow();
     const statusLabels: Record<ComplaintStatus, string> = {
       PENDING: 'Chờ xử lý',
       PROCESSING: 'Đang xử lý',
@@ -1145,7 +927,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ...c,
               status,
               adminResponse: adminResponse !== undefined ? adminResponse : c.adminResponse,
-              processedBy: processor,
+              processedBy: currentUser ? `${currentUser.fullName} (${currentUser.role})` : 'Quản lý vận hành',
               processedAt: formattedDate,
             }
           : c
@@ -1167,34 +949,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ------------------------------------------
   // SPRINT 1: RATINGS
   // ------------------------------------------
-  const addRating = async (data: Omit<TripRating, 'id' | 'createdAt'>) => {
+  const addRating = (data: Omit<TripRating, 'id' | 'createdAt'>) => {
     if (data.rating < 1 || data.rating > 5 || !data.routeId) {
       return { success: false, message: 'Thông tin đánh giá không hợp lệ (Bắt buộc từ 1 đến 5 sao).' };
     }
 
-    // 1. Thử gọi API Backend thật (/api/v1/ratings)
-    try {
-      const created = await feedbackService.createRating(data);
-      setRatings((prev) => [created, ...prev]);
-
-      const routeObj = routes.find((r) => r.id === data.routeId);
-      addAuditLog({
-        user: getActorName(),
-        action: 'Đánh giá chuyến đi',
-        module: 'RATING',
-        description: `Gửi đánh giá ${data.rating} sao cho tuyến ${routeObj?.code || data.routeId}`,
-        status: 'SUCCESS',
-        targetId: created.id,
-      });
-
-      return { success: true, data: created };
-    } catch (err: any) {
-      if (!err.message?.includes('Offline') && !err.message?.includes('kết nối')) {
-        return { success: false, message: err.message };
-      }
-    }
-
-    // 2. Fallback lưu nội bộ khi Backend offline
     const formattedDate = getFormattedNow();
     const newId = `RAT-${new Date().getFullYear()}-${String(ratings.length + 1).padStart(3, '0')}`;
     const newRating: TripRating = {
@@ -2197,7 +1956,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         auditLogs,
         addAuditLog,
-        refreshFromBackend,
 
         notifications,
         markNotificationAsRead,
