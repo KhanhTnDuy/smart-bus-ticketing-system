@@ -2,7 +2,7 @@
 
 Hệ thống số hóa bán vé xe buýt thông minh.
 
-Môn học: Lập trình Ứng dụng Web / Công nghệ Phần mềm
+Môn học: Thực tập cơ sở 
 
 ## Công nghệ
 
