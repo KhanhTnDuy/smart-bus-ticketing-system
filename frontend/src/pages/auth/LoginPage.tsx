@@ -218,7 +218,7 @@ export const LoginPage: React.FC = () => {
           <div className="mt-6 pt-6 border-t border-slate-200 dark:border-[#1e2f57]">
             <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
               <ShieldCheck className="w-4 h-4 text-institutional-600 dark:text-sky-400" />
-              <span>Tài khoản kiểm thử nhanh (Sprint 1):</span>
+              <span>Tài khoản kiểm thử nhanh:</span>
             </div>
             <div className="grid grid-cols-2 gap-2 mt-2">
               <button

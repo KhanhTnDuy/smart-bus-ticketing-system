@@ -18,6 +18,9 @@ import {
   BusTracking,
   BusIncident,
   BusAssignment,
+  ShiftType,
+  BusVehicle,
+  TimetableTemplate,
   PaymentMethod,
   RefundStatus,
   IncidentStatus,
@@ -40,16 +43,23 @@ import {
   INITIAL_TRACKINGS,
   INITIAL_INCIDENTS,
   INITIAL_ASSIGNMENTS,
+  INITIAL_BUSES,
+  INITIAL_TIMETABLES,
 } from '../data/mockData';
 import { useAuth } from './AuthContext';
+import { isNetworkOrOfflineError } from '../services/apiClient';
+import { userService } from '../services/userService';
+import { auditService } from '../services/auditService';
+import { feedbackService } from '../services/feedbackService';
+import { routeService } from '../services/routeService';
 
 interface DataContextType {
   // Accounts (Sprint 1)
   users: User[];
-  addAccount: (userData: Omit<User, 'id' | 'createdAt'>) => { success: boolean; message?: string; data?: User };
-  updateAccount: (id: string, updates: Partial<User>) => { success: boolean; message?: string };
-  deleteAccount: (id: string) => { success: boolean; message?: string };
-  assignRole: (userId: string, newRole: Role) => { success: boolean; message?: string };
+  addAccount: (userData: Omit<User, 'id' | 'createdAt'>) => Promise<{ success: boolean; message?: string; data?: User }>;
+  updateAccount: (id: string, updates: Partial<User>) => Promise<{ success: boolean; message?: string }>;
+  deleteAccount: (id: string) => Promise<{ success: boolean; message?: string }>;
+  assignRole: (userId: string, newRole: Role) => Promise<{ success: boolean; message?: string }>;
 
   // Routes (Sprint 1)
   routes: BusRoute[];
@@ -75,16 +85,17 @@ interface DataContextType {
 
   // Complaints (Sprint 1)
   complaints: Complaint[];
-  addComplaint: (data: Omit<Complaint, 'id' | 'createdAt' | 'status'>) => { success: boolean; message?: string; data?: Complaint };
-  updateComplaintStatus: (id: string, status: ComplaintStatus, response?: string) => { success: boolean; message?: string };
+  addComplaint: (data: Omit<Complaint, 'id' | 'createdAt' | 'status'>) => Promise<{ success: boolean; message?: string; data?: Complaint }>;
+  updateComplaintStatus: (id: string, status: ComplaintStatus, response?: string) => Promise<{ success: boolean; message?: string }>;
 
   // Ratings (Sprint 1)
   ratings: TripRating[];
-  addRating: (data: Omit<TripRating, 'id' | 'createdAt'>) => { success: boolean; message?: string; data?: TripRating };
+  addRating: (data: Omit<TripRating, 'id' | 'createdAt'>) => Promise<{ success: boolean; message?: string; data?: TripRating }>;
 
   // Audit Logs (Sprint 1)
   auditLogs: AuditLog[];
   addAuditLog: (entry: Omit<AuditLog, 'id' | 'dateTime'>) => void;
+  refreshFromBackend: () => Promise<void>;
 
   // Notifications
   notifications: NotificationItem[];
@@ -98,6 +109,7 @@ interface DataContextType {
   // Trips / Schedules (Sprint 2)
   trips: BusTrip[];
   addTrip: (tripData: Omit<BusTrip, 'id' | 'bookedSeats'>) => { success: boolean; message?: string; data?: BusTrip };
+  addTripsBatch: (tripsData: Array<Omit<BusTrip, 'id' | 'bookedSeats'>>) => { success: boolean; count: number; skippedCount?: number; message?: string; data?: BusTrip[] };
   updateTrip: (id: string, updates: Partial<BusTrip>) => { success: boolean; message?: string };
   deleteTrip: (id: string) => { success: boolean; message?: string };
 
@@ -157,7 +169,20 @@ interface DataContextType {
     ticket?: Ticket;
     message: string;
   };
+
+  // Bus Fleet (Sprint 2 - Quản lý xe buýt)
+  buses: BusVehicle[];
+  addBus: (data: Omit<BusVehicle, 'id'>) => { success: boolean; message?: string; bus?: BusVehicle };
+  updateBus: (id: string, updates: Partial<BusVehicle>) => { success: boolean; message?: string };
+  deleteBus: (id: string) => { success: boolean; message?: string };
+
+  // Timetables (Sprint 2 - Quản lý thời gian biểu)
+  timetables: TimetableTemplate[];
+  addTimetable: (data: Omit<TimetableTemplate, 'id'>) => { success: boolean; message?: string; timetable?: TimetableTemplate };
+  updateTimetable: (id: string, updates: Partial<TimetableTemplate>) => { success: boolean; message?: string };
+  deleteTimetable: (id: string) => { success: boolean; message?: string };
 }
+
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
@@ -227,6 +252,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [assignments, setAssignments] = useState<BusAssignment[]>(() =>
     loadFromStorage('smart_bus_assignments', INITIAL_ASSIGNMENTS)
   );
+  const [buses, setBuses] = useState<BusVehicle[]>(() =>
+    loadFromStorage('smart_bus_buses', INITIAL_BUSES)
+  );
+  const [timetables, setTimetables] = useState<TimetableTemplate[]>(() =>
+    loadFromStorage('smart_bus_timetables', INITIAL_TIMETABLES)
+  );
+
 
   // Sync state to LocalStorage
   useEffect(() => {
@@ -294,6 +326,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('smart_bus_assignments', JSON.stringify(assignments));
   }, [assignments]);
 
+  useEffect(() => {
+    localStorage.setItem('smart_bus_buses', JSON.stringify(buses));
+  }, [buses]);
+
+  useEffect(() => {
+    localStorage.setItem('smart_bus_timetables', JSON.stringify(timetables));
+  }, [timetables]);
+
+
   // Keep route stopCount in sync with actual stops
   useEffect(() => {
     setRoutes((currentRoutes) =>
@@ -306,6 +347,58 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       })
     );
   }, [stops]);
+
+  const refreshFromBackend = async () => {
+    try {
+      const backendUsers = await userService.getAll();
+      if (backendUsers && backendUsers.length > 0) {
+        setUsers(backendUsers);
+      }
+    } catch (e) {
+      // Backend offline, giữ dữ liệu hiện tại
+    }
+
+    try {
+      const backendLogs = await auditService.getAll();
+      if (backendLogs && backendLogs.length > 0) {
+        setAuditLogs(backendLogs);
+      }
+    } catch (e) {
+      // Backend offline
+    }
+
+    try {
+      const backendComplaints = await feedbackService.getComplaints();
+      if (backendComplaints && backendComplaints.length > 0) {
+        setComplaints(backendComplaints);
+      }
+    } catch (e) {
+      // Backend offline
+    }
+
+    try {
+      const backendRatings = await feedbackService.getRatings();
+      if (backendRatings && backendRatings.length > 0) {
+        setRatings(backendRatings);
+      }
+    } catch (e) {
+      // Backend offline
+    }
+
+    try {
+      const backendRoutes = await routeService.getRoutes();
+      if (backendRoutes && backendRoutes.length > 0) {
+        setRoutes(backendRoutes);
+      }
+    } catch (e) {
+      // Backend offline
+    }
+  };
+
+  // Tự động đồng bộ với backend khi khởi động ứng dụng
+  useEffect(() => {
+    refreshFromBackend();
+  }, []);
 
   const getActorName = () => {
     if (!currentUser) return 'Hệ thống (SYSTEM)';
@@ -338,17 +431,45 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...entry,
     };
     setAuditLogs((prev) => [newLog, ...prev]);
+
+    // Thử đồng bộ log sang backend nếu backend có endpoint
+    auditService.create(entry).catch(() => {
+      // Bỏ qua nếu backend offline
+    });
   };
 
   // ------------------------------------------
   // SPRINT 1: USER / ACCOUNT OPERATIONS
   // ------------------------------------------
-  const addAccount = (userData: Omit<User, 'id' | 'createdAt'>) => {
+  const addAccount = async (userData: Omit<User, 'id' | 'createdAt'>) => {
     const validRoles: Role[] = ['ADMIN', 'MANAGER', 'DRIVER', 'PASSENGER'];
     if (!validRoles.includes(userData.role)) {
       return { success: false, message: 'Vai trò người dùng không hợp lệ.' };
     }
 
+    // 1. Thử gọi API Backend thật (/api/v1/users)
+    try {
+      const createdUser = await userService.create(userData);
+      setUsers((prev) => [createdUser, ...prev]);
+
+      addAuditLog({
+        user: getActorName(),
+        action: 'Thêm tài khoản người dùng',
+        module: 'ACCOUNT',
+        description: `Tạo mới tài khoản [${createdUser.username}] - ${createdUser.fullName} với vai trò ${createdUser.role}`,
+        status: 'SUCCESS',
+        targetId: createdUser.id,
+      });
+
+      return { success: true, data: createdUser };
+    } catch (err: any) {
+      if (!isNetworkOrOfflineError(err)) {
+        return { success: false, message: err.message };
+      }
+      // Backend offline -> tiếp tục lưu local
+    }
+
+    // 2. Fallback lưu nội bộ khi Backend offline
     const existsEmail = users.some(
       (u) => u.email.toLowerCase() === userData.email.toLowerCase().trim()
     );
@@ -384,7 +505,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true, data: newUser };
   };
 
-  const updateAccount = (id: string, updates: Partial<User>) => {
+  const updateAccount = async (id: string, updates: Partial<User>) => {
     const targetUser = users.find((u) => u.id === id);
     if (!targetUser) {
       return { success: false, message: 'Không tìm thấy tài khoản cần cập nhật.' };
@@ -397,6 +518,31 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
+    // 1. Nếu ID là dạng số (được nạp từ backend) -> gọi API Backend thật (/api/v1/users/{id})
+    const isBackendNumericId = !isNaN(Number(id));
+    if (isBackendNumericId) {
+      try {
+        const updatedUser = await userService.update(id, updates);
+        setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...updatedUser } : u)));
+
+        addAuditLog({
+          user: getActorName(),
+          action: 'Cập nhật thông tin tài khoản',
+          module: 'ACCOUNT',
+          description: `Cập nhật thông tin tài khoản ${updatedUser.fullName} (${updatedUser.username})`,
+          status: 'SUCCESS',
+          targetId: id,
+        });
+
+        return { success: true };
+      } catch (err: any) {
+        if (!isNetworkOrOfflineError(err)) {
+          return { success: false, message: err.message };
+        }
+      }
+    }
+
+    // 2. Cập nhật local (cho mock user hoặc khi Backend offline)
     if (updates.email && updates.email.toLowerCase() !== targetUser.email.toLowerCase()) {
       const exists = users.some(
         (u) => u.id !== id && u.email.toLowerCase() === updates.email!.toLowerCase().trim()
@@ -422,7 +568,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
-  const deleteAccount = (id: string) => {
+  const deleteAccount = async (id: string) => {
     const target = users.find((u) => u.id === id);
     if (!target) {
       return { success: false, message: 'Không tìm thấy tài khoản để xóa.' };
@@ -432,6 +578,31 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Bạn không thể xóa chính tài khoản đang đăng nhập.' };
     }
 
+    // 1. Nếu ID là dạng số -> gọi API Backend thật
+    const isBackendNumericId = !isNaN(Number(id));
+    if (isBackendNumericId) {
+      try {
+        await userService.delete(id);
+        setUsers((prev) => prev.filter((u) => u.id !== id));
+
+        addAuditLog({
+          user: getActorName(),
+          action: 'Xóa tài khoản người dùng',
+          module: 'ACCOUNT',
+          description: `Đã xóa tài khoản ${target.fullName} (${target.username}), vai trò ${target.role}`,
+          status: 'SUCCESS',
+          targetId: id,
+        });
+
+        return { success: true };
+      } catch (err: any) {
+        if (!isNetworkOrOfflineError(err)) {
+          return { success: false, message: err.message };
+        }
+      }
+    }
+
+    // 2. Fallback xóa nội bộ khi Backend offline hoặc ID mock
     setUsers((prev) => prev.filter((u) => u.id !== id));
 
     addAuditLog({
@@ -446,7 +617,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
-  const assignRole = (userId: string, newRole: Role) => {
+  const assignRole = async (userId: string, newRole: Role) => {
     const target = users.find((u) => u.id === userId);
     if (!target) {
       return { success: false, message: 'Không tìm thấy tài khoản.' };
@@ -457,6 +628,31 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Vai trò không hợp lệ.' };
     }
 
+    // 1. Nếu ID là dạng số (từ backend) -> gọi API Backend thật (/api/v1/users/{id})
+    const isBackendNumericId = !isNaN(Number(userId));
+    if (isBackendNumericId) {
+      try {
+        const updated = await userService.assignRole(userId, newRole);
+        setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u)));
+
+        addAuditLog({
+          user: getActorName(),
+          action: 'Phân quyền vai trò',
+          module: 'ROLE',
+          description: `Thay đổi vai trò cho ${target.fullName} (${target.username}) từ ${target.role} thành ${newRole}`,
+          status: 'SUCCESS',
+          targetId: userId,
+        });
+
+        return { success: true };
+      } catch (err: any) {
+        if (!isNetworkOrOfflineError(err)) {
+          return { success: false, message: err.message };
+        }
+      }
+    }
+
+    // 2. Cập nhật nội bộ (cho mock user hoặc khi Backend offline)
     const oldRole = target.role;
     setUsers((prev) =>
       prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
@@ -830,11 +1026,43 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ------------------------------------------
   // SPRINT 1: COMPLAINTS
   // ------------------------------------------
-  const addComplaint = (data: Omit<Complaint, 'id' | 'createdAt' | 'status'>) => {
+  const addComplaint = async (data: Omit<Complaint, 'id' | 'createdAt' | 'status'>) => {
     if (!data.subject.trim() || !data.description.trim() || !data.routeId) {
       return { success: false, message: 'Vui lòng điền đầy đủ các thông tin bắt buộc.' };
     }
 
+    // 1. Thử gọi API Backend thật (/api/v1/complaints)
+    try {
+      const created = await feedbackService.createComplaint(data);
+      setComplaints((prev) => [created, ...prev]);
+
+      const newNotif: NotificationItem = {
+        id: 'NOTIF-' + Date.now(),
+        title: 'Khiếu nại mới từ hành khách',
+        message: `Hành khách ${data.passengerName} gửi khiếu nại: "${data.subject}"`,
+        createdAt: 'Vừa xong',
+        type: 'WARNING',
+        isRead: false,
+      };
+      setNotifications((prev) => [newNotif, ...prev]);
+
+      addAuditLog({
+        user: getActorName(),
+        action: 'Gửi khiếu nại dịch vụ',
+        module: 'COMPLAINT',
+        description: `Hành khách gửi khiếu nại mã [${created.id}] - Chủ đề: "${data.subject}"`,
+        status: 'SUCCESS',
+        targetId: created.id,
+      });
+
+      return { success: true, data: created };
+    } catch (err: any) {
+      if (!err.message?.includes('Offline') && !err.message?.includes('kết nối')) {
+        return { success: false, message: err.message };
+      }
+    }
+
+    // 2. Fallback lưu nội bộ khi Backend offline
     const formattedDate = getFormattedNow();
     const newId = `CMP-${new Date().getFullYear()}-${String(complaints.length + 1).padStart(3, '0')}`;
     const newComplaint: Complaint = {
@@ -868,17 +1096,41 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true, data: newComplaint };
   };
 
-  const updateComplaintStatus = (
+  const updateComplaintStatus = async (
     id: string,
     status: ComplaintStatus,
     adminResponse?: string
   ) => {
+    const formattedDate = getFormattedNow();
+    const processor = currentUser ? `${currentUser.fullName} (${currentUser.role})` : 'Quản lý vận hành';
+
+    // 1. Thử gọi API Backend thật (/api/v1/complaints/{id}/status)
+    try {
+      const updated = await feedbackService.updateComplaintStatus(id, status, adminResponse, processor);
+      setComplaints((prev) => prev.map((c) => (c.id === id ? { ...c, ...updated } : c)));
+
+      addAuditLog({
+        user: getActorName(),
+        action: 'Xử lý khiếu nại',
+        module: 'COMPLAINT',
+        description: `Cập nhật trạng thái khiếu nại [${id}] sang "${status}"`,
+        status: 'SUCCESS',
+        targetId: id,
+      });
+
+      return { success: true };
+    } catch (err: any) {
+      if (!err.message?.includes('Offline') && !err.message?.includes('kết nối')) {
+        return { success: false, message: err.message };
+      }
+    }
+
+    // 2. Fallback lưu nội bộ khi Backend offline
     const target = complaints.find((c) => c.id === id);
     if (!target) {
       return { success: false, message: 'Không tìm thấy khiếu nại.' };
     }
 
-    const formattedDate = getFormattedNow();
     const statusLabels: Record<ComplaintStatus, string> = {
       PENDING: 'Chờ xử lý',
       PROCESSING: 'Đang xử lý',
@@ -893,7 +1145,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ...c,
               status,
               adminResponse: adminResponse !== undefined ? adminResponse : c.adminResponse,
-              processedBy: currentUser ? `${currentUser.fullName} (${currentUser.role})` : 'Quản lý vận hành',
+              processedBy: processor,
               processedAt: formattedDate,
             }
           : c
@@ -915,11 +1167,34 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ------------------------------------------
   // SPRINT 1: RATINGS
   // ------------------------------------------
-  const addRating = (data: Omit<TripRating, 'id' | 'createdAt'>) => {
+  const addRating = async (data: Omit<TripRating, 'id' | 'createdAt'>) => {
     if (data.rating < 1 || data.rating > 5 || !data.routeId) {
-      return { success: false, message: 'Thông tin đánh giá không hợp lệ.' };
+      return { success: false, message: 'Thông tin đánh giá không hợp lệ (Bắt buộc từ 1 đến 5 sao).' };
     }
 
+    // 1. Thử gọi API Backend thật (/api/v1/ratings)
+    try {
+      const created = await feedbackService.createRating(data);
+      setRatings((prev) => [created, ...prev]);
+
+      const routeObj = routes.find((r) => r.id === data.routeId);
+      addAuditLog({
+        user: getActorName(),
+        action: 'Đánh giá chuyến đi',
+        module: 'RATING',
+        description: `Gửi đánh giá ${data.rating} sao cho tuyến ${routeObj?.code || data.routeId}`,
+        status: 'SUCCESS',
+        targetId: created.id,
+      });
+
+      return { success: true, data: created };
+    } catch (err: any) {
+      if (!err.message?.includes('Offline') && !err.message?.includes('kết nối')) {
+        return { success: false, message: err.message };
+      }
+    }
+
+    // 2. Fallback lưu nội bộ khi Backend offline
     const formattedDate = getFormattedNow();
     const newId = `RAT-${new Date().getFullYear()}-${String(ratings.length + 1).padStart(3, '0')}`;
     const newRating: TripRating = {
@@ -981,6 +1256,62 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true, data: newTrip };
   };
 
+  const addTripsBatch = (tripsData: Array<Omit<BusTrip, 'id' | 'bookedSeats'>>) => {
+    if (!tripsData.length) return { success: false, count: 0, skippedCount: 0, message: 'Danh sách chuyến rỗng' };
+
+    // Chống trùng chuyến: Lọc bỏ các chuyến đã tồn tại cùng tuyến, cùng ngày và cùng giờ khởi hành
+    const nonDuplicateTrips = tripsData.filter((candidate) => {
+      const alreadyExists = trips.some(
+        (existing) =>
+          existing.routeId === candidate.routeId &&
+          existing.departureDate === candidate.departureDate &&
+          existing.departureTime === candidate.departureTime
+      );
+      return !alreadyExists;
+    });
+
+    const skippedCount = tripsData.length - nonDuplicateTrips.length;
+
+    if (nonDuplicateTrips.length === 0) {
+      return {
+        success: false,
+        count: 0,
+        skippedCount,
+        message: `Tất cả ${tripsData.length} chuyến trong khung giờ này đã tồn tại trên hệ thống (chống trùng chuyến).`,
+      };
+    }
+
+    const baseNum = Math.floor(100 + Math.random() * 800);
+    const createdTrips: BusTrip[] = nonDuplicateTrips.map((tripData, idx) => ({
+      ...tripData,
+      id: `TRIP-${baseNum + idx}`,
+      bookedSeats: [],
+    }));
+
+    setTrips((prev) => [...createdTrips, ...prev]);
+
+    const route = routes.find((r) => r.id === tripsData[0].routeId);
+    addAuditLog({
+      user: getActorName(),
+      action: 'Sinh lịch chuyến tự động',
+      module: 'SCHEDULE',
+      description: `Sinh tự động ${createdTrips.length} chuyến xe (đã lọc ${skippedCount} chuyến trùng) theo thời gian biểu tuyến ${route?.code || tripsData[0].routeId} ngày ${tripsData[0].departureDate}`,
+      status: 'SUCCESS',
+      targetId: createdTrips[0]?.id,
+    });
+
+    return {
+      success: true,
+      count: createdTrips.length,
+      skippedCount,
+      data: createdTrips,
+      message: skippedCount > 0
+        ? `Đã tạo ${createdTrips.length} chuyến mới (đã tự động bỏ qua ${skippedCount} chuyến bị trùng giờ).`
+        : `Đã sinh thành công toàn bộ ${createdTrips.length} chuyến xe theo lịch trình!`,
+    };
+  };
+
+
   const updateTrip = (id: string, updates: Partial<BusTrip>) => {
     setTrips((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } : t)));
 
@@ -1024,10 +1355,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     departureDate: string;
     departureTime: string;
   }) => {
-    // Check if seat already booked in trip
+    // Support single or multiple comma-separated seats (e.g. "A1, A2")
+    const seatsToBook = bookingData.seatNumber
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    // Check if any seat already booked in trip
     const trip = trips.find((t) => t.id === bookingData.tripId);
-    if (trip && trip.bookedSeats.includes(bookingData.seatNumber)) {
-      return { success: false, message: `Ghế ${bookingData.seatNumber} đã có người đặt trước.` };
+    if (trip && seatsToBook.some((s) => trip.bookedSeats.includes(s))) {
+      return { success: false, message: 'Một hoặc nhiều ghế đã chọn đã có người đặt trước.' };
     }
 
     const newTicketId = `TKT-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`;
@@ -1055,11 +1392,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Update tickets
     setTickets((prev) => [newTicket, ...prev]);
 
-    // Mark seat as booked in trip
+    // Mark seats as booked in trip
     setTrips((prev) =>
       prev.map((t) =>
         t.id === bookingData.tripId
-          ? { ...t, bookedSeats: [...t.bookedSeats, bookingData.seatNumber] }
+          ? { ...t, bookedSeats: [...t.bookedSeats, ...seatsToBook] }
           : t
       )
     );
@@ -1486,16 +1823,59 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true, message: 'Đã cập nhật phương án xử lý sự cố!' };
   };
 
-  // 7. DRIVER & ASSISTANT ASSIGNMENTS (Sprint 2)
+  // 7. DRIVER & ASSISTANT ASSIGNMENTS (Sprint 2 - Kiểm tra trùng lịch)
+  const isShiftOverlapping = (
+    shift1: ShiftType,
+    date1: string,
+    shift2: ShiftType,
+    date2: string
+  ): boolean => {
+    if (date1 !== date2) return false;
+    if (shift1 === 'TOAN_THOI_GIAN' || shift2 === 'TOAN_THOI_GIAN') return true;
+    return shift1 === shift2;
+  };
+
   const addAssignment = (data: Omit<BusAssignment, 'id'>) => {
     if (!data.routeId || !data.busPlate || !data.driverName) {
       return { success: false, message: 'Vui lòng điền đủ thông tin phân công.' };
+    }
+
+    // Kiểm tra trùng lịch xe hoặc tài xế trong cùng ngày & ca làm việc (Requirement 7)
+    const normalizedPlate = data.busPlate.trim().toUpperCase();
+    const normalizedDriver = data.driverName.trim().toLowerCase();
+
+    const conflictingAssignment = assignments.find((a) => {
+      if (a.status === 'CANCELLED') return false;
+      const overlaps = isShiftOverlapping(data.shift, data.date, a.shift, a.date);
+      if (!overlaps) return false;
+
+      // Trùng xe
+      if (a.busPlate.trim().toUpperCase() === normalizedPlate) {
+        return true;
+      }
+      // Trùng tài xế
+      if (
+        (data.driverId && a.driverId === data.driverId) ||
+        a.driverName.trim().toLowerCase() === normalizedDriver
+      ) {
+        return true;
+      }
+      return false;
+    });
+
+    if (conflictingAssignment) {
+      const isBusConflict = conflictingAssignment.busPlate.trim().toUpperCase() === normalizedPlate;
+      const conflictMsg = isBusConflict
+        ? `Xung đột trùng lịch: Xe buýt [${data.busPlate}] đã được xếp ca "${conflictingAssignment.shift}" ngày ${data.date} (Mã phân công: ${conflictingAssignment.id}).`
+        : `Xung đột trùng lịch: Tài xế [${data.driverName}] đã có ca trực "${conflictingAssignment.shift}" ngày ${data.date} (Mã phân công: ${conflictingAssignment.id}).`;
+      return { success: false, message: conflictMsg };
     }
 
     const newId = `ASN-${String(assignments.length + 1).padStart(3, '0')}`;
     const newAssignment: BusAssignment = {
       ...data,
       id: newId,
+      busPlate: normalizedPlate,
     };
 
     setAssignments((prev) => [newAssignment, ...prev]);
@@ -1504,7 +1884,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       user: getActorName(),
       action: 'Thêm phân công lái xe / phụ xe',
       module: 'ASSIGNMENT',
-      description: `Phân công tài xế ${data.driverName} điều khiển xe ${data.busPlate} tuyến ${data.routeId}`,
+      description: `Phân công tài xế ${data.driverName} điều khiển xe ${normalizedPlate} tuyến ${data.routeId}`,
       status: 'SUCCESS',
       targetId: newId,
     });
@@ -1513,8 +1893,51 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateAssignment = (id: string, updates: Partial<BusAssignment>) => {
+    // Kiểm tra trùng lịch khi cập nhật (loại trừ chính id đang sửa)
+    const current = assignments.find((a) => a.id === id);
+    if (current) {
+      const targetDate = updates.date || current.date;
+      const targetShift = updates.shift || current.shift;
+      const targetBusPlate = (updates.busPlate || current.busPlate).trim().toUpperCase();
+      const targetDriverName = (updates.driverName || current.driverName).trim().toLowerCase();
+      const targetDriverId = updates.driverId || current.driverId;
+
+      const conflicting = assignments.find((a) => {
+        if (a.id === id || a.status === 'CANCELLED') return false;
+        const overlaps = isShiftOverlapping(targetShift, targetDate, a.shift, a.date);
+        if (!overlaps) return false;
+
+        if (a.busPlate.trim().toUpperCase() === targetBusPlate) return true;
+        if (
+          (targetDriverId && a.driverId === targetDriverId) ||
+          a.driverName.trim().toLowerCase() === targetDriverName
+        ) {
+          return true;
+        }
+        return false;
+      });
+
+      if (conflicting) {
+        const isBus = conflicting.busPlate.trim().toUpperCase() === targetBusPlate;
+        return {
+          success: false,
+          message: isBus
+            ? `Xung đột trùng lịch: Xe buýt [${targetBusPlate}] đã được xếp ca "${conflicting.shift}" ngày ${targetDate}!`
+            : `Xung đột trùng lịch: Tài xế [${updates.driverName || current.driverName}] đã có ca trực "${conflicting.shift}" ngày ${targetDate}!`,
+        };
+      }
+    }
+
     setAssignments((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, ...updates } : a))
+      prev.map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              ...updates,
+              ...(updates.busPlate ? { busPlate: updates.busPlate.trim().toUpperCase() } : {}),
+            }
+          : a
+      )
     );
 
     addAuditLog({
@@ -1543,6 +1966,143 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return { success: true };
   };
+
+  // 8. BUS FLEET MANAGEMENT (Sprint 2 - Quản lý xe buýt)
+  const addBus = (data: Omit<BusVehicle, 'id'>) => {
+    const normalizedPlate = data.plateNumber.trim().toUpperCase();
+    const existing = buses.find(
+      (b) => b.plateNumber.trim().toUpperCase() === normalizedPlate
+    );
+    if (existing) {
+      return { success: false, message: `Biển số xe [${data.plateNumber}] đã tồn tại trong đội xe!` };
+    }
+
+    const newId = `BUS-${String(buses.length + 1).padStart(2, '0')}`;
+    const newBus: BusVehicle = {
+      ...data,
+      id: newId,
+      plateNumber: normalizedPlate,
+    };
+
+    setBuses((prev) => [newBus, ...prev]);
+
+    addAuditLog({
+      user: getActorName(),
+      action: 'Thêm mới xe buýt vào đội xe',
+      module: 'VEHICLE',
+      description: `Thêm xe buýt [${newBus.plateNumber}] sức chứa ${newBus.capacity} chỗ (${newBus.rows} hàng x ${newBus.cols} cột)`,
+      status: 'SUCCESS',
+      targetId: newId,
+    });
+
+    return { success: true, bus: newBus };
+  };
+
+  const updateBus = (id: string, updates: Partial<BusVehicle>) => {
+    if (updates.plateNumber) {
+      const normalizedPlate = updates.plateNumber.trim().toUpperCase();
+      const duplicate = buses.find(
+        (b) => b.id !== id && b.plateNumber.trim().toUpperCase() === normalizedPlate
+      );
+      if (duplicate) {
+        return { success: false, message: `Biển số xe [${updates.plateNumber}] đã được sử dụng bởi xe khác!` };
+      }
+    }
+
+    setBuses((prev) =>
+      prev.map((b) =>
+        b.id === id
+          ? {
+              ...b,
+              ...updates,
+              ...(updates.plateNumber ? { plateNumber: updates.plateNumber.trim().toUpperCase() } : {}),
+            }
+          : b
+      )
+    );
+
+    addAuditLog({
+      user: getActorName(),
+      action: 'Cập nhật thông tin xe buýt',
+      module: 'VEHICLE',
+      description: `Cập nhật thông số/trạng thái xe [${id}]`,
+      status: 'SUCCESS',
+      targetId: id,
+    });
+
+    return { success: true };
+  };
+
+  const deleteBus = (id: string) => {
+    setBuses((prev) => prev.filter((b) => b.id !== id));
+
+    addAuditLog({
+      user: getActorName(),
+      action: 'Xóa xe buýt khỏi hệ thống',
+      module: 'VEHICLE',
+      description: `Xóa xe buýt mã [${id}]`,
+      status: 'SUCCESS',
+      targetId: id,
+    });
+
+    return { success: true };
+  };
+
+  // 9. TIMETABLE TEMPLATES (Sprint 2 - Quản lý thời gian biểu)
+  const addTimetable = (data: Omit<TimetableTemplate, 'id'>) => {
+    const newId = `TT-${String(timetables.length + 1).padStart(3, '0')}`;
+    const newTimetable: TimetableTemplate = {
+      ...data,
+      id: newId,
+    };
+
+    setTimetables((prev) => [newTimetable, ...prev]);
+
+    const route = routes.find((r) => r.id === data.routeId);
+    addAuditLog({
+      user: getActorName(),
+      action: 'Tạo thời gian biểu mẫu theo tuyến',
+      module: 'SCHEDULE',
+      description: `Tạo mẫu thời gian biểu [${data.name}] tuyến ${route?.code || data.routeId} (${data.firstDeparture} - ${data.lastDeparture}, tần suất ${data.frequencyMinutes}p)`,
+      status: 'SUCCESS',
+      targetId: newId,
+    });
+
+    return { success: true, timetable: newTimetable };
+  };
+
+  const updateTimetable = (id: string, updates: Partial<TimetableTemplate>) => {
+    setTimetables((prev) =>
+      prev.map((tt) => (tt.id === id ? { ...tt, ...updates } : tt))
+    );
+
+    addAuditLog({
+      user: getActorName(),
+      action: 'Cập nhật thời gian biểu mẫu',
+      module: 'SCHEDULE',
+      description: `Cập nhật thời gian biểu mã [${id}]`,
+      status: 'SUCCESS',
+      targetId: id,
+    });
+
+    return { success: true };
+  };
+
+  const deleteTimetable = (id: string) => {
+    setTimetables((prev) => prev.filter((tt) => tt.id !== id));
+
+    addAuditLog({
+      user: getActorName(),
+      action: 'Xóa thời gian biểu mẫu',
+      module: 'SCHEDULE',
+      description: `Xóa mẫu thời gian biểu mã [${id}]`,
+      status: 'SUCCESS',
+      targetId: id,
+    });
+
+    return { success: true };
+  };
+
 
   // 8. QR CODE SCANNING (Sprint 2)
   const scanQrCode = (qrString: string) => {
@@ -1637,6 +2197,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         auditLogs,
         addAuditLog,
+        refreshFromBackend,
 
         notifications,
         markNotificationAsRead,
@@ -1645,6 +2206,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // SPRINT 2
         trips,
         addTrip,
+        addTripsBatch,
         updateTrip,
         deleteTrip,
 
@@ -1673,8 +2235,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateAssignment,
         deleteAssignment,
 
+        buses,
+        addBus,
+        updateBus,
+        deleteBus,
+
+        timetables,
+        addTimetable,
+        updateTimetable,
+        deleteTimetable,
+
         scanQrCode,
       }}
+
     >
       {children}
     </DataContext.Provider>

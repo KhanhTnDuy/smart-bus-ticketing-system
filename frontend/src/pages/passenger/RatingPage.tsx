@@ -36,7 +36,7 @@ export const RatingPage: React.FC = () => {
     5: 'Rất hài lòng (5 sao) — Dịch vụ tuyệt vời, nhân viên lịch sự',
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!routeId) {
@@ -61,9 +61,8 @@ export const RatingPage: React.FC = () => {
       busPlate: busPlate.trim() || undefined,
     };
 
-    const res = addRating(ratingData);
-
-    setTimeout(() => {
+    try {
+      const res = await addRating(ratingData);
       setIsSubmitting(false);
       if (res.success) {
         success('Cảm ơn bạn đã gửi đánh giá! Ý kiến của bạn giúp nâng cao chất lượng dịch vụ xe buýt.');
@@ -73,7 +72,10 @@ export const RatingPage: React.FC = () => {
       } else {
         error(res.message || 'Gửi đánh giá không thành công.');
       }
-    }, 400);
+    } catch (err: any) {
+      setIsSubmitting(false);
+      error(err.message || 'Lỗi gửi đánh giá.');
+    }
   };
 
   return (
