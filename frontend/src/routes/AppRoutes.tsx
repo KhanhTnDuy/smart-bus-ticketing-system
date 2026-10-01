@@ -35,7 +35,6 @@ import { ElectronicTicketPage } from '../pages/passenger/ElectronicTicketPage';
 import { InvoicePage } from '../pages/passenger/InvoicePage';
 import { PaymentHistoryPage } from '../pages/passenger/PaymentHistoryPage';
 import { ComplaintPage } from '../pages/passenger/ComplaintPage';
-import { RatingPage } from '../pages/passenger/RatingPage';
 import { PassengerRatingPage } from '../pages/passenger/PassengerRatingPage';
 
 // Incident & Tracking Pages (Sprint 2 - Multi-role)
@@ -100,7 +99,6 @@ export const AppRoutes: React.FC = () => {
         <Route element={<RoleGuard allowedRoles={['PASSENGER', 'ADMIN']} />}>
           {/* Sprint 1 Passenger Features */}
           <Route path="/passenger/complaints" element={<ComplaintPage />} />
-          <Route path="/passenger/ratings" element={<RatingPage />} />
           {/* F15 - Đánh giá chất lượng chuyến đi (Thành viên C) */}
           <Route path="/passenger/rating" element={<PassengerRatingPage />} />
           {/* Sprint 2 Passenger Features */}
