@@ -5,7 +5,11 @@
  * thì mặc định về cổng dev của backend trong launchSettings.json.
  */
 
-const BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5180').replace(/\/+$/, '');
+const configuredUrl = import.meta.env.VITE_API_URL;
+if (!configuredUrl && import.meta.env.DEV) {
+  console.warn('[API Client] Biến môi trường VITE_API_URL chưa được thiết lập, đang sử dụng fallback: http://localhost:5180');
+}
+const BASE_URL = (configuredUrl || 'http://localhost:5180').replace(/\/+$/, '');
 
 const TOKEN_STORAGE_KEY = 'smart_bus_access_token';
 
@@ -118,5 +122,6 @@ export const api = {
     request<T>(path, { method: 'GET', query, signal }),
   post: <T>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body }),
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
+  patch: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body }),
   del: (path: string) => request<void>(path, { method: 'DELETE' }),
 };
