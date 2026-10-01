@@ -26,10 +26,14 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { Badge } from '../../components/common/Badge';
 
 export const RouteBookingPage: React.FC = () => {
-  const { routes, trips, bookTicket, processPayment } = useData();
+  const { routes, trips, stops, fares, bookTicket, processPayment } = useData();
   const { currentUser } = useAuth();
-  const { success, error, warning } = useToast();
+  const { success, error, warning, info } = useToast();
   const navigate = useNavigate();
+
+  // Maximum seats allowed per booking
+  const MAX_SEATS_PER_BOOKING = 4;
+  const todayString = new Date().toISOString().split('T')[0];
 
   // Booking Flow Steps: 1: SEARCH, 2: SEATS, 3: PAYMENT, 4: SUCCESS
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
@@ -37,19 +41,37 @@ export const RouteBookingPage: React.FC = () => {
   // Search Filters
   const [departurePoint, setDeparturePoint] = useState<string>('ALL');
   const [destinationPoint, setDestinationPoint] = useState<string>('ALL');
-  const [travelDate, setTravelDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  );
+  const [travelDate, setTravelDate] = useState<string>(todayString);
   const [selectedRouteFilter, setSelectedRouteFilter] = useState<string>('ALL');
 
-  // Selected Trip & Seat
+  // Selected Trip & Seats (hỗ trợ chọn và bỏ chọn nhiều ghế, tối đa 4 ghế)
   const [selectedTrip, setSelectedTrip] = useState<BusTrip | null>(null);
-  const [selectedSeat, setSelectedSeat] = useState<string>('');
+  const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
+
+  // Passenger Type & Fare Calculation (Requirement 10)
+  const [passengerType, setPassengerType] = useState<'REGULAR' | 'STUDENT' | 'ELDERLY_DISABLED'>('REGULAR');
 
   // Passenger Contact Form
   const [passengerName, setPassengerName] = useState(currentUser?.fullName || '');
   const [passengerEmail, setPassengerEmail] = useState(currentUser?.email || '');
   const [passengerPhone, setPassengerPhone] = useState(currentUser?.phone || '');
+
+  // Computed unit price based on route and passenger type (Requirement 10)
+  const currentUnitPrice = useMemo(() => {
+    if (!selectedTrip) return 0;
+    const matchedFare = fares.find(
+      (f) => f.routeId === selectedTrip.routeId && f.passengerType === passengerType && f.status === 'ACTIVE'
+    );
+    if (matchedFare) return matchedFare.price;
+    if (passengerType === 'STUDENT') return Math.round(selectedTrip.price * 0.5);
+    if (passengerType === 'ELDERLY_DISABLED') return 0;
+    return selectedTrip.price;
+  }, [selectedTrip, fares, passengerType]);
+
+  const totalCalculatedAmount = useMemo(() => {
+    return currentUnitPrice * selectedSeats.length;
+  }, [currentUnitPrice, selectedSeats]);
+
 
   // Payment Selection
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('MOMO');
@@ -58,15 +80,65 @@ export const RouteBookingPage: React.FC = () => {
 
   // All distinct start and end points for filter dropdowns
   const startPoints = useMemo(() => {
-    return Array.from(new Set(routes.map((r) => r.startPoint)));
+    const list = new Set<string>();
+    routes.forEach((r) => list.add(r.startPoint));
+    return Array.from(list);
   }, [routes]);
 
   const endPoints = useMemo(() => {
-    return Array.from(new Set(routes.map((r) => r.endPoint)));
+    const list = new Set<string>();
+    routes.forEach((r) => list.add(r.endPoint));
+    return Array.from(list);
   }, [routes]);
+
+  // Validation: Xử lý ngoại lệ chọn sai thứ tự trạm hoặc trùng trạm
+  const stopOrderValidation = useMemo(() => {
+    if (departurePoint === 'ALL' || destinationPoint === 'ALL') {
+      return { isValid: true, message: '' };
+    }
+    // Trùng điểm đi và điểm đến
+    if (departurePoint === destinationPoint) {
+      return {
+        isValid: false,
+        message: 'Điểm đi và điểm đến không được trùng nhau! Vui lòng chọn điểm đến khác.',
+      };
+    }
+
+    // Kiểm tra thứ tự trạm theo tuyến (nếu cả 2 điểm thuộc danh sách trạm của tuyến nào đó)
+    for (const route of routes) {
+      const routeStops = stops.filter((s) => s.routeId === route.id).sort((a, b) => a.order - b.order);
+      const startIdx = routeStops.findIndex(
+        (s) => s.name === departurePoint || route.startPoint === departurePoint
+      );
+      const endIdx = routeStops.findIndex(
+        (s) => s.name === destinationPoint || route.endPoint === destinationPoint
+      );
+
+      if (startIdx !== -1 && endIdx !== -1 && startIdx >= endIdx) {
+        return {
+          isValid: false,
+          message: `Thứ tự trạm không hợp lệ: Trạm lên xe "${departurePoint}" phải nằm trước trạm xuống xe "${destinationPoint}" theo lộ trình tuyến ${route.code}!`,
+        };
+      }
+    }
+
+    return { isValid: true, message: '' };
+  }, [departurePoint, destinationPoint, routes, stops]);
+
+  // Handle date change with validation for past date
+  const handleDateChange = (newDate: string) => {
+    if (newDate && newDate < todayString) {
+      warning('Không thể chọn ngày trong quá khứ! Hệ thống đã tự động chuyển về ngày hôm nay.');
+      setTravelDate(todayString);
+      return;
+    }
+    setTravelDate(newDate);
+  };
 
   // Filtered trips
   const availableTrips = useMemo(() => {
+    if (!stopOrderValidation.isValid) return [];
+
     return trips.filter((trip) => {
       const route = routes.find((r) => r.id === trip.routeId);
       if (!route) return false;
@@ -81,28 +153,41 @@ export const RouteBookingPage: React.FC = () => {
 
       return matchRoute && matchDeparture && matchDestination && matchDate;
     });
-  }, [trips, routes, selectedRouteFilter, departurePoint, destinationPoint, travelDate]);
+  }, [trips, routes, selectedRouteFilter, departurePoint, destinationPoint, travelDate, stopOrderValidation]);
 
   // Step 1: Handle trip selection ("Đặt vé")
   const handleSelectTrip = (trip: BusTrip) => {
     setSelectedTrip(trip);
-    setSelectedSeat('');
+    setSelectedSeats([]);
     setCurrentStep(2);
   };
 
-  // Step 2: Handle seat selection
+  // Step 2: Handle seat selection & deselection (Toggle + Limit)
   const handleSeatClick = (seatId: string) => {
     if (!selectedTrip) return;
     if (selectedTrip.bookedSeats.includes(seatId)) {
       warning(`Ghế ${seatId} đã được đặt trước bởi hành khách khác.`);
       return;
     }
-    setSelectedSeat(seatId);
+
+    if (selectedSeats.includes(seatId)) {
+      // BỎ CHỌN GHẾ
+      setSelectedSeats((prev) => prev.filter((s) => s !== seatId));
+      info(`Đã hủy chọn ghế ${seatId}`);
+    } else {
+      // GIỚI HẠN SỐ GHẾ MỖI LẦN ĐẶT (Tối đa 4 ghế)
+      if (selectedSeats.length >= MAX_SEATS_PER_BOOKING) {
+        warning(`Mỗi lần đặt vé chỉ được chọn tối đa ${MAX_SEATS_PER_BOOKING} ghế theo quy định.`);
+        return;
+      }
+      // CHỌN THÊM GHẾ
+      setSelectedSeats((prev) => [...prev, seatId]);
+    }
   };
 
   const handleProceedToPayment = () => {
-    if (!selectedSeat) {
-      error('Vui lòng chọn 1 vị trí ghế ngồi trước khi tiếp tục.');
+    if (selectedSeats.length === 0) {
+      error('Vui lòng chọn ít nhất 1 vị trí ghế ngồi trước khi tiếp tục.');
       return;
     }
     if (!passengerName.trim() || !passengerPhone.trim()) {
@@ -114,24 +199,26 @@ export const RouteBookingPage: React.FC = () => {
 
   // Step 3: Handle simulated payment
   const handlePayNow = async () => {
-    if (!selectedTrip || !selectedSeat) return;
+    if (!selectedTrip || selectedSeats.length === 0) return;
 
     setIsProcessingPayment(true);
+    const totalAmount = totalCalculatedAmount;
 
     try {
-      // 1. Create booking ticket
+      // 1. Create booking ticket for all selected seats
       const bookRes = bookTicket({
         tripId: selectedTrip.id,
         routeId: selectedTrip.routeId,
-        seatNumber: selectedSeat,
-        passengerName: passengerName.trim(),
+        seatNumber: selectedSeats.join(', '),
+        passengerName: `${passengerName.trim()} (${passengerType === 'REGULAR' ? 'Phổ thông' : passengerType === 'STUDENT' ? 'HSSV' : 'Người cao tuổi'})`,
         passengerEmail: passengerEmail.trim(),
         passengerPhone: passengerPhone.trim(),
-        price: selectedTrip.price,
+        price: totalAmount,
         busPlate: selectedTrip.busPlate,
         departureDate: selectedTrip.departureDate,
         departureTime: selectedTrip.departureTime,
       });
+
 
       if (!bookRes.success || !bookRes.data) {
         error(bookRes.message || 'Không thể tạo vé xe.');
@@ -145,14 +232,14 @@ export const RouteBookingPage: React.FC = () => {
       const payRes = await processPayment(newTicket.id, paymentMethod);
       if (payRes.success) {
         success(
-          `Thanh toán ${selectedTrip.price.toLocaleString('vi-VN')} VNĐ qua ${paymentMethod} thành công!`
+          `Thanh toán ${totalAmount.toLocaleString('vi-VN')} VNĐ (${selectedSeats.length} ghế) qua ${paymentMethod} thành công!`
         );
         setCreatedTicketId(newTicket.id);
         setCurrentStep(4);
       } else {
         error(payRes.message || 'Thanh toán thất bại.');
       }
-    } catch (e) {
+    } catch {
       error('Có lỗi trong quá trình xử lý giao dịch thanh toán.');
     } finally {
       setIsProcessingPayment(false);
@@ -161,9 +248,16 @@ export const RouteBookingPage: React.FC = () => {
 
   const resetFlow = () => {
     setSelectedTrip(null);
-    setSelectedSeat('');
+    setSelectedSeats([]);
     setCurrentStep(1);
     setCreatedTicketId('');
+  };
+
+  const handleResetSearch = () => {
+    setDeparturePoint('ALL');
+    setDestinationPoint('ALL');
+    setTravelDate(todayString);
+    setSelectedRouteFilter('ALL');
   };
 
   // Bus seat rows generator (A1-A4, B1-B4, C1-C4, D1-D4, E1-E4, F1-F4)
@@ -246,11 +340,22 @@ export const RouteBookingPage: React.FC = () => {
         <div className="space-y-6">
           {/* Search Box */}
           <div className="bg-white dark:bg-[#131e3a] p-5 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm space-y-4">
-            <div className="border-b border-slate-100 dark:border-slate-800 pb-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
               <h3 className="text-xs font-bold uppercase tracking-wider text-institutional-900 dark:text-sky-300">
                 Bộ lọc tìm kiếm tuyến xe buýt:
               </h3>
+              <span className="text-[11px] text-slate-400">
+                * Chọn điểm đi, điểm đến và ngày khởi hành để tra cứu các chuyến xe phù hợp
+              </span>
             </div>
+
+            {/* Validation Banner: Cảnh báo ngoại lệ chọn sai thứ tự trạm hoặc trùng trạm */}
+            {!stopOrderValidation.isValid && (
+              <div className="p-3 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex items-center gap-2.5 text-rose-700 dark:text-rose-300 animate-pulse">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                <span className="font-semibold text-xs">{stopOrderValidation.message}</span>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {/* Điểm đi */}
@@ -261,7 +366,11 @@ export const RouteBookingPage: React.FC = () => {
                 <select
                   value={departurePoint}
                   onChange={(e) => setDeparturePoint(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                  className={`w-full px-3 py-2 text-xs rounded border bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 ${
+                    !stopOrderValidation.isValid
+                      ? 'border-rose-400 focus:ring-rose-500'
+                      : 'border-slate-300 dark:border-slate-700 focus:ring-institutional-500'
+                  }`}
                 >
                   <option value="ALL">-- Tất cả điểm đi --</option>
                   {startPoints.map((p) => (
@@ -280,7 +389,11 @@ export const RouteBookingPage: React.FC = () => {
                 <select
                   value={destinationPoint}
                   onChange={(e) => setDestinationPoint(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                  className={`w-full px-3 py-2 text-xs rounded border bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 ${
+                    !stopOrderValidation.isValid
+                      ? 'border-rose-400 focus:ring-rose-500'
+                      : 'border-slate-300 dark:border-slate-700 focus:ring-institutional-500'
+                  }`}
                 >
                   <option value="ALL">-- Tất cả điểm đến --</option>
                   {endPoints.map((p) => (
@@ -291,16 +404,17 @@ export const RouteBookingPage: React.FC = () => {
                 </select>
               </div>
 
-              {/* Ngày đi */}
+              {/* Ngày đi - Xử lý ngoại lệ không cho chọn ngày trong quá khứ */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                  Ngày khởi hành
+                  Ngày khởi hành (Từ hôm nay)
                 </label>
                 <input
                   type="date"
                   value={travelDate}
-                  onChange={(e) => setTravelDate(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                  min={todayString}
+                  onChange={(e) => handleDateChange(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500 font-mono"
                 />
               </div>
 
@@ -324,13 +438,23 @@ export const RouteBookingPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex justify-end pt-2">
+            <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
-                className="flex items-center gap-2 px-5 py-2 rounded bg-institutional-700 hover:bg-institutional-800 text-white text-xs font-bold uppercase tracking-wider shadow-sm transition-colors"
+                onClick={handleResetSearch}
+                className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 flex items-center gap-1.5 font-medium"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Đặt lại bộ lọc mặc định</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={!stopOrderValidation.isValid}
+                className="flex items-center gap-2 px-5 py-2 rounded bg-institutional-700 hover:bg-institutional-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold uppercase tracking-wider shadow-sm transition-colors"
               >
                 <Search className="w-4 h-4" />
-                <span>Tìm tuyến</span>
+                <span>Tra Cứu Chuyến Xe</span>
               </button>
             </div>
           </div>
@@ -347,8 +471,34 @@ export const RouteBookingPage: React.FC = () => {
             </div>
 
             {availableTrips.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-400">
-                Không tìm thấy chuyến xe nào phù hợp với điều kiện tìm kiếm. Hãy đổi ngày đi hoặc điểm đến.
+              <div className="p-10 text-center space-y-3">
+                <div className="w-12 h-12 mx-auto rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
+                  <Calendar className="w-6 h-6" />
+                </div>
+                <div className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                  {!stopOrderValidation.isValid
+                    ? stopOrderValidation.message
+                    : 'Không tìm thấy chuyến xe nào phù hợp'}
+                </div>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  {!stopOrderValidation.isValid
+                    ? 'Vui lòng chọn lại điểm đi và điểm đến hợp lệ để hệ thống hiển thị danh sách các chuyến xe.'
+                    : `Không có chuyến xe nào chạy từ ${
+                        departurePoint === 'ALL' ? 'mọi điểm' : `bến "${departurePoint}"`
+                      } đến ${
+                        destinationPoint === 'ALL' ? 'mọi điểm' : `bến "${destinationPoint}"`
+                      } vào ngày ${travelDate}. Hãy thử đổi ngày khởi hành hoặc chọn tuyến khác.`}
+                </p>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={handleResetSearch}
+                    className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-lg transition-colors inline-flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Đặt lại bộ lọc tìm kiếm</span>
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -456,15 +606,17 @@ export const RouteBookingPage: React.FC = () => {
             <div className="flex flex-wrap items-center gap-4 text-xs p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-1.5">
                 <div className="w-4 h-4 rounded bg-white dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-600" />
-                <span className="text-slate-600 dark:text-slate-300">Ghế trống</span>
+                <span className="text-slate-600 dark:text-slate-300">Ghế trống (Nhấp để chọn)</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-4 h-4 rounded bg-amber-400 border-2 border-amber-600" />
-                <span className="text-slate-900 dark:text-white font-bold">Đang chọn</span>
+                <span className="text-slate-900 dark:text-white font-bold">
+                  Đang chọn ({selectedSeats.length}/{MAX_SEATS_PER_BOOKING})
+                </span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-4 h-4 rounded bg-rose-500 border-2 border-rose-700" />
-                <span className="text-slate-600 dark:text-slate-300">Đã đặt</span>
+                <span className="text-slate-600 dark:text-slate-300">Đã bán</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-4 h-4 rounded bg-slate-300 dark:bg-slate-700 border-2 border-slate-400" />
@@ -493,7 +645,7 @@ export const RouteBookingPage: React.FC = () => {
                       {[1, 2].map((col) => {
                         const seatId = `${row}${col}`;
                         const isBooked = selectedTrip.bookedSeats.includes(seatId);
-                        const isSelected = selectedSeat === seatId;
+                        const isSelected = selectedSeats.includes(seatId);
 
                         return (
                           <button
@@ -508,7 +660,13 @@ export const RouteBookingPage: React.FC = () => {
                                 ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-900 cursor-not-allowed opacity-70'
                                 : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-2 border-slate-300 dark:border-slate-700 hover:border-institutional-500 hover:bg-blue-50 dark:hover:bg-slate-700'
                             }`}
-                            title={isBooked ? `Ghế ${seatId} đã đặt` : `Chọn ghế ${seatId}`}
+                            title={
+                              isSelected
+                                ? `Nhấp để hủy chọn ghế ${seatId}`
+                                : isBooked
+                                ? `Ghế ${seatId} đã đặt`
+                                : `Chọn ghế ${seatId} (${selectedTrip.price.toLocaleString('vi-VN')} đ)`
+                            }
                           >
                             <Armchair className="w-3.5 h-3.5" />
                             <span>{seatId}</span>
@@ -527,7 +685,7 @@ export const RouteBookingPage: React.FC = () => {
                       {[3, 4].map((col) => {
                         const seatId = `${row}${col}`;
                         const isBooked = selectedTrip.bookedSeats.includes(seatId);
-                        const isSelected = selectedSeat === seatId;
+                        const isSelected = selectedSeats.includes(seatId);
 
                         return (
                           <button
@@ -542,7 +700,13 @@ export const RouteBookingPage: React.FC = () => {
                                 ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-900 cursor-not-allowed opacity-70'
                                 : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-2 border-slate-300 dark:border-slate-700 hover:border-institutional-500 hover:bg-blue-50 dark:hover:bg-slate-700'
                             }`}
-                            title={isBooked ? `Ghế ${seatId} đã đặt` : `Chọn ghế ${seatId}`}
+                            title={
+                              isSelected
+                                ? `Nhấp để hủy chọn ghế ${seatId}`
+                                : isBooked
+                                ? `Ghế ${seatId} đã đặt`
+                                : `Chọn ghế ${seatId} (${selectedTrip.price.toLocaleString('vi-VN')} đ)`
+                            }
                           >
                             <Armchair className="w-3.5 h-3.5" />
                             <span>{seatId}</span>
@@ -602,27 +766,90 @@ export const RouteBookingPage: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center">
-                  <span className="text-slate-700 dark:text-slate-300 font-bold">Ghế đã chọn:</span>
-                  <span className="text-sm font-black text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 px-3 py-1 rounded border border-amber-300 dark:border-amber-800">
-                    {selectedSeat || 'Chưa chọn'}
-                  </span>
+                {/* Danh sách ghế đã chọn & nút xóa từng ghế */}
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-700 dark:text-slate-300 font-bold">Ghế đã chọn:</span>
+                    <span className="text-[11px] font-semibold text-slate-500">
+                      {selectedSeats.length} / {MAX_SEATS_PER_BOOKING} ghế tối đa
+                    </span>
+                  </div>
+
+                  {selectedSeats.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedSeats.map((seat) => (
+                        <span
+                          key={seat}
+                          className="inline-flex items-center gap-1 text-xs font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-950/80 px-2.5 py-1 rounded-md border border-amber-300 dark:border-amber-700"
+                        >
+                          {seat}
+                          <button
+                            type="button"
+                            onClick={() => handleSeatClick(seat)}
+                            className="text-amber-700 hover:text-rose-600 font-bold ml-1 text-sm leading-none"
+                            title={`Bỏ chọn ghế ${seat}`}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-slate-400 italic">
+                      Chưa chọn ghế nào (Nhấp vào ghế trống để chọn)
+                    </div>
+                  )}
+                </div>
+
+                {/* Lựa chọn loại đối tượng hành khách (Requirement 10) */}
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-1">
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold">
+                    Loại đối tượng hành khách:
+                  </label>
+                  <select
+                    value={passengerType}
+                    onChange={(e) => setPassengerType(e.target.value as 'REGULAR' | 'STUDENT' | 'ELDERLY_DISABLED')}
+                    className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] font-semibold text-slate-800 dark:text-slate-100"
+                  >
+                    <option value="REGULAR">Vé phổ thông (Toàn tuyến)</option>
+                    <option value="STUDENT">Học sinh / Sinh viên (Trợ giá đặc biệt)</option>
+                    <option value="ELDERLY_DISABLED">Người cao tuổi / Khuyết tật (Miễn phí)</option>
+                  </select>
+                  {passengerType === 'STUDENT' && (
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                      * Trợ giá vé: Vui lòng xuất trình thẻ HSSV hợp lệ khi lên xe.
+                    </p>
+                  )}
+                  {passengerType === 'ELDERLY_DISABLED' && (
+                    <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                      * Miễn phí 100% vé xe theo chính sách an sinh giao thông công cộng.
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-700 dark:text-slate-300 font-bold">Đơn giá vé:</span>
+                  <span className="text-slate-700 dark:text-slate-300 font-bold">Đơn giá vé theo đối tượng:</span>
                   <span className="font-mono font-bold text-slate-900 dark:text-white">
-                    {selectedTrip.price.toLocaleString('vi-VN')} VNĐ
+                    {currentUnitPrice === 0 ? 'MIỄN PHÍ (0 VNĐ)' : `${currentUnitPrice.toLocaleString('vi-VN')} VNĐ / vé`}
                   </span>
                 </div>
 
+                {/* Tổng tiền tạm tính */}
                 <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center text-sm">
-                  <span className="font-bold text-slate-900 dark:text-white uppercase">Tổng tiền:</span>
-                  <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-base">
-                    {selectedSeat ? `${selectedTrip.price.toLocaleString('vi-VN')} VNĐ` : '0 VNĐ'}
-                  </span>
+                  <span className="font-bold text-slate-900 dark:text-white uppercase">Tổng tiền tạm tính:</span>
+                  <div className="text-right">
+                    <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-base">
+                      {totalCalculatedAmount === 0 ? '0 VNĐ (Miễn phí)' : `${totalCalculatedAmount.toLocaleString('vi-VN')} VNĐ`}
+                    </span>
+                    {selectedSeats.length > 0 && (
+                      <div className="text-[10px] text-slate-400 font-normal">
+                        ({currentUnitPrice.toLocaleString('vi-VN')} đ × {selectedSeats.length} ghế)
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
+
 
               {/* Passenger contact information */}
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
@@ -675,10 +902,10 @@ export const RouteBookingPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleProceedToPayment}
-                  disabled={!selectedSeat}
+                  disabled={selectedSeats.length === 0}
                   className="flex items-center gap-1.5 px-4 py-2 rounded bg-institutional-700 hover:bg-institutional-800 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold uppercase tracking-wider shadow-sm transition-colors"
                 >
-                  <span>Tiếp tục thanh toán</span>
+                  <span>Tiếp tục thanh toán ({selectedSeats.length} ghế)</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -691,7 +918,7 @@ export const RouteBookingPage: React.FC = () => {
       {/* ==============================================================
           STEP 3: PAYMENT METHOD & CONFIRMATION
       ============================================================== */}
-      {currentStep === 3 && selectedTrip && selectedSeat && (
+      {currentStep === 3 && selectedTrip && selectedSeats.length > 0 && (
         <div className="max-w-2xl mx-auto bg-white dark:bg-[#131e3a] p-6 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm space-y-6 text-xs">
           
           <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -714,16 +941,29 @@ export const RouteBookingPage: React.FC = () => {
               <span>{selectedRouteObj?.code} • {selectedTrip.departureTime} ({selectedTrip.departureDate})</span>
             </div>
             <div className="flex justify-between text-slate-700 dark:text-slate-300">
-              <span>Vị trí ghế:</span>
-              <span className="font-bold text-amber-600 dark:text-amber-400">{selectedSeat}</span>
+              <span>Đối tượng hành khách:</span>
+              <span className="font-bold text-institutional-600 dark:text-sky-300">
+                {passengerType === 'REGULAR'
+                  ? 'Vé phổ thông (100%)'
+                  : passengerType === 'STUDENT'
+                  ? 'Học sinh / Sinh viên (Trợ giá)'
+                  : 'Người cao tuổi / Khuyết tật (Miễn phí 100%)'}
+              </span>
+            </div>
+            <div className="flex justify-between text-slate-700 dark:text-slate-300">
+              <span>Vị trí ghế đã chọn:</span>
+              <span className="font-bold text-amber-600 dark:text-amber-400">
+                {selectedSeats.join(', ')} ({selectedSeats.length} ghế)
+              </span>
             </div>
             <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center text-sm font-bold text-emerald-600 dark:text-emerald-400">
               <span>Tổng số tiền cần thanh toán:</span>
               <span className="text-base font-black font-mono">
-                {selectedTrip.price.toLocaleString('vi-VN')} VNĐ
+                {totalCalculatedAmount === 0 ? '0 VNĐ (Miễn phí)' : `${totalCalculatedAmount.toLocaleString('vi-VN')} VNĐ`}
               </span>
             </div>
           </div>
+
 
           {/* Selectable Payment Methods (MoMo, VNPay, ZaloPay, Bank Transfer) */}
           <div className="space-y-3">
@@ -860,7 +1100,7 @@ export const RouteBookingPage: React.FC = () => {
               ) : (
                 <>
                   <CreditCard className="w-4 h-4" />
-                  <span>Xác nhận thanh toán ngay</span>
+                  <span>Xác nhận thanh toán {(selectedTrip.price * selectedSeats.length).toLocaleString('vi-VN')} VNĐ</span>
                 </>
               )}
             </button>
@@ -899,8 +1139,8 @@ export const RouteBookingPage: React.FC = () => {
               <span className="font-bold text-slate-900 dark:text-white">{selectedRouteObj?.name}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-500">Ghế ngồi:</span>
-              <span className="font-extrabold text-amber-600 dark:text-amber-400 font-mono text-sm">{selectedSeat}</span>
+              <span className="text-slate-500">Ghế ngồi ({selectedSeats.length} vé):</span>
+              <span className="font-extrabold text-amber-600 dark:text-amber-400 font-mono text-sm">{selectedSeats.join(', ')}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Thời gian:</span>

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   FileText,
   Search,
@@ -14,6 +14,8 @@ import {
   Layers,
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
+import { useToast } from '../../context/ToastContext';
+import { auditService } from '../../services/auditService';
 import { AuditLog, AuditModule, AuditStatus } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Badge } from '../../components/common/Badge';
@@ -22,6 +24,7 @@ import { EmptyState } from '../../components/common/EmptyState';
 
 export const AuditLogPage: React.FC = () => {
   const { auditLogs } = useData();
+  const { error: toastError } = useToast();
 
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -29,12 +32,50 @@ export const AuditLogPage: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [filterDate, setFilterDate] = useState<string>('');
 
+  // Server-fetched logs (nếu backend hỗ trợ API /audit-logs)
+  const [serverLogs, setServerLogs] = useState<AuditLog[] | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
   // Selected Log for View Detail
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
 
-  // Filtered Logs
-  const filteredLogs = useMemo(() => {
+  // Gọi API backend khi thay đổi bộ lọc hoặc thời gian
+  useEffect(() => {
+    let isMounted = true;
+    const fetchLogs = async () => {
+      setIsLoading(true);
+      try {
+        const res = await auditService.getAll({
+          module: filterModule,
+          status: filterStatus,
+          date: filterDate,
+          search: searchTerm,
+        });
+        if (isMounted && res) {
+          setServerLogs(res);
+        }
+      } catch (err: any) {
+        if (err.status === 400) {
+          toastError(err.message || 'Khoảng thời gian hoặc tham số lọc không hợp lệ (Mã: 400).');
+        }
+        // Backend offline hoặc lỗi: fallback lọc client-side
+        if (isMounted) {
+          setServerLogs(null);
+        }
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+
+    fetchLogs();
+    return () => {
+      isMounted = false;
+    };
+  }, [searchTerm, filterModule, filterStatus, filterDate]);
+
+  // Client-side fallback filtered logs
+  const clientFilteredLogs = useMemo(() => {
     return auditLogs.filter((log) => {
       const matchSearch =
         log.user.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -49,6 +90,8 @@ export const AuditLogPage: React.FC = () => {
       return matchSearch && matchModule && matchStatus && matchDate;
     });
   }, [auditLogs, searchTerm, filterModule, filterStatus, filterDate]);
+
+  const filteredLogs = serverLogs !== null ? serverLogs : clientFilteredLogs;
 
   const handleClearFilters = () => {
     setSearchTerm('');

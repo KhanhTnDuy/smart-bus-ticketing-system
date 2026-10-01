@@ -2,6 +2,9 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Role } from '../types';
 import { INITIAL_USERS } from '../data/mockData';
 
+import { authService } from '../services/authService';
+import { TOKEN_STORAGE_KEY } from '../services/apiClient';
+
 interface AuthContextType {
   currentUser: User | null;
   isAuthenticated: boolean;
@@ -38,15 +41,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [currentUser]);
 
-  const login = async (identity: string, password: string): Promise<{ success: boolean; message?: string }> => {
-    // Simulated network delay
-    await new Promise((resolve) => setTimeout(resolve, 600));
+  // Kiểm tra token khi khởi động
+  useEffect(() => {
+    const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+    if (token) {
+      authService.getMe().then((user) => {
+        if (user) {
+          setCurrentUser(user);
+        }
+      }).catch(() => {
+        // Token hết hạn hoặc server offline
+      });
+    }
+  }, []);
 
-    const cleanIdentity = identity.trim().toLowerCase();
-    
-    // Check against mock users
+  const login = async (identity: string, password: string): Promise<{ success: boolean; message?: string }> => {
+    const cleanIdentity = identity.trim();
+
+    // 1. Thử gọi API Backend thật (/api/v1/auth/login)
+    try {
+      const apiResult = await authService.login(cleanIdentity, password);
+      if (apiResult.success && apiResult.user) {
+        setCurrentUser(apiResult.user);
+        return { success: true };
+      }
+      // Nếu Backend trả về thông báo lỗi nghiệp vụ cụ thể (sai mật khẩu, tài khoản bị khóa, v.v.)
+      if (apiResult.message && !apiResult.message.includes('Offline') && !apiResult.message.includes('kết nối')) {
+        return { success: false, message: apiResult.message };
+      }
+    } catch (err: any) {
+      console.warn('Backend login endpoint unavailable, trying local fallback...', err);
+    }
+
+    // 2. Fallback kiểm tra dữ liệu local khi Backend offline
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const lowerIdentity = cleanIdentity.toLowerCase();
+
     const matchedUser = INITIAL_USERS.find(
-      (u) => u.email.toLowerCase() === cleanIdentity || u.username.toLowerCase() === cleanIdentity
+      (u) => u.email.toLowerCase() === lowerIdentity || u.username.toLowerCase() === lowerIdentity
     );
 
     if (!matchedUser) {
@@ -73,11 +105,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ? 'driver123'
         : 'passenger123';
 
-    // Allow user-specific password or fallback to standard role password
     if (password !== expectedPassword && password !== '123456') {
       return {
         success: false,
-        message: `Mật khẩu không chính xác. Gợi ý kiểm thử: ${expectedPassword}`,
+        message: `Mật khẩu không chính xác. Gợi ý: ${expectedPassword}`,
       };
     }
 
@@ -85,9 +116,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await authService.logout();
+    } catch (e) {
+      // Bỏ qua lỗi mạng khi logout
+    }
     setCurrentUser(null);
     localStorage.removeItem(USER_STORAGE_KEY);
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
   };
 
   const switchUser = (userId: string) => {

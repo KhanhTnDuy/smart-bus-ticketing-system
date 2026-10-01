@@ -106,9 +106,6 @@ export const DashboardPage: React.FC = () => {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="bg-amber-500 text-slate-900 text-[10px] font-black uppercase px-2 py-0.5 rounded">
-                    Mới • Sprint 2
-                  </span>
                   <h2 className="text-sm font-bold uppercase tracking-wider text-institutional-900 dark:text-sky-300">
                     Nghiệp Vụ Bán Vé & Vận Hành Thời Gian Thực
                   </h2>
@@ -371,7 +368,7 @@ export const DashboardPage: React.FC = () => {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-wider text-institutional-800 dark:text-sky-400">
-                  Lối Tắt Nghiệp Vụ Cơ Bản (Sprint 1)
+                  Lối Tắt Nghiệp Vụ Cơ Bản
                 </h2>
                 <div className="h-0.5 bg-amber-500 w-16 mt-1 rounded-full" />
               </div>

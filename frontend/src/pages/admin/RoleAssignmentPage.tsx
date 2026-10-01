@@ -40,9 +40,9 @@ export const RoleAssignmentPage: React.FC = () => {
     setIsConfirmModalOpen(true);
   };
 
-  const handleConfirmRoleChange = () => {
+  const handleConfirmRoleChange = async () => {
     if (!selectedUser) return;
-    const res = assignRole(selectedUser.id, targetRole);
+    const res = await assignRole(selectedUser.id, targetRole);
     if (res.success) {
       success(`Cập nhật vai trò cho [${selectedUser.fullName}] sang ${targetRole} thành công!`);
       setIsConfirmModalOpen(false);
