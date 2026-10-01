@@ -14,6 +14,7 @@ import { RoleMatrixPage } from '../pages/admin/RoleMatrixPage';
 import { ManagerPlaceholder } from '../pages/manager/ManagerPlaceholder';
 import { DriverPlaceholder } from '../pages/driver/DriverPlaceholder';
 import { PassengerFeedbackPage } from '../pages/passenger/PassengerFeedbackPage';
+import { PassengerRatingPage } from '../pages/passenger/PassengerRatingPage';
 import { UnauthorizedPage } from '../pages/common/UnauthorizedPage';
 import { NotFoundPage } from '../pages/common/NotFoundPage';
 
@@ -79,7 +80,7 @@ export const AppRoutes = () => {
         {/* 4. Phân hệ PASSENGER: Dành riêng cho Hành khách */}
         <Route element={<ProtectedRoute allowedRoles={[ROLES.PASSENGER]} />}>
           <Route path="/passenger/feedback" element={<PassengerFeedbackPage mode="feedback" />} />
-          <Route path="/passenger/rating" element={<PassengerFeedbackPage mode="rating" />} />
+          <Route path="/passenger/rating" element={<PassengerRatingPage />} />
         </Route>
 
         {/* Trang 403 Forbidden trực tiếp (nếu cần truy cập) */}
