@@ -142,7 +142,11 @@ public class AppDbContext : DbContext
                 .HasForeignKey(t => t.ScheduleId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(t => t.Bus).WithMany(b => b.Trips)
                 .HasForeignKey(t => t.BusId).OnDelete(DeleteBehavior.SetNull);
-            e.HasIndex(t => new { t.BusId, t.DepartureAt }).IsUnique();
+            // MySQL does not support filtered unique indexes, so cancelled trips return NULL
+            // and do not reserve the bus/time slot.
+            e.Property<string?>("ActiveBusDepartureKey")
+                .HasComputedColumnSql("(CASE WHEN `BusId` IS NOT NULL AND `Status` <> 'Cancelled' THEN CONCAT(`BusId`, '-', DATE_FORMAT(`DepartureAt`, '%Y-%m-%d %H:%i:%s.%f')) END)", stored: true);
+            e.HasIndex("ActiveBusDepartureKey").IsUnique();
         });
 
         modelBuilder.Entity<TripStaff>(e =>

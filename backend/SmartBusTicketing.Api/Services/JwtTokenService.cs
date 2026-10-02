@@ -63,10 +63,6 @@ public sealed class JwtTokenService
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    private static class JwtRegisteredClaimNames
-    {
-        public const string Sub = "sub";
-    }
 }
 
 /// <summary>Đọc danh tính người thực hiện từ JWT đã xác thực, thay cho header X-User-Id / X-Username cũ.</summary>

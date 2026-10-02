@@ -40,7 +40,6 @@ public sealed class UpdateRoleRequest
 
 public sealed class FeedbackRequest
 {
-    [Required] public long PassengerId { get; set; }
     public long? RouteId { get; set; }
     public long? TripId { get; set; }
     public FeedbackType Type { get; set; } = FeedbackType.Complaint;
