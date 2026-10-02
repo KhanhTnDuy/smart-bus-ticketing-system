@@ -6,6 +6,10 @@ using SmartBusTicketing.Api.Models;
 
 namespace SmartBusTicketing.Api.Services;
 
+/// <summary>
+/// SCRUM-51: Kiểm tra xung đột lịch trình: Chặn gán một xe hoặc một tài xế/phụ xe
+/// vào hai chuyến chạy (Trips) có thời gian chồng nhau.
+/// </summary>
 public static class AssignmentConflictHelper
 {
     private static readonly Regex ShiftHoursRegex = new(
@@ -35,7 +39,6 @@ public static class AssignmentConflictHelper
         }
         else
         {
-            // Fallback theo tên ca trực chuẩn
             switch (shift?.ToUpperInvariant())
             {
                 case "CA_SANG":
@@ -78,7 +81,151 @@ public static class AssignmentConflictHelper
     }
 
     /// <summary>
-    /// Kiểm tra xung đột lịch trình: Chặn gán một xe hoặc một tài xế vào hai ca/chuyến có thời gian chồng nhau.
+    /// Kiểm tra xung đột lịch chạy trên thực thể Trips (SCRUM-50 &amp; SCRUM-51).
+    /// Ưu tiên so trùng theo ID phương tiện (BusId) và ID tài khoản (AccountId/DriverId),
+    /// không so sánh mù quáng theo chuỗi tên để tránh chặn nhầm người trùng tên.
+    /// </summary>
+    public static async Task<ConflictCheckResult> CheckTripConflictAsync(
+        AppDbContext db,
+        long? targetBusId,
+        string? targetBusPlate,
+        long? targetDriverId,
+        long? targetAssistantId,
+        DateTime candidateStart,
+        DateTime candidateEnd,
+        long? excludeTripId = null,
+        ILogger? logger = null,
+        CancellationToken ct = default)
+    {
+        // 1. Xác định BusId nếu chỉ có biển số xe
+        if (!targetBusId.HasValue && !string.IsNullOrWhiteSpace(targetBusPlate))
+        {
+            var cleanPlate = targetBusPlate.Trim().ToUpperInvariant();
+            var matchedBus = await db.Buses.AsNoTracking()
+                .FirstOrDefaultAsync(b => b.PlateNumber == cleanPlate, ct);
+            if (matchedBus != null)
+            {
+                targetBusId = matchedBus.Id;
+            }
+        }
+
+        try
+        {
+            // 2. Tìm kiếm các chuyến xe (Trips) chưa bị hủy có khoảng thời gian chạy giao cắt
+            var searchStart = candidateStart.AddHours(-14);
+            var searchEnd = candidateEnd.AddHours(14);
+
+            var query = db.Trips
+                .AsNoTracking()
+                .Include(t => t.BusRoute).ThenInclude(r => r.RouteStops)
+                .Include(t => t.Bus)
+                .Include(t => t.TripStaff).ThenInclude(ts => ts.Account)
+                .Where(t => t.Status != TripStatus.Cancelled
+                         && t.DepartureAt >= searchStart
+                         && t.DepartureAt <= searchEnd);
+
+            if (excludeTripId.HasValue)
+            {
+                query = query.Where(t => t.Id != excludeTripId.Value);
+            }
+
+            var otherTrips = await query.ToListAsync(ct);
+
+            foreach (var other in otherTrips)
+            {
+                // Ước tính thời gian hành trình chuyến đi dựa theo trạm cuối của tuyến (hoặc 60 phút)
+                var durationMinutes = 60;
+                if (other.BusRoute?.RouteStops != null && other.BusRoute.RouteStops.Count > 0)
+                {
+                    var maxMinutes = other.BusRoute.RouteStops.Max(rs => rs.MinutesFromStart);
+                    if (maxMinutes > 0) durationMinutes = maxMinutes;
+                }
+
+                var otherStart = other.DepartureAt;
+                var otherEnd = otherStart.AddMinutes(durationMinutes);
+
+                if (!HasOverlap(candidateStart, candidateEnd, otherStart, otherEnd))
+                {
+                    continue;
+                }
+
+                var otherRouteLabel = other.BusRoute?.Code ?? other.RouteId.ToString();
+                var timeRangeLabel = $"{otherStart:HH:mm} — {otherEnd:HH:mm} ngày {otherStart:dd/MM/yyyy}";
+
+                // 2.1 Kiểm tra trùng phương tiện THEO ID (BusId)
+                if (targetBusId.HasValue && other.BusId.HasValue && targetBusId.Value == other.BusId.Value)
+                {
+                    var plate = other.Bus?.PlateNumber ?? targetBusPlate ?? $"#{targetBusId.Value}";
+                    return new ConflictCheckResult
+                    {
+                        HasConflict = true,
+                        ConflictType = "BUS",
+                        ConflictingAssignmentCode = $"TRIP-{other.Id}",
+                        Message = $"Phương tiện {plate} (ID: {targetBusId.Value}) đã được phân công cho chuyến xe #{other.Id} ({timeRangeLabel} - Tuyến {otherRouteLabel}). Trùng lịch vận hành!"
+                    };
+                }
+
+                // Nếu có biển số xe nhưng chưa có BusId thì so theo biển số chuẩn hóa
+                if (!targetBusId.HasValue && !string.IsNullOrWhiteSpace(targetBusPlate) && other.Bus != null &&
+                    string.Equals(other.Bus.PlateNumber.Trim(), targetBusPlate.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    return new ConflictCheckResult
+                    {
+                        HasConflict = true,
+                        ConflictType = "BUS",
+                        ConflictingAssignmentCode = $"TRIP-{other.Id}",
+                        Message = $"Phương tiện {targetBusPlate.Trim()} đã được phân công cho chuyến xe #{other.Id} ({timeRangeLabel} - Tuyến {otherRouteLabel}). Trùng lịch vận hành!"
+                    };
+                }
+
+                // 2.2 Kiểm tra trùng tài xế THEO ID (AccountId)
+                if (targetDriverId.HasValue)
+                {
+                    var otherDriver = other.TripStaff.FirstOrDefault(ts => ts.Duty == StaffDuty.Driver && ts.AccountId == targetDriverId.Value);
+                    if (otherDriver != null)
+                    {
+                        var driverName = otherDriver.Account?.FullName ?? $"ID #{targetDriverId.Value}";
+                        return new ConflictCheckResult
+                        {
+                            HasConflict = true,
+                            ConflictType = "DRIVER",
+                            ConflictingAssignmentCode = $"TRIP-{other.Id}",
+                            Message = $"Tài xế {driverName} (Mã NV: {targetDriverId.Value}) đã có lịch lái chuyến xe #{other.Id} ({timeRangeLabel} - Tuyến {otherRouteLabel}). Trùng lịch làm việc!"
+                        };
+                    }
+                }
+
+                // 2.3 Kiểm tra trùng phụ xe THEO ID (AccountId)
+                if (targetAssistantId.HasValue)
+                {
+                    var otherAssistant = other.TripStaff.FirstOrDefault(ts => ts.Duty == StaffDuty.Conductor && ts.AccountId == targetAssistantId.Value);
+                    if (otherAssistant != null)
+                    {
+                        var assistantName = otherAssistant.Account?.FullName ?? $"ID #{targetAssistantId.Value}";
+                        return new ConflictCheckResult
+                        {
+                            HasConflict = true,
+                            ConflictType = "ASSISTANT",
+                            ConflictingAssignmentCode = $"TRIP-{other.Id}",
+                            Message = $"Nhân viên phụ xe {assistantName} (Mã NV: {targetAssistantId.Value}) đã có lịch làm việc chuyến xe #{other.Id} ({timeRangeLabel}). Trùng lịch làm việc!"
+                        };
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Ghi log lỗi cơ sở dữ liệu rõ ràng, tuyệt đối không dùng catch {} rỗng
+            logger?.LogError(ex, "Lỗi khi kiểm tra xung đột trùng lịch giữa các chuyến xe trong CSDL.");
+            throw;
+        }
+
+        return new ConflictCheckResult { HasConflict = false };
+    }
+
+    /// <summary>
+    /// Phương thức tiện ích tra cứu ID của Xe, Tài xế, Phụ xe trước khi kiểm tra trùng lịch.
+    /// Giúp ưu tiên so trùng theo ID để tránh chặn nhầm người trùng tên.
     /// </summary>
     public static async Task<ConflictCheckResult> CheckConflictAsync(
         AppDbContext db,
@@ -89,141 +236,77 @@ public static class AssignmentConflictHelper
         string? assistantName,
         DateTime candidateStart,
         DateTime candidateEnd,
-        long? excludeId = null,
+        long? excludeTripId = null,
+        ILogger? logger = null,
         CancellationToken ct = default)
     {
-        var cleanBusPlate = busPlate?.Trim();
-        var cleanDriverId = driverId?.Trim();
-        var cleanDriverName = driverName?.Trim();
-        var cleanAssistantId = assistantId?.Trim();
-        var cleanAssistantName = assistantName?.Trim();
-
-        // 1. Kiểm tra với các bản ghi BusAssignment khác đang hoạt động
-        var searchDateMin = DateOnly.FromDateTime(candidateStart.AddDays(-1));
-        var searchDateMax = DateOnly.FromDateTime(candidateEnd.AddDays(1));
-
-        var existingAssignments = await db.BusAssignments
-            .AsNoTracking()
-            .Include(a => a.Route)
-            .Where(a => a.Status != "CANCELLED"
-                     && (excludeId == null || a.Id != excludeId.Value)
-                     && a.Date >= searchDateMin
-                     && a.Date <= searchDateMax)
-            .ToListAsync(ct);
-
-        foreach (var other in existingAssignments)
+        long? targetBusId = null;
+        if (!string.IsNullOrWhiteSpace(busPlate))
         {
-            if (!HasOverlap(candidateStart, candidateEnd, other.StartTime, other.EndTime))
-            {
-                continue;
-            }
-
-            var routeLabel = other.Route?.Code ?? other.RouteId.ToString();
-            var timeRangeLabel = $"{other.StartTime:HH:mm} — {other.EndTime:HH:mm} ngày {other.Date:dd/MM/yyyy}";
-
-            // 1.1 Kiểm tra trùng xe buýt
-            if (!string.IsNullOrWhiteSpace(cleanBusPlate) &&
-                string.Equals(other.BusPlate.Trim(), cleanBusPlate, StringComparison.OrdinalIgnoreCase))
-            {
-                return new ConflictCheckResult
-                {
-                    HasConflict = true,
-                    ConflictType = "BUS",
-                    ConflictingAssignmentCode = other.AssignmentCode,
-                    Message = $"Phương tiện {cleanBusPlate} đã được phân công cho ca [{other.AssignmentCode}] ({timeRangeLabel} - Tuyến {routeLabel}). Không thể gán xe trùng giờ!"
-                };
-            }
-
-            // 1.2 Kiểm tra trùng tài xế
-            var isSameDriver = (!string.IsNullOrWhiteSpace(cleanDriverId) && string.Equals(other.DriverId.Trim(), cleanDriverId, StringComparison.OrdinalIgnoreCase))
-                || (!string.IsNullOrWhiteSpace(cleanDriverName) && string.Equals(other.DriverName.Trim(), cleanDriverName, StringComparison.OrdinalIgnoreCase));
-
-            if (isSameDriver)
-            {
-                var displayName = !string.IsNullOrWhiteSpace(cleanDriverName) ? cleanDriverName : cleanDriverId;
-                return new ConflictCheckResult
-                {
-                    HasConflict = true,
-                    ConflictType = "DRIVER",
-                    ConflictingAssignmentCode = other.AssignmentCode,
-                    Message = $"Tài xế {displayName} đã có lịch phân công cho ca [{other.AssignmentCode}] ({timeRangeLabel} - Tuyến {routeLabel}). Không thể gán tài xế trùng giờ!"
-                };
-            }
-
-            // 1.3 Kiểm tra trùng phụ xe (nếu có)
-            if (!string.IsNullOrWhiteSpace(cleanAssistantName) &&
-                !string.IsNullOrWhiteSpace(other.AssistantName) &&
-                string.Equals(other.AssistantName.Trim(), cleanAssistantName, StringComparison.OrdinalIgnoreCase))
-            {
-                return new ConflictCheckResult
-                {
-                    HasConflict = true,
-                    ConflictType = "ASSISTANT",
-                    ConflictingAssignmentCode = other.AssignmentCode,
-                    Message = $"Nhân viên phụ xe {cleanAssistantName} đã có lịch phân công cho ca [{other.AssignmentCode}] ({timeRangeLabel}). Không thể gán trùng giờ!"
-                };
-            }
+            var clean = busPlate.Trim().ToUpperInvariant();
+            var b = await db.Buses.AsNoTracking().FirstOrDefaultAsync(x => x.PlateNumber == clean, ct);
+            if (b != null) targetBusId = b.Id;
         }
 
-        // 2. Kiểm tra chéo với bảng Trips trong CSDL (nếu hệ thống đã phát sinh chuyến xe)
-        try
+        long? targetDriverId = null;
+        if (long.TryParse(driverId, out var parsedDrv))
         {
-            var trips = await db.Trips
-                .AsNoTracking()
-                .Include(t => t.Bus)
-                .Include(t => t.TripStaff).ThenInclude(ts => ts.Account)
-                .Where(t => t.Status != TripStatus.Cancelled
-                         && t.DepartureAt >= candidateStart.AddHours(-6)
-                         && t.DepartureAt <= candidateEnd.AddHours(2))
-                .ToListAsync(ct);
-
-            foreach (var trip in trips)
+            targetDriverId = parsedDrv;
+        }
+        else if (!string.IsNullOrWhiteSpace(driverId))
+        {
+            var raw = driverId.Trim();
+            if (raw.StartsWith("USR-", StringComparison.OrdinalIgnoreCase) && long.TryParse(raw[4..], out var uId))
             {
-                var tripStart = trip.DepartureAt;
-                var tripEnd = trip.DepartureAt.AddMinutes(90); // ước tính 90 phút một lượt chuyến
-
-                if (!HasOverlap(candidateStart, candidateEnd, tripStart, tripEnd))
-                {
-                    continue;
-                }
-
-                // Trùng xe trên chuyến
-                if (!string.IsNullOrWhiteSpace(cleanBusPlate) &&
-                    trip.Bus != null &&
-                    string.Equals(trip.Bus.PlateNumber.Trim(), cleanBusPlate, StringComparison.OrdinalIgnoreCase))
-                {
-                    return new ConflictCheckResult
-                    {
-                        HasConflict = true,
-                        ConflictType = "TRIP_BUS",
-                        Message = $"Phương tiện {cleanBusPlate} đã được xếp cho chuyến xe #{trip.Id} khởi hành lúc {trip.DepartureAt:HH:mm dd/MM/yyyy}. Trùng giờ vận hành!"
-                    };
-                }
-
-                // Trùng tài xế trên chuyến
-                var staffDriver = trip.TripStaff.FirstOrDefault(s => s.Duty == StaffDuty.Driver);
-                if (staffDriver != null)
-                {
-                    var isStaffMatch = (!string.IsNullOrWhiteSpace(cleanDriverId) && staffDriver.AccountId.ToString() == cleanDriverId)
-                        || (!string.IsNullOrWhiteSpace(cleanDriverName) && staffDriver.Account?.FullName == cleanDriverName);
-
-                    if (isStaffMatch)
-                    {
-                        return new ConflictCheckResult
-                        {
-                            HasConflict = true,
-                            ConflictType = "TRIP_DRIVER",
-                            Message = $"Tài xế {cleanDriverName ?? cleanDriverId} đã được xếp lái chuyến xe #{trip.Id} khởi hành lúc {trip.DepartureAt:HH:mm dd/MM/yyyy}. Trùng giờ chuyến!"
-                        };
-                    }
-                }
+                targetDriverId = uId;
+            }
+            if (!targetDriverId.HasValue)
+            {
+                var drvAcc = await db.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.Username == raw, ct);
+                if (drvAcc != null) targetDriverId = drvAcc.Id;
             }
         }
-        catch
+        if (!targetDriverId.HasValue && !string.IsNullOrWhiteSpace(driverName))
         {
-            // Bỏ qua nếu bảng trips chưa có dữ liệu hoặc quan hệ chưa kết nối
+            var drvAcc = await db.Accounts.AsNoTracking()
+                .FirstOrDefaultAsync(a => a.FullName == driverName.Trim() && a.Role == AccountRole.Driver, ct);
+            if (drvAcc != null) targetDriverId = drvAcc.Id;
         }
 
-        return new ConflictCheckResult { HasConflict = false };
+        long? targetAssistantId = null;
+        if (long.TryParse(assistantId, out var parsedAsst))
+        {
+            targetAssistantId = parsedAsst;
+        }
+        else if (!string.IsNullOrWhiteSpace(assistantId))
+        {
+            var raw = assistantId.Trim();
+            if (raw.StartsWith("USR-", StringComparison.OrdinalIgnoreCase) && long.TryParse(raw[4..], out var uId))
+            {
+                targetAssistantId = uId;
+            }
+            if (!targetAssistantId.HasValue)
+            {
+                var asstAcc = await db.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.Username == raw, ct);
+                if (asstAcc != null) targetAssistantId = asstAcc.Id;
+            }
+        }
+        if (!targetAssistantId.HasValue && !string.IsNullOrWhiteSpace(assistantName))
+        {
+            var asstAcc = await db.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.FullName == assistantName.Trim(), ct);
+            if (asstAcc != null) targetAssistantId = asstAcc.Id;
+        }
+
+        return await CheckTripConflictAsync(
+            db,
+            targetBusId,
+            busPlate,
+            targetDriverId,
+            targetAssistantId,
+            candidateStart,
+            candidateEnd,
+            excludeTripId,
+            logger,
+            ct);
     }
 }

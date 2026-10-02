@@ -9,14 +9,25 @@ using SmartBusTicketing.Api.Services;
 namespace SmartBusTicketing.Api.Controllers;
 
 /// <summary>
-/// Quản lý phân công điều xe & tài xế / phụ xe.
-/// Kiểm tra trùng lịch điều xe/tài xế và ghi nhật ký thao tác kiểm toán.
+/// Quản lý phân công điều xe & tài xế / phụ xe (SCRUM-50, SCRUM-51).
+/// Hoạt động trực tiếp trên thực thể Chuyến chạy (Trips) và Nhân sự chuyến (TripStaff).
+/// Kiểm tra trùng lịch và ghi nhật ký kiểm toán.
 /// </summary>
 [ApiController]
 [Route("api/assignments")]
 [Authorize]
-public class AssignmentsController(AppDbContext db, AuditLogService audit) : ControllerBase
+public class AssignmentsController(AppDbContext db, AuditLogService audit, ILogger<AssignmentsController> logger) : ControllerBase
 {
+    private static (long? Id, string Raw) ParseCodeOrId(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return (null, string.Empty);
+        var v = value.Trim();
+        if (long.TryParse(v, out var num)) return (num, v);
+        if (v.StartsWith("ASN-", StringComparison.OrdinalIgnoreCase) && long.TryParse(v[4..], out var asnNum)) return (asnNum, v);
+        if (v.StartsWith("TRIP-", StringComparison.OrdinalIgnoreCase) && long.TryParse(v[5..], out var tripNum)) return (tripNum, v);
+        return (null, v);
+    }
+
     /// <summary>
     /// Danh sách phân công xe & tài xế theo bộ lọc tìm kiếm.
     /// </summary>
@@ -29,72 +40,101 @@ public class AssignmentsController(AppDbContext db, AuditLogService audit) : Con
         [FromQuery] string? date,
         CancellationToken ct)
     {
-        var q = db.BusAssignments.AsNoTracking().Include(a => a.Route).AsQueryable();
+        var q = db.Trips.AsNoTracking()
+            .Include(t => t.BusRoute).ThenInclude(r => r.RouteStops)
+            .Include(t => t.Bus)
+            .Include(t => t.TripStaff).ThenInclude(ts => ts.Account)
+            .AsQueryable();
 
-        if (!string.IsNullOrWhiteSpace(shift) && shift != "ALL")
+        if (!string.IsNullOrWhiteSpace(routeId) && routeId != "ALL")
         {
-            q = q.Where(a => a.Shift == shift);
-        }
-
-        if (!string.IsNullOrWhiteSpace(status) && status != "ALL")
-        {
-            q = q.Where(a => a.Status == status);
+            if (long.TryParse(routeId, out var rId))
+            {
+                q = q.Where(t => t.RouteId == rId);
+            }
+            else
+            {
+                q = q.Where(t => t.BusRoute.Code == routeId);
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(date))
         {
             if (DateOnly.TryParse(date, out var parsedDate))
             {
-                q = q.Where(a => a.Date == parsedDate);
+                var startOfDay = parsedDate.ToDateTime(TimeOnly.MinValue);
+                var endOfDay = parsedDate.ToDateTime(TimeOnly.MaxValue);
+                q = q.Where(t => t.DepartureAt >= startOfDay && t.DepartureAt <= endOfDay);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(status) && status != "ALL")
+        {
+            var stUpper = status.Trim().ToUpperInvariant();
+            TripStatus? targetStatus = stUpper switch
+            {
+                "ASSIGNED" => TripStatus.Scheduled,
+                "IN_PROGRESS" or "RUNNING" => TripStatus.Running,
+                "COMPLETED" => TripStatus.Completed,
+                "CANCELLED" => TripStatus.Cancelled,
+                _ => Enum.TryParse<TripStatus>(status, true, out var parsedStatus) ? parsedStatus : null
+            };
+
+            if (targetStatus.HasValue)
+            {
+                q = q.Where(t => t.Status == targetStatus.Value);
             }
         }
 
         if (!string.IsNullOrWhiteSpace(search))
         {
             var value = search.Trim();
-            q = q.Where(a => a.AssignmentCode.Contains(value)
-                || a.BusPlate.Contains(value)
-                || a.DriverName.Contains(value)
-                || (a.AssistantName != null && a.AssistantName.Contains(value))
-                || (a.Notes != null && a.Notes.Contains(value))
-                || (a.Route != null && (a.Route.Code.Contains(value) || a.Route.Name.Contains(value))));
+            q = q.Where(t =>
+                t.BusRoute.Code.Contains(value)
+                || t.BusRoute.Name.Contains(value)
+                || (t.Bus != null && t.Bus.PlateNumber.Contains(value))
+                || t.TripStaff.Any(ts => ts.Account.FullName.Contains(value) || ts.Account.Username.Contains(value)));
         }
 
-        var list = await q.OrderByDescending(a => a.Date)
-            .ThenByDescending(a => a.StartTime)
-            .ThenByDescending(a => a.Id)
-            .Select(a => ToDto(a))
+        var trips = await q.OrderByDescending(t => t.DepartureAt)
+            .ThenByDescending(t => t.Id)
             .ToListAsync(ct);
+
+        var list = trips.Select(ToDto).ToList();
+
+        if (!string.IsNullOrWhiteSpace(shift) && shift != "ALL")
+        {
+            list = list.Where(a => string.Equals(a.Shift, shift, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
 
         return Ok(list);
     }
 
     /// <summary>
-    /// Xem chi tiết một bản ghi phân công.
+    /// Xem chi tiết một bản ghi phân công theo mã chuyến hoặc mã ASN.
     /// </summary>
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(string id, CancellationToken ct)
     {
-        BusAssignment? entity = null;
-        if (long.TryParse(id, out var numId))
+        var (numId, _) = ParseCodeOrId(id);
+        if (!numId.HasValue)
         {
-            entity = await db.BusAssignments.AsNoTracking()
-                .Include(a => a.Route)
-                .FirstOrDefaultAsync(a => a.Id == numId, ct);
+            return NotFound(new ProblemDetails { Status = 404, Title = "Không tìm thấy thông tin phân công chuyến xe." });
         }
 
-        if (entity == null)
-        {
-            entity = await db.BusAssignments.AsNoTracking()
-                .Include(a => a.Route)
-                .FirstOrDefaultAsync(a => a.AssignmentCode == id, ct);
-        }
+        var trip = await db.Trips.AsNoTracking()
+            .Include(t => t.BusRoute).ThenInclude(r => r.RouteStops)
+            .Include(t => t.Bus)
+            .Include(t => t.TripStaff).ThenInclude(ts => ts.Account)
+            .FirstOrDefaultAsync(t => t.Id == numId.Value, ct);
 
-        return entity is null ? NotFound(new ProblemDetails { Status = 404, Title = "Không tìm thấy thông tin phân công." }) : Ok(ToDto(entity));
+        return trip is null
+            ? NotFound(new ProblemDetails { Status = 404, Title = "Không tìm thấy thông tin phân công chuyến xe." })
+            : Ok(ToDto(trip));
     }
 
     /// <summary>
-    /// Kiểm tra trùng lịch trước khi gửi form (dành cho UI hiển thị cảnh báo tức thì).
+    /// Kiểm tra trùng lịch trước khi gửi form (cho UI hiển thị cảnh báo tức thì).
     /// </summary>
     [HttpPost("check-conflict")]
     public async Task<IActionResult> CheckConflict(CheckConflictRequest request, CancellationToken ct)
@@ -110,115 +150,196 @@ public class AssignmentsController(AppDbContext db, AuditLogService audit) : Con
             start,
             end,
             request.ExcludeId,
+            logger,
             ct);
 
         return Ok(result);
     }
 
     /// <summary>
-    /// Tạo mới phân công điều xe. Kiểm tra trùng lịch và ghi nhật ký kiểm toán.
+    /// Tạo mới chuyến xe và phân công điều xe/tài xế. Kiểm tra trùng lịch và ghi nhật ký kiểm toán.
     /// </summary>
     [HttpPost, Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> Create(CreateAssignmentRequest request, CancellationToken ct)
     {
+        // 1. Xác thực Tuyến xe (RouteId) - TUYỆT ĐỐI không âm thầm gán RouteId = 1
+        BusRoute? route = null;
+        if (long.TryParse(request.RouteId, out var parsedRouteId))
+        {
+            route = await db.BusRoutes.FirstOrDefaultAsync(r => r.Id == parsedRouteId, ct);
+        }
+        if (route == null && !string.IsNullOrWhiteSpace(request.RouteId))
+        {
+            route = await db.BusRoutes.FirstOrDefaultAsync(r => r.Code == request.RouteId.Trim(), ct);
+        }
+        if (route == null)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Tuyến xe không tồn tại",
+                Detail = $"Không tìm thấy tuyến xe với thông tin: '{request.RouteId}'. Vui lòng chọn tuyến đường hợp lệ."
+            });
+        }
+
+        // 2. Xác thực Phương tiện (Bus)
+        var cleanPlate = request.BusPlate.Trim().ToUpperInvariant();
+        var bus = await db.Buses.FirstOrDefaultAsync(b => b.PlateNumber == cleanPlate, ct);
+        if (bus == null)
+        {
+            bus = new Bus
+            {
+                PlateNumber = cleanPlate,
+                Capacity = 40,
+                Status = BusStatus.Active
+            };
+            db.Buses.Add(bus);
+            await db.SaveChangesAsync(ct);
+        }
+
+        // 3. Xác thực Tài xế (Driver) - Ưu tiên tra cứu theo Id / Username, sau đó mới đến FullName
+        Account? driver = null;
+        if (long.TryParse(request.DriverId, out var drvNumId))
+        {
+            driver = await db.Accounts.FirstOrDefaultAsync(a => a.Id == drvNumId, ct);
+        }
+        if (driver == null && !string.IsNullOrWhiteSpace(request.DriverId))
+        {
+            var rawDrv = request.DriverId.Trim();
+            if (rawDrv.StartsWith("USR-", StringComparison.OrdinalIgnoreCase) && long.TryParse(rawDrv[4..], out var uId))
+            {
+                driver = await db.Accounts.FirstOrDefaultAsync(a => a.Id == uId, ct);
+            }
+            if (driver == null)
+            {
+                driver = await db.Accounts.FirstOrDefaultAsync(a => a.Username == rawDrv, ct);
+            }
+        }
+        if (driver == null && !string.IsNullOrWhiteSpace(request.DriverName))
+        {
+            driver = await db.Accounts.FirstOrDefaultAsync(a => a.FullName == request.DriverName.Trim() && a.Role == AccountRole.Driver, ct);
+        }
+        if (driver == null)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Tài xế không tồn tại",
+                Detail = $"Không tìm thấy thông tin tài xế '{request.DriverName ?? request.DriverId}' trong hệ thống."
+            });
+        }
+
+        // 4. Xác thực Phụ xe (Assistant) nếu có
+        Account? assistant = null;
+        if (!string.IsNullOrWhiteSpace(request.AssistantId) || !string.IsNullOrWhiteSpace(request.AssistantName))
+        {
+            if (long.TryParse(request.AssistantId, out var asstNumId))
+            {
+                assistant = await db.Accounts.FirstOrDefaultAsync(a => a.Id == asstNumId, ct);
+            }
+            if (assistant == null && !string.IsNullOrWhiteSpace(request.AssistantId))
+            {
+                var rawAsst = request.AssistantId.Trim();
+                if (rawAsst.StartsWith("USR-", StringComparison.OrdinalIgnoreCase) && long.TryParse(rawAsst[4..], out var uId))
+                {
+                    assistant = await db.Accounts.FirstOrDefaultAsync(a => a.Id == uId, ct);
+                }
+                if (assistant == null)
+                {
+                    assistant = await db.Accounts.FirstOrDefaultAsync(a => a.Username == rawAsst, ct);
+                }
+            }
+            if (assistant == null && !string.IsNullOrWhiteSpace(request.AssistantName))
+            {
+                assistant = await db.Accounts.FirstOrDefaultAsync(a => a.FullName == request.AssistantName.Trim(), ct);
+            }
+        }
+
+        // 5. Tính toán khung giờ ca chạy
         var (startTime, endTime) = AssignmentConflictHelper.ParseTimeRange(request.Date, request.ShiftHours, request.Shift);
 
-        // 1. Kiểm tra trùng lịch (Overlap check)
-        var conflict = await AssignmentConflictHelper.CheckConflictAsync(
+        // 6. Kiểm tra trùng lịch xe & nhân sự (SCRUM-51)
+        var conflict = await AssignmentConflictHelper.CheckTripConflictAsync(
             db,
-            request.BusPlate,
-            request.DriverId,
-            request.DriverName,
-            request.AssistantId,
-            request.AssistantName,
+            bus.Id,
+            bus.PlateNumber,
+            driver.Id,
+            assistant?.Id,
             startTime,
             endTime,
-            excludeId: null,
+            excludeTripId: null,
+            logger,
             ct);
 
         if (conflict.HasConflict)
         {
-            // Ghi nhật ký thất bại vì trùng lịch
             await audit.WriteAsync(
                 User.AccountId(),
                 User.Username() ?? "system",
                 "Phân công điều xe thất bại do trùng lịch",
                 AuditActionType.Create,
-                $"BUS-{request.BusPlate.Trim().ToUpperInvariant()}",
+                $"BUS-{bus.PlateNumber}",
                 AuditStatus.Failure,
                 conflict.Message,
                 ct);
 
             return Conflict(new ProblemDetails
             {
-                Status = 409,
+                Status = StatusCodes.Status409Conflict,
                 Title = conflict.Message,
                 Detail = conflict.Message
             });
         }
 
-        // 2. Tra cứu RouteId tương ứng
-        long resolvedRouteId = 1;
-        if (long.TryParse(request.RouteId, out var parsedRouteId))
+        // 7. Tạo thực thể Trip và TripStaff tương ứng
+        var trip = new Trip
         {
-            resolvedRouteId = parsedRouteId;
-        }
-        else
-        {
-            var matchedRoute = await db.BusRoutes.AsNoTracking()
-                .FirstOrDefaultAsync(r => r.Code == request.RouteId, ct);
-            if (matchedRoute != null)
-            {
-                resolvedRouteId = matchedRoute.Id;
-            }
-        }
-
-        // 3. Đánh mã phân công tự động (ASN-xxx)
-        var maxId = await db.BusAssignments.Select(a => (long?)a.Id).MaxAsync(ct) ?? 0;
-        var newCode = $"ASN-{String.Format("{0:D3}", maxId + 1)}";
-
-        DateOnly.TryParse(request.Date, out var dateOnly);
-        if (dateOnly == default) dateOnly = DateOnly.FromDateTime(startTime);
-
-        var entity = new BusAssignment
-        {
-            AssignmentCode = newCode,
-            RouteId = resolvedRouteId,
-            BusPlate = request.BusPlate.Trim().ToUpperInvariant(),
-            DriverId = request.DriverId.Trim(),
-            DriverName = request.DriverName.Trim(),
-            AssistantId = string.IsNullOrWhiteSpace(request.AssistantId) ? null : request.AssistantId.Trim(),
-            AssistantName = string.IsNullOrWhiteSpace(request.AssistantName) ? null : request.AssistantName.Trim(),
-            Date = dateOnly,
-            Shift = request.Shift,
-            ShiftHours = request.ShiftHours,
-            StartTime = startTime,
-            EndTime = endTime,
-            Status = string.IsNullOrWhiteSpace(request.Status) ? "ASSIGNED" : request.Status.Trim(),
-            Notes = request.Notes?.Trim(),
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
+            RouteId = route.Id,
+            BusId = bus.Id,
+            DepartureAt = startTime,
+            Status = TripStatus.Scheduled,
         };
 
-        db.BusAssignments.Add(entity);
+        db.Trips.Add(trip);
         await db.SaveChangesAsync(ct);
 
-        // Nạp thêm Route navigation nếu có
-        await db.Entry(entity).Reference(a => a.Route).LoadAsync(ct);
+        db.TripStaff.Add(new TripStaff
+        {
+            TripId = trip.Id,
+            AccountId = driver.Id,
+            Duty = StaffDuty.Driver
+        });
 
-        // 4. Ghi nhật ký thao tác kiểm toán
+        if (assistant != null)
+        {
+            db.TripStaff.Add(new TripStaff
+            {
+                TripId = trip.Id,
+                AccountId = assistant.Id,
+                Duty = StaffDuty.Conductor
+            });
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        // Nạp các quan hệ để trả về đầy đủ DTO
+        await db.Entry(trip).Reference(t => t.BusRoute).Query().Include(r => r.RouteStops).LoadAsync(ct);
+        await db.Entry(trip).Reference(t => t.Bus).LoadAsync(ct);
+        await db.Entry(trip).Collection(t => t.TripStaff).Query().Include(ts => ts.Account).LoadAsync(ct);
+
+        // 8. Ghi nhật ký kiểm toán thành công
         await audit.WriteAsync(
             User.AccountId(),
             User.Username() ?? "system",
             "Tạo phân công điều xe",
             AuditActionType.Create,
-            $"ASSIGN-{entity.Id}",
+            $"TRIP-{trip.Id}",
             AuditStatus.Success,
-            $"Phân công tài xế {entity.DriverName} điều khiển xe {entity.BusPlate} ({entity.Date:yyyy-MM-dd}, {entity.ShiftHours})",
+            $"Phân công tài xế {driver.FullName} điều khiển xe {bus.PlateNumber} chuyến #{trip.Id} lúc {trip.DepartureAt:yyyy-MM-dd HH:mm}",
             ct);
 
-        var dto = ToDto(entity);
-        return CreatedAtAction(nameof(GetById), new { id = entity.Id }, dto);
+        var dto = ToDto(trip);
+        return CreatedAtAction(nameof(GetById), new { id = trip.Id }, dto);
     }
 
     /// <summary>
@@ -227,35 +348,130 @@ public class AssignmentsController(AppDbContext db, AuditLogService audit) : Con
     [HttpPut("{id}"), Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> Update(string id, UpdateAssignmentRequest request, CancellationToken ct)
     {
-        BusAssignment? entity = null;
-        if (long.TryParse(id, out var numId))
-        {
-            entity = await db.BusAssignments.Include(a => a.Route).FirstOrDefaultAsync(a => a.Id == numId, ct);
-        }
-
-        if (entity == null)
-        {
-            entity = await db.BusAssignments.Include(a => a.Route).FirstOrDefaultAsync(a => a.AssignmentCode == id, ct);
-        }
-
-        if (entity == null)
+        var (numId, _) = ParseCodeOrId(id);
+        if (!numId.HasValue)
         {
             return NotFound(new ProblemDetails { Status = 404, Title = "Không tìm thấy phân công để cập nhật." });
         }
 
+        var trip = await db.Trips
+            .Include(t => t.BusRoute).ThenInclude(r => r.RouteStops)
+            .Include(t => t.Bus)
+            .Include(t => t.TripStaff).ThenInclude(ts => ts.Account)
+            .FirstOrDefaultAsync(t => t.Id == numId.Value, ct);
+
+        if (trip == null)
+        {
+            return NotFound(new ProblemDetails { Status = 404, Title = "Không tìm thấy phân công để cập nhật." });
+        }
+
+        // 1. Xác thực tuyến xe nếu thay đổi
+        if (!string.IsNullOrWhiteSpace(request.RouteId))
+        {
+            BusRoute? matchedRoute = null;
+            if (long.TryParse(request.RouteId, out var parsedRouteId))
+            {
+                matchedRoute = await db.BusRoutes.FirstOrDefaultAsync(r => r.Id == parsedRouteId, ct);
+            }
+            if (matchedRoute == null)
+            {
+                matchedRoute = await db.BusRoutes.FirstOrDefaultAsync(r => r.Code == request.RouteId.Trim(), ct);
+            }
+
+            if (matchedRoute == null)
+            {
+                return BadRequest(new ProblemDetails
+                {
+                    Status = StatusCodes.Status400BadRequest,
+                    Title = "Tuyến xe không tồn tại",
+                    Detail = $"Không tìm thấy tuyến xe '{request.RouteId}'."
+                });
+            }
+            trip.RouteId = matchedRoute.Id;
+        }
+
+        // 2. Xác thực phương tiện xe buýt
+        var cleanPlate = request.BusPlate.Trim().ToUpperInvariant();
+        var bus = await db.Buses.FirstOrDefaultAsync(b => b.PlateNumber == cleanPlate, ct);
+        if (bus == null)
+        {
+            bus = new Bus { PlateNumber = cleanPlate, Capacity = 40, Status = BusStatus.Active };
+            db.Buses.Add(bus);
+            await db.SaveChangesAsync(ct);
+        }
+        trip.BusId = bus.Id;
+
+        // 3. Xác thực tài xế
+        Account? driver = null;
+        if (long.TryParse(request.DriverId, out var drvNumId))
+        {
+            driver = await db.Accounts.FirstOrDefaultAsync(a => a.Id == drvNumId, ct);
+        }
+        if (driver == null && !string.IsNullOrWhiteSpace(request.DriverId))
+        {
+            var rawDrv = request.DriverId.Trim();
+            if (rawDrv.StartsWith("USR-", StringComparison.OrdinalIgnoreCase) && long.TryParse(rawDrv[4..], out var uId))
+            {
+                driver = await db.Accounts.FirstOrDefaultAsync(a => a.Id == uId, ct);
+            }
+            if (driver == null)
+            {
+                driver = await db.Accounts.FirstOrDefaultAsync(a => a.Username == rawDrv, ct);
+            }
+        }
+        if (driver == null && !string.IsNullOrWhiteSpace(request.DriverName))
+        {
+            driver = await db.Accounts.FirstOrDefaultAsync(a => a.FullName == request.DriverName.Trim() && a.Role == AccountRole.Driver, ct);
+        }
+        if (driver == null)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Tài xế không tồn tại",
+                Detail = $"Không tìm thấy thông tin tài xế '{request.DriverName ?? request.DriverId}' trong hệ thống."
+            });
+        }
+
+        // 4. Xác thực phụ xe
+        Account? assistant = null;
+        if (!string.IsNullOrWhiteSpace(request.AssistantId) || !string.IsNullOrWhiteSpace(request.AssistantName))
+        {
+            if (long.TryParse(request.AssistantId, out var asstNumId))
+            {
+                assistant = await db.Accounts.FirstOrDefaultAsync(a => a.Id == asstNumId, ct);
+            }
+            if (assistant == null && !string.IsNullOrWhiteSpace(request.AssistantId))
+            {
+                var rawAsst = request.AssistantId.Trim();
+                if (rawAsst.StartsWith("USR-", StringComparison.OrdinalIgnoreCase) && long.TryParse(rawAsst[4..], out var uId))
+                {
+                    assistant = await db.Accounts.FirstOrDefaultAsync(a => a.Id == uId, ct);
+                }
+                if (assistant == null)
+                {
+                    assistant = await db.Accounts.FirstOrDefaultAsync(a => a.Username == rawAsst, ct);
+                }
+            }
+            if (assistant == null && !string.IsNullOrWhiteSpace(request.AssistantName))
+            {
+                assistant = await db.Accounts.FirstOrDefaultAsync(a => a.FullName == request.AssistantName.Trim(), ct);
+            }
+        }
+
+        // 5. Tính toán khung giờ và kiểm tra trùng lịch (loại trừ chính chuyến đang cập nhật)
         var (startTime, endTime) = AssignmentConflictHelper.ParseTimeRange(request.Date, request.ShiftHours, request.Shift);
 
-        // Kiểm tra trùng lịch (loại trừ chính entity đang cập nhật)
-        var conflict = await AssignmentConflictHelper.CheckConflictAsync(
+        var conflict = await AssignmentConflictHelper.CheckTripConflictAsync(
             db,
-            request.BusPlate,
-            request.DriverId,
-            request.DriverName,
-            request.AssistantId,
-            request.AssistantName,
+            bus.Id,
+            bus.PlateNumber,
+            driver.Id,
+            assistant?.Id,
             startTime,
             endTime,
-            excludeId: entity.Id,
+            excludeTripId: trip.Id,
+            logger,
             ct);
 
         if (conflict.HasConflict)
@@ -265,129 +481,177 @@ public class AssignmentsController(AppDbContext db, AuditLogService audit) : Con
                 User.Username() ?? "system",
                 "Cập nhật phân công thất bại do trùng lịch",
                 AuditActionType.Update,
-                $"ASSIGN-{entity.Id}",
+                $"TRIP-{trip.Id}",
                 AuditStatus.Failure,
                 conflict.Message,
                 ct);
 
             return Conflict(new ProblemDetails
             {
-                Status = 409,
+                Status = StatusCodes.Status409Conflict,
                 Title = conflict.Message,
                 Detail = conflict.Message
             });
         }
 
-        long resolvedRouteId = entity.RouteId;
-        if (long.TryParse(request.RouteId, out var parsedRouteId))
+        // 6. Cập nhật Trip
+        trip.DepartureAt = startTime;
+        if (!string.IsNullOrWhiteSpace(request.Status))
         {
-            resolvedRouteId = parsedRouteId;
+            var stUpper = request.Status.Trim().ToUpperInvariant();
+            if (stUpper == "ASSIGNED") trip.Status = TripStatus.Scheduled;
+            else if (stUpper == "IN_PROGRESS" || stUpper == "RUNNING") trip.Status = TripStatus.Running;
+            else if (stUpper == "COMPLETED") trip.Status = TripStatus.Completed;
+            else if (stUpper == "CANCELLED") trip.Status = TripStatus.Cancelled;
         }
-        else if (!string.IsNullOrWhiteSpace(request.RouteId))
+
+        // 7. Cập nhật TripStaff
+        var existingStaff = await db.TripStaff.Where(ts => ts.TripId == trip.Id).ToListAsync(ct);
+        db.TripStaff.RemoveRange(existingStaff);
+
+        db.TripStaff.Add(new TripStaff
         {
-            var matchedRoute = await db.BusRoutes.AsNoTracking()
-                .FirstOrDefaultAsync(r => r.Code == request.RouteId, ct);
-            if (matchedRoute != null)
+            TripId = trip.Id,
+            AccountId = driver.Id,
+            Duty = StaffDuty.Driver
+        });
+
+        if (assistant != null)
+        {
+            db.TripStaff.Add(new TripStaff
             {
-                resolvedRouteId = matchedRoute.Id;
-            }
+                TripId = trip.Id,
+                AccountId = assistant.Id,
+                Duty = StaffDuty.Conductor
+            });
         }
-
-        DateOnly.TryParse(request.Date, out var dateOnly);
-        if (dateOnly == default) dateOnly = entity.Date;
-
-        var oldStatus = entity.Status;
-
-        entity.RouteId = resolvedRouteId;
-        entity.BusPlate = request.BusPlate.Trim().ToUpperInvariant();
-        entity.DriverId = request.DriverId.Trim();
-        entity.DriverName = request.DriverName.Trim();
-        entity.AssistantId = string.IsNullOrWhiteSpace(request.AssistantId) ? null : request.AssistantId.Trim();
-        entity.AssistantName = string.IsNullOrWhiteSpace(request.AssistantName) ? null : request.AssistantName.Trim();
-        entity.Date = dateOnly;
-        entity.Shift = request.Shift;
-        entity.ShiftHours = request.ShiftHours;
-        entity.StartTime = startTime;
-        entity.EndTime = endTime;
-        entity.Status = request.Status;
-        entity.Notes = request.Notes?.Trim();
-        entity.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
 
-        // Ghi nhật ký thao tác
-        var actionType = oldStatus != entity.Status ? AuditActionType.StatusChange : AuditActionType.Update;
+        // Nạp lại dữ liệu
+        await db.Entry(trip).Reference(t => t.BusRoute).Query().Include(r => r.RouteStops).LoadAsync(ct);
+        await db.Entry(trip).Reference(t => t.Bus).LoadAsync(ct);
+        await db.Entry(trip).Collection(t => t.TripStaff).Query().Include(ts => ts.Account).LoadAsync(ct);
+
         await audit.WriteAsync(
             User.AccountId(),
             User.Username() ?? "system",
             "Cập nhật phân công điều xe",
-            actionType,
-            $"ASSIGN-{entity.Id}",
+            AuditActionType.Update,
+            $"TRIP-{trip.Id}",
             AuditStatus.Success,
-            $"Cập nhật phân công [{entity.AssignmentCode}]: Xe {entity.BusPlate}, Tài xế {entity.DriverName}, Trạng thái: {entity.Status}",
+            $"Cập nhật chuyến #{trip.Id}: Xe {bus.PlateNumber}, Tài xế {driver.FullName}, Trạng thái: {trip.Status}",
             ct);
 
-        return Ok(ToDto(entity));
+        return Ok(ToDto(trip));
     }
 
     /// <summary>
-    /// Xóa phân công ca trực. Ghi nhật ký thao tác kiểm toán.
+    /// Xóa / Hủy phân công chuyến xe. Ghi nhật ký kiểm toán.
     /// </summary>
     [HttpDelete("{id}"), Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> Delete(string id, CancellationToken ct)
     {
-        BusAssignment? entity = null;
-        if (long.TryParse(id, out var numId))
-        {
-            entity = await db.BusAssignments.FirstOrDefaultAsync(a => a.Id == numId, ct);
-        }
-
-        if (entity == null)
-        {
-            entity = await db.BusAssignments.FirstOrDefaultAsync(a => a.AssignmentCode == id, ct);
-        }
-
-        if (entity == null)
+        var (numId, _) = ParseCodeOrId(id);
+        if (!numId.HasValue)
         {
             return NotFound(new ProblemDetails { Status = 404, Title = "Không tìm thấy phân công để xóa." });
         }
 
-        db.BusAssignments.Remove(entity);
-        await db.SaveChangesAsync(ct);
+        var trip = await db.Trips
+            .Include(t => t.Bus)
+            .Include(t => t.TripStaff).ThenInclude(ts => ts.Account)
+            .FirstOrDefaultAsync(t => t.Id == numId.Value, ct);
 
-        await audit.WriteAsync(
-            User.AccountId(),
-            User.Username() ?? "system",
-            "Xóa phân công điều xe",
-            AuditActionType.Delete,
-            $"ASSIGN-{entity.Id}",
-            AuditStatus.Success,
-            $"Xóa lệnh phân công [{entity.AssignmentCode}] của xe {entity.BusPlate} ngày {entity.Date:yyyy-MM-dd}",
-            ct);
+        if (trip == null)
+        {
+            return NotFound(new ProblemDetails { Status = 404, Title = "Không tìm thấy phân công để xóa." });
+        }
+
+        // Kiểm tra xem chuyến xe đã có vé đặt chưa
+        var hasBookings = await db.Bookings.AnyAsync(b => b.TripId == trip.Id, ct);
+        if (hasBookings)
+        {
+            // Nếu đã có vé đặt, không xóa vật lý mà chuyển trạng thái sang CANCELLED
+            trip.Status = TripStatus.Cancelled;
+            await db.SaveChangesAsync(ct);
+
+            await audit.WriteAsync(
+                User.AccountId(),
+                User.Username() ?? "system",
+                "Hủy chuyến xe phân công",
+                AuditActionType.StatusChange,
+                $"TRIP-{trip.Id}",
+                AuditStatus.Success,
+                $"Chuyển trạng thái chuyến #{trip.Id} sang Đã hủy (do đã có vé đặt)",
+                ct);
+        }
+        else
+        {
+            var staffList = await db.TripStaff.Where(ts => ts.TripId == trip.Id).ToListAsync(ct);
+            db.TripStaff.RemoveRange(staffList);
+            db.Trips.Remove(trip);
+            await db.SaveChangesAsync(ct);
+
+            await audit.WriteAsync(
+                User.AccountId(),
+                User.Username() ?? "system",
+                "Xóa phân công điều xe",
+                AuditActionType.Delete,
+                $"TRIP-{trip.Id}",
+                AuditStatus.Success,
+                $"Xóa chuyến xe phân công #{trip.Id} của xe {trip.Bus?.PlateNumber} lúc {trip.DepartureAt:yyyy-MM-dd}",
+                ct);
+        }
 
         return NoContent();
     }
 
-    private static AssignmentDto ToDto(BusAssignment a) => new()
+    private static AssignmentDto ToDto(Trip t)
     {
-        Id = string.IsNullOrWhiteSpace(a.AssignmentCode) ? $"ASN-{a.Id}" : a.AssignmentCode,
-        RawId = a.Id,
-        RouteId = a.Route?.Code ?? a.RouteId.ToString(),
-        RouteCode = a.Route?.Code,
-        RouteName = a.Route?.Name,
-        BusPlate = a.BusPlate,
-        DriverId = a.DriverId,
-        DriverName = a.DriverName,
-        AssistantId = a.AssistantId,
-        AssistantName = a.AssistantName,
-        Date = a.Date.ToString("yyyy-MM-dd"),
-        Shift = a.Shift,
-        ShiftHours = a.ShiftHours,
-        StartTime = a.StartTime,
-        EndTime = a.EndTime,
-        Status = a.Status,
-        Notes = a.Notes,
-        CreatedAt = a.CreatedAt,
-        UpdatedAt = a.UpdatedAt,
-    };
+        var driver = t.TripStaff.FirstOrDefault(ts => ts.Duty == StaffDuty.Driver)?.Account;
+        var assistant = t.TripStaff.FirstOrDefault(ts => ts.Duty == StaffDuty.Conductor)?.Account;
+        var durationMinutes = 60;
+        if (t.BusRoute?.RouteStops != null && t.BusRoute.RouteStops.Count > 0)
+        {
+            var maxMin = t.BusRoute.RouteStops.Max(rs => rs.MinutesFromStart);
+            if (maxMin > 0) durationMinutes = maxMin;
+        }
+
+        var start = t.DepartureAt;
+        var end = start.AddMinutes(durationMinutes);
+        var shift = start.Hour < 13 ? "CA_SANG" : (start.Hour < 18 ? "CA_CHIEU" : "CA_TOI");
+        var shiftHours = $"{start:HH:mm} — {end:HH:mm}";
+        var statusStr = t.Status switch
+        {
+            TripStatus.Scheduled => "ASSIGNED",
+            TripStatus.Running => "IN_PROGRESS",
+            TripStatus.Completed => "COMPLETED",
+            TripStatus.Cancelled => "CANCELLED",
+            _ => t.Status.ToString().ToUpperInvariant()
+        };
+
+        return new AssignmentDto
+        {
+            Id = $"ASN-{t.Id:D4}",
+            RawId = t.Id,
+            RouteId = t.BusRoute?.Code ?? t.RouteId.ToString(),
+            RouteCode = t.BusRoute?.Code,
+            RouteName = t.BusRoute?.Name,
+            BusPlate = t.Bus?.PlateNumber ?? string.Empty,
+            DriverId = driver?.Id.ToString() ?? string.Empty,
+            DriverName = driver?.FullName ?? string.Empty,
+            AssistantId = assistant?.Id.ToString(),
+            AssistantName = assistant?.FullName,
+            Date = start.ToString("yyyy-MM-dd"),
+            Shift = shift,
+            ShiftHours = shiftHours,
+            StartTime = start,
+            EndTime = end,
+            Status = statusStr,
+            Notes = null,
+            CreatedAt = start,
+            UpdatedAt = start,
+        };
+    }
 }
