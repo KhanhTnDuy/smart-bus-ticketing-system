@@ -13,8 +13,8 @@ namespace SmartBusTicketing.Api.Controllers;
 [Authorize(Roles = "Admin")]
 public class AccountsController(AppDbContext db, AuditLogService audit) : ControllerBase
 {
-    private long GetActorId() => User.AccountId();
-    private string GetActorName() => User.Username();
+    private long? GetActorId() => User.AccountId();
+    private string GetActorName() => User.Username() ?? "system";
 
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] string? search, [FromQuery] AccountRole? role, [FromQuery] bool? active, CancellationToken ct)
@@ -87,31 +87,47 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
         db.Accounts.Add(account);
         await db.SaveChangesAsync(ct);
 
-        await audit.WriteAsync(GetActorId(), GetActorName(), "CREATE_ACCOUNT", AuditActionType.Create, $"Tài khoản: {account.Username}", ct: ct);
+        await audit.WriteAsync(GetActorId(), GetActorName(), "CREATE_ACCOUNT", AuditActionType.Create, $"USR-{account.Id}", ct: ct);
 
-        return CreatedAtAction(nameof(Get), new { id = account.Id }, account);
+        var result = new { account.Id, account.Username, account.FullName, account.Email, account.Phone, account.Role, account.Active, account.CreatedAt, account.UpdatedAt };
+        return CreatedAtAction(nameof(Get), new { id = account.Id }, result);
     }
 
     [HttpPut("{id:long}")]
-    public async Task<IActionResult> Update(long id, [FromBody] UpdateAccountDto dto, CancellationToken ct)
+    public async Task<IActionResult> Update(long id, [FromBody] UpdateAccountRequest req, CancellationToken ct)
     {
         var account = await db.Accounts.FindAsync([id], ct);
         if (account is null) return NotFound(new { message = "Không tìm thấy tài khoản!" });
 
-        if (!ModelState.IsValid) return BadRequest(ModelState);
+        if (!string.IsNullOrWhiteSpace(req.FullName))
+            account.FullName = req.FullName.Trim();
 
-        account.FullName = dto.FullName.Trim();
-        account.Email = dto.Email?.Trim();
-        account.Phone = dto.Phone?.Trim();
-        if (dto.Role.HasValue) account.Role = dto.Role.Value;
-        if (dto.Active.HasValue) account.Active = dto.Active.Value;
-        if (!string.IsNullOrWhiteSpace(dto.Password)) account.PasswordHash = PasswordService.Hash(dto.Password);
+        if (!string.IsNullOrWhiteSpace(req.Email) && req.Email.Trim() != account.Email)
+        {
+            var email = req.Email.Trim();
+            if (await db.Accounts.AnyAsync(a => a.Email == email && a.Id != id, ct))
+                return Conflict(new { message = $"Email '{email}' đã được sử dụng!" });
+            account.Email = email;
+        }
+
+        if (!string.IsNullOrWhiteSpace(req.Phone) && req.Phone.Trim() != account.Phone)
+        {
+            var phone = req.Phone.Trim();
+            if (await db.Accounts.AnyAsync(a => a.Phone == phone && a.Id != id, ct))
+                return Conflict(new { message = $"Số điện thoại '{phone}' đã được sử dụng!" });
+            account.Phone = phone;
+        }
+
+        if (req.Role.HasValue) account.Role = req.Role.Value;
+        if (req.Active.HasValue) account.Active = req.Active.Value;
+        if (!string.IsNullOrWhiteSpace(req.Password)) account.PasswordHash = PasswordService.Hash(req.Password);
+
         account.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
-        await audit.WriteAsync(GetActorId(), GetActorName(), "UPDATE_ACCOUNT", AuditActionType.Update, $"Tài khoản: {account.Username}", ct: ct);
+        await audit.WriteAsync(GetActorId(), GetActorName(), "UPDATE_ACCOUNT", AuditActionType.Update, $"USR-{account.Id}", ct: ct);
 
-        return Ok(account);
+        return Ok(new { account.Id, account.Username, account.FullName, account.Email, account.Phone, account.Role, account.Active, account.CreatedAt, account.UpdatedAt });
     }
 
     [HttpPatch("{id:long}/role")]
@@ -120,13 +136,14 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
         var account = await db.Accounts.FindAsync([id], ct);
         if (account is null) return NotFound(new { message = "Không tìm thấy tài khoản!" });
 
+        var oldRole = account.Role;
         account.Role = req.Role;
         account.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
-        await audit.WriteAsync(GetActorId(), GetActorName(), "UPDATE_ROLE", AuditActionType.Update, $"Tài khoản: {account.Username} -> {req.Role}", ct: ct);
+        await audit.WriteAsync(GetActorId(), GetActorName(), "UPDATE_ROLE", AuditActionType.StatusChange, $"USR-{account.Id}: {oldRole} -> {req.Role}", ct: ct);
 
-        return Ok(account);
+        return Ok(new { account.Id, account.Username, account.FullName, account.Email, account.Phone, account.Role, account.Active, account.CreatedAt, account.UpdatedAt });
     }
 
     [HttpDelete("{id:long}")]
@@ -139,23 +156,8 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
         account.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
-        await audit.WriteAsync(GetActorId(), GetActorName(), "DISABLE_ACCOUNT", AuditActionType.Delete, $"Tài khoản: {account.Username}", ct: ct);
+        await audit.WriteAsync(GetActorId(), GetActorName(), "DISABLE_ACCOUNT", AuditActionType.Delete, $"USR-{account.Id}", ct: ct);
 
         return NoContent();
     }
-}
-
-public class UpdateRoleRequest
-{
-    public AccountRole Role { get; set; }
-}
-
-public class UpdateAccountDto
-{
-    public string FullName { get; set; } = string.Empty;
-    public string? Email { get; set; }
-    public string? Phone { get; set; }
-    public AccountRole? Role { get; set; }
-    public bool? Active { get; set; }
-    public string? Password { get; set; }
 }
