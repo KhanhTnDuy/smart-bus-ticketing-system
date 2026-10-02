@@ -1100,7 +1100,7 @@ export const RouteBookingPage: React.FC = () => {
               ) : (
                 <>
                   <CreditCard className="w-4 h-4" />
-                  <span>Xác nhận thanh toán {(selectedTrip.price * selectedSeats.length).toLocaleString('vi-VN')} VNĐ</span>
+                  <span>Xác nhận thanh toán {totalCalculatedAmount === 0 ? '0 VNĐ (Miễn phí)' : `${totalCalculatedAmount.toLocaleString('vi-VN')} VNĐ`}</span>
                 </>
               )}
             </button>

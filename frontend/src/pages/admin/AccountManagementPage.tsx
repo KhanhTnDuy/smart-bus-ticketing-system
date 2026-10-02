@@ -131,14 +131,18 @@ export const AccountManagementPage: React.FC = () => {
     const errs: Record<string, string> = {};
     if (!formData.fullName.trim()) errs.fullName = 'Họ và tên không được để trống.';
     if (!formData.username.trim()) errs.username = 'Tên đăng nhập không được để trống.';
-    if (!formData.email.trim()) {
+    
+    const emailTrimmed = formData.email.trim();
+    if (!emailTrimmed) {
       errs.email = 'Email không được để trống.';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      errs.email = 'Định dạng email không hợp lệ.';
+    } else if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(emailTrimmed)) {
+      errs.email = 'Định dạng email không hợp lệ (VD: user@example.com).';
     }
-    if (!formData.phone.trim()) {
+
+    const phoneTrimmed = formData.phone.trim().replace(/\s+/g, '');
+    if (!phoneTrimmed) {
       errs.phone = 'Số điện thoại không được để trống.';
-    } else if (!/^[0-9]{9,11}$/.test(formData.phone.replace(/\s+/g, ''))) {
+    } else if (!/^[0-9]{9,11}$/.test(phoneTrimmed)) {
       errs.phone = 'Số điện thoại phải từ 9 đến 11 chữ số.';
     }
     setFormErrors(errs);
@@ -150,9 +154,17 @@ export const AccountManagementPage: React.FC = () => {
     e.preventDefault();
     if (!validateForm()) return;
 
-    const res = await addAccount(formData);
+    const sanitizedData = {
+      ...formData,
+      fullName: formData.fullName.trim(),
+      username: formData.username.trim(),
+      email: formData.email.trim(),
+      phone: formData.phone.trim(),
+    };
+
+    const res = await addAccount(sanitizedData);
     if (res.success) {
-      success(`Tạo mới tài khoản [${formData.username}] thành công!`);
+      success(`Tạo mới tài khoản [${sanitizedData.username}] thành công!`);
       setIsAddModalOpen(false);
     } else {
       error(res.message || 'Thêm tài khoản thất bại.');
@@ -164,9 +176,17 @@ export const AccountManagementPage: React.FC = () => {
     if (!selectedUser) return;
     if (!validateForm()) return;
 
-    const res = await updateAccount(selectedUser.id, formData);
+    const sanitizedData = {
+      ...formData,
+      fullName: formData.fullName.trim(),
+      username: formData.username.trim(),
+      email: formData.email.trim(),
+      phone: formData.phone.trim(),
+    };
+
+    const res = await updateAccount(selectedUser.id, sanitizedData);
     if (res.success) {
-      success(`Cập nhật thông tin tài khoản [${selectedUser.username}] thành công!`);
+      success(`Cập nhật thông tin tài khoản [${sanitizedData.username}] thành công!`);
       setIsEditModalOpen(false);
     } else {
       error(res.message || 'Cập nhật thất bại.');

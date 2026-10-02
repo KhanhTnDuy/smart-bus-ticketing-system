@@ -151,6 +151,21 @@ interface DataContextType {
 
   // Driver/Assistant Assignments (Sprint 2)
   assignments: BusAssignment[];
+  checkAssignmentConflict: (
+    data: {
+      busPlate?: string;
+      driverName?: string;
+      driverId?: string;
+      date?: string;
+      shift?: ShiftType;
+    },
+    excludeId?: string
+  ) => {
+    hasConflict: boolean;
+    type?: 'BUS' | 'DRIVER';
+    message: string;
+    conflicting?: BusAssignment;
+  } | null;
   addAssignment: (data: Omit<BusAssignment, 'id'>) => { success: boolean; message?: string; assignment?: BusAssignment };
   updateAssignment: (id: string, updates: Partial<BusAssignment>) => { success: boolean; message?: string };
   deleteAssignment: (id: string) => { success: boolean; message?: string };
@@ -189,6 +204,43 @@ const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
     console.error(`Error loading ${key} from storage:`, e);
   }
   return defaultValue;
+};
+
+// Safe ID generator that finds the maximum numeric suffix to prevent collision on deleted records
+const generateNextSequentialId = (
+  items: Array<{ id: string }>,
+  prefix: string,
+  padLength: number = 2
+): string => {
+  const maxNum = items.reduce((max, item) => {
+    const regex = new RegExp(`^${prefix}-?(\\d+)`, 'i');
+    const match = item.id.match(regex);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      return !isNaN(num) ? Math.max(max, num) : max;
+    }
+    return max;
+  }, 0);
+  return `${prefix}-${String(maxNum + 1).padStart(padLength, '0')}`;
+};
+
+const generateYearPrefixId = (
+  items: Array<{ id: string }>,
+  prefix: string,
+  padLength: number = 3
+): string => {
+  const year = new Date().getFullYear();
+  const fullPrefix = `${prefix}-${year}`;
+  const maxNum = items.reduce((max, item) => {
+    const regex = new RegExp(`^${fullPrefix}-?(\\d+)`, 'i');
+    const match = item.id.match(regex);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      return !isNaN(num) ? Math.max(max, num) : max;
+    }
+    return max;
+  }, 0);
+  return `${fullPrefix}-${String(maxNum + 1).padStart(padLength, '0')}`;
 };
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -397,7 +449,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Tên đăng nhập này đã tồn tại trong hệ thống.' };
     }
 
-    const newId = `USR-${String(users.length + 1).padStart(3, '0')}`;
+    const newId = generateNextSequentialId(users, 'USR', 3);
     const newUser: User = {
       ...userData,
       id: newId,
@@ -529,7 +581,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Mã số tuyến này đã tồn tại.' };
     }
 
-    const newId = `RT-${String(routes.length + 1).padStart(2, '0')}`;
+    const newId = generateNextSequentialId(routes, 'RT', 2);
     const newRoute: BusRoute = {
       ...routeData,
       id: newId,
@@ -870,7 +922,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const formattedDate = getFormattedNow();
-    const newId = `CMP-${new Date().getFullYear()}-${String(complaints.length + 1).padStart(3, '0')}`;
+    const newId = generateYearPrefixId(complaints, 'CMP', 3);
     const newComplaint: Complaint = {
       ...data,
       id: newId,
@@ -955,7 +1007,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const formattedDate = getFormattedNow();
-    const newId = `RAT-${new Date().getFullYear()}-${String(ratings.length + 1).padStart(3, '0')}`;
+    const newId = generateYearPrefixId(ratings, 'RAT', 3);
     const newRating: TripRating = {
       ...data,
       id: newId,
@@ -1201,11 +1253,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       )
     );
 
-    // 2. Free up the seat in the trip
+    // 2. Free up the seat in the trip (support comma-separated multi-seat tickets e.g. "A1, A2")
+    const seatsToFree = ticket.seatNumber
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
     setTrips((prev) =>
       prev.map((trip) =>
         trip.id === ticket.tripId
-          ? { ...trip, bookedSeats: trip.bookedSeats.filter((s) => s !== ticket.seatNumber) }
+          ? { ...trip, bookedSeats: trip.bookedSeats.filter((s) => !seatsToFree.includes(s)) }
           : trip
       )
     );
@@ -1263,7 +1320,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Chuyến xe mới không tồn tại.' };
     }
 
-    if (newTrip.bookedSeats.includes(newSeat)) {
+    const oldSeats = oldTicket.seatNumber
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const newSeats = newSeat
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (newSeats.some((s) => newTrip.bookedSeats.includes(s))) {
       return { success: false, message: `Ghế ${newSeat} của chuyến mới đã có người chọn.` };
     }
 
@@ -1291,17 +1357,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (trip.id === oldTicket.tripId && trip.id === newTripId) {
           return {
             ...trip,
-            bookedSeats: [...trip.bookedSeats.filter((s) => s !== oldTicket.seatNumber), newSeat],
+            bookedSeats: [...trip.bookedSeats.filter((s) => !oldSeats.includes(s)), ...newSeats],
           };
         } else if (trip.id === oldTicket.tripId) {
           return {
             ...trip,
-            bookedSeats: trip.bookedSeats.filter((s) => s !== oldTicket.seatNumber),
+            bookedSeats: trip.bookedSeats.filter((s) => !oldSeats.includes(s)),
           };
         } else if (trip.id === newTripId) {
           return {
             ...trip,
-            bookedSeats: [...trip.bookedSeats, newSeat],
+            bookedSeats: [...trip.bookedSeats, ...newSeats],
           };
         }
         return trip;
@@ -1594,43 +1660,77 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return shift1 === shift2;
   };
 
-  const addAssignment = (data: Omit<BusAssignment, 'id'>) => {
-    if (!data.routeId || !data.busPlate || !data.driverName) {
-      return { success: false, message: 'Vui lòng điền đủ thông tin phân công.' };
+  const checkAssignmentConflict = (
+    data: {
+      busPlate?: string;
+      driverName?: string;
+      driverId?: string;
+      date?: string;
+      shift?: ShiftType;
+    },
+    excludeId?: string
+  ): {
+    hasConflict: boolean;
+    type?: 'BUS' | 'DRIVER';
+    message: string;
+    conflicting?: BusAssignment;
+  } | null => {
+    const targetPlate = (data.busPlate || '').trim().toUpperCase();
+    const targetDriver = (data.driverName || '').trim().toLowerCase();
+    const targetDate = data.date || '';
+    const targetShift = data.shift;
+
+    if (!targetDate || !targetShift || (!targetPlate && !targetDriver)) {
+      return null;
     }
 
-    // Kiểm tra trùng lịch xe hoặc tài xế trong cùng ngày & ca làm việc (Requirement 7)
-    const normalizedPlate = data.busPlate.trim().toUpperCase();
-    const normalizedDriver = data.driverName.trim().toLowerCase();
-
-    const conflictingAssignment = assignments.find((a) => {
+    const conflicting = assignments.find((a) => {
+      if (excludeId && a.id === excludeId) return false;
       if (a.status === 'CANCELLED') return false;
-      const overlaps = isShiftOverlapping(data.shift, data.date, a.shift, a.date);
+      const overlaps = isShiftOverlapping(targetShift, targetDate, a.shift, a.date);
       if (!overlaps) return false;
 
-      // Trùng xe
-      if (a.busPlate.trim().toUpperCase() === normalizedPlate) {
-        return true;
-      }
-      // Trùng tài xế
+      if (targetPlate && a.busPlate.trim().toUpperCase() === targetPlate) return true;
       if (
         (data.driverId && a.driverId === data.driverId) ||
-        a.driverName.trim().toLowerCase() === normalizedDriver
+        (targetDriver && a.driverName.trim().toLowerCase() === targetDriver)
       ) {
         return true;
       }
       return false;
     });
 
-    if (conflictingAssignment) {
-      const isBusConflict = conflictingAssignment.busPlate.trim().toUpperCase() === normalizedPlate;
-      const conflictMsg = isBusConflict
-        ? `Xung đột trùng lịch: Xe buýt [${data.busPlate}] đã được xếp ca "${conflictingAssignment.shift}" ngày ${data.date} (Mã phân công: ${conflictingAssignment.id}).`
-        : `Xung đột trùng lịch: Tài xế [${data.driverName}] đã có ca trực "${conflictingAssignment.shift}" ngày ${data.date} (Mã phân công: ${conflictingAssignment.id}).`;
-      return { success: false, message: conflictMsg };
+    if (conflicting) {
+      const isBus = Boolean(targetPlate && conflicting.busPlate.trim().toUpperCase() === targetPlate);
+      const hoursInfo = conflicting.shiftHours ? ` (${conflicting.shiftHours})` : '';
+      const message = isBus
+        ? `Xung đột trùng lịch: Xe buýt [${targetPlate}] đã được xếp ca "${conflicting.shift}"${hoursInfo} ngày ${targetDate} (Lệnh: ${conflicting.id}, Tuyến: ${conflicting.routeId}).`
+        : `Xung đột trùng lịch: Tài xế [${data.driverName || conflicting.driverName}] đã có ca trực "${conflicting.shift}"${hoursInfo} ngày ${targetDate} (Lệnh: ${conflicting.id}, Tuyến: ${conflicting.routeId}).`;
+
+      return {
+        hasConflict: true,
+        type: isBus ? 'BUS' : 'DRIVER',
+        message,
+        conflicting,
+      };
     }
 
-    const newId = `ASN-${String(assignments.length + 1).padStart(3, '0')}`;
+    return null;
+  };
+
+  const addAssignment = (data: Omit<BusAssignment, 'id'>) => {
+    if (!data.routeId || !data.busPlate || !data.driverName) {
+      return { success: false, message: 'Vui lòng điền đủ thông tin phân công.' };
+    }
+
+    // Kiểm tra trùng lịch xe hoặc tài xế trong cùng ngày & ca làm việc (Requirement 7)
+    const conflict = checkAssignmentConflict(data);
+    if (conflict?.hasConflict) {
+      return { success: false, message: conflict.message };
+    }
+
+    const normalizedPlate = data.busPlate.trim().toUpperCase();
+    const newId = generateNextSequentialId(assignments, 'ASN', 3);
     const newAssignment: BusAssignment = {
       ...data,
       id: newId,
@@ -1655,34 +1755,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Kiểm tra trùng lịch khi cập nhật (loại trừ chính id đang sửa)
     const current = assignments.find((a) => a.id === id);
     if (current) {
-      const targetDate = updates.date || current.date;
-      const targetShift = updates.shift || current.shift;
-      const targetBusPlate = (updates.busPlate || current.busPlate).trim().toUpperCase();
-      const targetDriverName = (updates.driverName || current.driverName).trim().toLowerCase();
-      const targetDriverId = updates.driverId || current.driverId;
+      const conflict = checkAssignmentConflict(
+        {
+          busPlate: updates.busPlate || current.busPlate,
+          driverName: updates.driverName || current.driverName,
+          driverId: updates.driverId || current.driverId,
+          date: updates.date || current.date,
+          shift: updates.shift || current.shift,
+        },
+        id
+      );
 
-      const conflicting = assignments.find((a) => {
-        if (a.id === id || a.status === 'CANCELLED') return false;
-        const overlaps = isShiftOverlapping(targetShift, targetDate, a.shift, a.date);
-        if (!overlaps) return false;
-
-        if (a.busPlate.trim().toUpperCase() === targetBusPlate) return true;
-        if (
-          (targetDriverId && a.driverId === targetDriverId) ||
-          a.driverName.trim().toLowerCase() === targetDriverName
-        ) {
-          return true;
-        }
-        return false;
-      });
-
-      if (conflicting) {
-        const isBus = conflicting.busPlate.trim().toUpperCase() === targetBusPlate;
+      if (conflict?.hasConflict) {
         return {
           success: false,
-          message: isBus
-            ? `Xung đột trùng lịch: Xe buýt [${targetBusPlate}] đã được xếp ca "${conflicting.shift}" ngày ${targetDate}!`
-            : `Xung đột trùng lịch: Tài xế [${updates.driverName || current.driverName}] đã có ca trực "${conflicting.shift}" ngày ${targetDate}!`,
+          message: conflict.message,
         };
       }
     }
@@ -1736,7 +1823,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: `Biển số xe [${data.plateNumber}] đã tồn tại trong đội xe!` };
     }
 
-    const newId = `BUS-${String(buses.length + 1).padStart(2, '0')}`;
+    const newId = generateNextSequentialId(buses, 'BUS', 2);
     const newBus: BusVehicle = {
       ...data,
       id: newId,
@@ -1809,7 +1896,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // 9. TIMETABLE TEMPLATES (Sprint 2 - Quản lý thời gian biểu)
   const addTimetable = (data: Omit<TimetableTemplate, 'id'>) => {
-    const newId = `TT-${String(timetables.length + 1).padStart(3, '0')}`;
+    const newId = generateNextSequentialId(timetables, 'TT', 3);
     const newTimetable: TimetableTemplate = {
       ...data,
       id: newId,
@@ -1989,6 +2076,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         processIncident,
 
         assignments,
+        checkAssignmentConflict,
         addAssignment,
         updateAssignment,
         deleteAssignment,
