@@ -1487,9 +1487,70 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // 7. DRIVER & ASSISTANT ASSIGNMENTS (Sprint 2)
+  const parseAssignmentRange = (dateStr: string, shiftHours: string) => {
+    const parts = (shiftHours || '').match(/(\d{1,2}:\d{2})\s*[-—–~to]+\s*(\d{1,2}:\d{2})/);
+    const d = new Date(dateStr);
+    if (!parts) {
+      return {
+        start: new Date(`${dateStr}T06:00:00`),
+        end: new Date(`${dateStr}T18:00:00`),
+      };
+    }
+    const [h1, m1] = parts[1].split(':').map(Number);
+    const [h2, m2] = parts[2].split(':').map(Number);
+    const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h1, m1);
+    const end = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h2, m2);
+    if (end <= start) end.setDate(end.getDate() + 1);
+    return { start, end };
+  };
+
+  const checkAssignmentConflict = (candidate: Omit<BusAssignment, 'id'>, excludeId?: string) => {
+    const candRange = parseAssignmentRange(candidate.date, candidate.shiftHours);
+    for (const other of assignments) {
+      if (other.status === 'CANCELLED') continue;
+      if (excludeId && other.id === excludeId) continue;
+      if (other.date !== candidate.date) continue;
+
+      const otherRange = parseAssignmentRange(other.date, other.shiftHours);
+      const hasOverlap = candRange.start < otherRange.end && otherRange.start < candRange.end;
+      if (!hasOverlap) continue;
+
+      if (other.busPlate.trim().toUpperCase() === candidate.busPlate.trim().toUpperCase()) {
+        return {
+          hasConflict: true,
+          message: `Phương tiện ${candidate.busPlate} đã có lịch trực ca [${other.id}] (${other.shiftHours} ngày ${other.date}). Trùng lịch vận hành!`,
+        };
+      }
+
+      if (
+        (other.driverId && candidate.driverId && other.driverId === candidate.driverId) ||
+        other.driverName.trim().toLowerCase() === candidate.driverName.trim().toLowerCase()
+      ) {
+        return {
+          hasConflict: true,
+          message: `Tài xế ${candidate.driverName} đã có lịch trực ca [${other.id}] (${other.shiftHours} ngày ${other.date}). Trùng lịch làm việc!`,
+        };
+      }
+    }
+    return { hasConflict: false };
+  };
+
   const addAssignment = (data: Omit<BusAssignment, 'id'>) => {
     if (!data.routeId || !data.busPlate || !data.driverName) {
       return { success: false, message: 'Vui lòng điền đủ thông tin phân công.' };
+    }
+
+    const conflict = checkAssignmentConflict(data);
+    if (conflict.hasConflict) {
+      addAuditLog({
+        user: getActorName(),
+        action: 'Phân công điều xe thất bại do trùng lịch',
+        module: 'ASSIGNMENT',
+        description: conflict.message || 'Trùng lịch điều xe hoặc tài xế!',
+        status: 'FAILURE',
+        targetId: data.busPlate,
+      });
+      return { success: false, message: conflict.message };
     }
 
     const newId = `ASN-${String(assignments.length + 1).padStart(3, '0')}`;
@@ -1513,8 +1574,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateAssignment = (id: string, updates: Partial<BusAssignment>) => {
+    const current = assignments.find((a) => a.id === id);
+    if (!current) return { success: false, message: 'Không tìm thấy phân công' };
+
+    const merged = { ...current, ...updates };
+    const conflict = checkAssignmentConflict(merged, id);
+    if (conflict.hasConflict) {
+      addAuditLog({
+        user: getActorName(),
+        action: 'Cập nhật phân công thất bại do trùng lịch',
+        module: 'ASSIGNMENT',
+        description: conflict.message || 'Trùng lịch điều xe hoặc tài xế!',
+        status: 'FAILURE',
+        targetId: id,
+      });
+      return { success: false, message: conflict.message };
+    }
+
     setAssignments((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, ...updates } : a))
+      prev.map((a) => (a.id === id ? merged : a))
     );
 
     addAuditLog({

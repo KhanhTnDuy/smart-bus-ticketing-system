@@ -22,6 +22,7 @@ public class AppDbContext : DbContext
     public DbSet<Schedule> Schedules => Set<Schedule>();
     public DbSet<Trip> Trips => Set<Trip>();
     public DbSet<TripStaff> TripStaff => Set<TripStaff>();
+    public DbSet<BusAssignment> BusAssignments => Set<BusAssignment>();
 
     public DbSet<Booking> Bookings => Set<Booking>();
     public DbSet<Ticket> Tickets => Set<Ticket>();
@@ -294,6 +295,13 @@ public class AppDbContext : DbContext
             e.ToTable("feedback_history");
             e.HasOne(h => h.Feedback).WithMany(f => f.History).HasForeignKey(h => h.FeedbackId);
             e.HasOne(h => h.Changer).WithMany().HasForeignKey(h => h.ChangedBy).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<BusAssignment>(e =>
+        {
+            e.ToTable("bus_assignments");
+            e.HasIndex(a => a.AssignmentCode);
+            e.HasOne(a => a.Route).WithMany().HasForeignKey(a => a.RouteId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // Store all enums as strings for readability in MySQL.

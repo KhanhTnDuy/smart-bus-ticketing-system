@@ -16,7 +16,9 @@ import {
   FileText,
   CheckCircle,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
+import { useAssignmentManagement } from '../../hooks/useAssignmentManagement';
 import { useData } from '../../context/DataContext';
 import { useToast } from '../../context/ToastContext';
 import { Badge } from '../../components/common/Badge';
@@ -24,10 +26,20 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { Modal } from '../../components/common/Modal';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { EmptyState } from '../../components/common/EmptyState';
+import { LoadingState } from '../../components/common/LoadingState';
 import { BusAssignment, ShiftType, AssignmentStatus } from '../../types';
 
 export const AssignmentManagementPage: React.FC = () => {
-  const { assignments, routes, users, addAssignment, updateAssignment, deleteAssignment } = useData();
+  const {
+    assignments,
+    loading: isLoading,
+    error: loadError,
+    reload,
+    addAssignment,
+    updateAssignment,
+    deleteAssignment,
+  } = useAssignmentManagement();
+  const { routes, users } = useData();
   const { success, error } = useToast();
   const showSuccess = success;
   const showError = error;
@@ -56,6 +68,7 @@ export const AssignmentManagementPage: React.FC = () => {
   const [formShiftHours, setFormShiftHours] = useState('05:30 — 13:30');
   const [formStatus, setFormStatus] = useState<AssignmentStatus>('ASSIGNED');
   const [formNotes, setFormNotes] = useState('');
+  const [formConflictWarning, setFormConflictWarning] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Available drivers from user list
@@ -65,7 +78,7 @@ export const AssignmentManagementPage: React.FC = () => {
 
   const filteredAssignments = useMemo(() => {
     return assignments.filter((a) => {
-      const route = routes.find((r) => r.id === a.routeId);
+      const route = routes.find((r) => r.id === a.routeId || r.code === a.routeId || r.routeCode === a.routeId);
       const routeStr = route ? `${route.code || route.routeCode} ${route.name}` : a.routeId;
 
       const matchesSearch =
@@ -84,6 +97,7 @@ export const AssignmentManagementPage: React.FC = () => {
 
   // Open Add Modal
   const handleOpenAdd = () => {
+    setFormConflictWarning(null);
     const defaultDriver = driverUsers[0];
     setFormRouteId(routes[0]?.id || 'r1');
     setFormBusPlate('51B-201.55');
@@ -107,9 +121,10 @@ export const AssignmentManagementPage: React.FC = () => {
       return;
     }
 
+    setFormConflictWarning(null);
     setIsSubmitting(true);
     try {
-      const res = addAssignment({
+      const res = await addAssignment({
         routeId: formRouteId,
         busPlate: formBusPlate.trim().toUpperCase(),
         driverId: formDriverId || 'u_drv_new',
@@ -126,6 +141,11 @@ export const AssignmentManagementPage: React.FC = () => {
       if (res.success) {
         showSuccess(`Phân công mới [${res.assignment?.id}] đã được lưu thành công!`);
         setIsAddModalOpen(false);
+      } else if (res.conflict) {
+        setFormConflictWarning(res.message || 'Phát hiện trùng lịch phân công phương tiện hoặc nhân sự!');
+        showError(res.message || 'Trùng lịch điều xe hoặc tài xế!');
+      } else {
+        showError(res.message || 'Không thể tạo phân công');
       }
     } catch {
       showError('Không thể tạo phân công vào lúc này');
@@ -136,6 +156,7 @@ export const AssignmentManagementPage: React.FC = () => {
 
   // Open Edit Modal
   const handleOpenEdit = (asn: BusAssignment) => {
+    setFormConflictWarning(null);
     setSelectedAssignment(asn);
     setFormRouteId(asn.routeId);
     setFormBusPlate(asn.busPlate);
@@ -156,9 +177,10 @@ export const AssignmentManagementPage: React.FC = () => {
     e.preventDefault();
     if (!selectedAssignment) return;
 
+    setFormConflictWarning(null);
     setIsSubmitting(true);
     try {
-      const res = updateAssignment(selectedAssignment.id, {
+      const res = await updateAssignment(selectedAssignment.id, {
         routeId: formRouteId,
         busPlate: formBusPlate.trim().toUpperCase(),
         driverId: formDriverId,
@@ -175,6 +197,11 @@ export const AssignmentManagementPage: React.FC = () => {
       if (res.success) {
         showSuccess(`Đã cập nhật phân công [${selectedAssignment.id}] thành công!`);
         setIsEditModalOpen(false);
+      } else if (res.conflict) {
+        setFormConflictWarning(res.message || 'Phát hiện trùng lịch phân công phương tiện hoặc nhân sự!');
+        showError(res.message || 'Trùng lịch điều xe hoặc tài xế!');
+      } else {
+        showError(res.message || 'Không thể cập nhật phân công');
       }
     } catch {
       showError('Không thể cập nhật phân công');
@@ -196,14 +223,18 @@ export const AssignmentManagementPage: React.FC = () => {
   };
 
   // Confirm Delete
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!selectedAssignment) return;
 
-    const res = deleteAssignment(selectedAssignment.id);
-    if (res.success) {
-      showSuccess(`Đã xóa phân công ca trực [${selectedAssignment.id}] thành công.`);
-      setIsDeleteConfirmOpen(false);
-      setSelectedAssignment(null);
+    try {
+      const res = await deleteAssignment(selectedAssignment.id);
+      if (res.success) {
+        showSuccess(`Đã xóa phân công ca trực [${selectedAssignment.id}] thành công.`);
+        setIsDeleteConfirmOpen(false);
+        setSelectedAssignment(null);
+      }
+    } catch {
+      showError('Không thể xóa phân công ca trực');
     }
   };
 
@@ -248,14 +279,26 @@ export const AssignmentManagementPage: React.FC = () => {
           { label: 'Phân công nhân sự' },
         ]}
         action={
-          <button
-            type="button"
-            onClick={handleOpenAdd}
-            className="px-4 py-2 bg-institutional-600 hover:bg-institutional-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Phân Công Ca Trực Mới</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void reload()}
+              disabled={isLoading}
+              className="px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#131e3a] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+              title="Làm mới dữ liệu từ máy chủ"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>Làm mới</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenAdd}
+              className="px-4 py-2 bg-institutional-600 hover:bg-institutional-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Phân Công Ca Trực Mới</span>
+            </button>
+          </div>
         }
       />
 
@@ -461,6 +504,20 @@ export const AssignmentManagementPage: React.FC = () => {
             onSubmit={isAddModalOpen ? handleConfirmAdd : handleConfirmEdit}
             className="space-y-4 text-xs"
           >
+            {formConflictWarning && (
+              <div className="p-3.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 flex items-start gap-2.5">
+                <AlertCircle className="w-5 h-5 shrink-0 text-red-600 dark:text-red-400 mt-0.5" />
+                <div className="text-xs">
+                  <div className="font-bold text-red-800 dark:text-red-200">
+                    Phát hiện xung đột trùng lịch!
+                  </div>
+                  <div className="mt-0.5 leading-relaxed text-red-700 dark:text-red-300">
+                    {formConflictWarning}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 dark:text-slate-300 block">
