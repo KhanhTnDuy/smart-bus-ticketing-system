@@ -80,5 +80,6 @@ app.UseAuthorization();
 app.MapControllers();
 
 await DbSeeder.SeedAdminAsync(app);
+await DbSeeder.SeedAssignmentsAsync(app);
 
 app.Run();
