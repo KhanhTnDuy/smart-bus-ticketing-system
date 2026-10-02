@@ -285,39 +285,6 @@ export const BusManagementPage: React.FC = () => {
     );
   };
 
-  const getStatusBadge = (status: BusStatus) => {
-    switch (status) {
-      case 'ACTIVE':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Đang hoạt động
-          </span>
-        );
-      case 'MAINTENANCE':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-            Đang bảo dưỡng
-          </span>
-        );
-      case 'INACTIVE':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300 dark:border-slate-700">
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-            Tạm ngưng
-          </span>
-        );
-      default:
-        return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
-            {status}
-          </span>
-        );
-    }
-  };
-
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -538,7 +505,9 @@ export const BusManagementPage: React.FC = () => {
                       </td>
 
                       {/* Status */}
-                      <td className="py-3.5 px-4">{getStatusBadge(bus.status)}</td>
+                      <td className="py-3.5 px-4">
+                        <Badge variant="busStatus" value={bus.status} />
+                      </td>
 
                       {/* Actions */}
                       <td className="py-3.5 px-4 text-right">
@@ -957,7 +926,7 @@ export const BusManagementPage: React.FC = () => {
               </div>
               <div>
                 <span className="text-slate-400">Trạng thái: </span>
-                {getStatusBadge(selectedBus.status)}
+                <Badge variant="busStatus" value={selectedBus.status} />
               </div>
               <div>
                 <span className="text-slate-400">Sức chứa: </span>
