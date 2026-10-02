@@ -13,6 +13,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 
 builder.Services.AddScoped<IRouteManagementService, RouteManagementService>();
+builder.Services.AddScoped<IBusManagementService, BusManagementService>();
 builder.Services.AddScoped<AuditLogService>();
 builder.Services.AddSingleton<JwtTokenService>();
 
