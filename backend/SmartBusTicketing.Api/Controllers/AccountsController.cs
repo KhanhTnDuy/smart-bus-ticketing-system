@@ -13,8 +13,8 @@ namespace SmartBusTicketing.Api.Controllers;
 [Authorize(Roles = "Admin")]
 public class AccountsController(AppDbContext db, AuditLogService audit) : ControllerBase
 {
-    private long GetActorId() => long.TryParse(User.FindFirst("id")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
-    private string GetActorName() => User.FindFirst("username")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "System";
+    private long GetActorId() => User.AccountId();
+    private string GetActorName() => User.Username();
 
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] string? search, [FromQuery] AccountRole? role, [FromQuery] bool? active, CancellationToken ct)
@@ -48,7 +48,6 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateAccountDto dto, CancellationToken ct)
     {
-        // 1. Chặn dữ liệu rỗng (Validation)
         if (!ModelState.IsValid)
         {
             return BadRequest(ModelState);
@@ -58,10 +57,9 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
         var email = dto.Email?.Trim();
         var phone = dto.Phone?.Trim();
 
-        // 2. Kiểm tra trùng Username / Email / Phone
         if (await db.Accounts.AnyAsync(a => a.Username == username, ct))
         {
-            return Conflict(new { message = $"Tên đăng nhập '{username}' đã tồn tại trên máy chủ!" });
+            return Conflict(new { message = $"Tên đăng nhập '{username}' đã tồn tại!" });
         }
 
         if (!string.IsNullOrEmpty(email) && await db.Accounts.AnyAsync(a => a.Email == email, ct))
@@ -74,7 +72,6 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
             return Conflict(new { message = $"Số điện thoại '{phone}' đã được sử dụng!" });
         }
 
-        // 3. Tạo tài khoản
         var account = new Account
         {
             Username = username,
@@ -90,10 +87,9 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
         db.Accounts.Add(account);
         await db.SaveChangesAsync(ct);
 
-        // 4. Ghi nhật ký chuẩn JWT
-        await audit.WriteAsync(GetActorId(), GetActorName(), "CREATE_ACCOUNT", $"Tạo tài khoản: {account.Username}");
+        await audit.WriteAsync(GetActorId(), GetActorName(), "CREATE_ACCOUNT", AuditActionType.Create, $"Tài khoản: {account.Username}", ct: ct);
 
-        return Ok(new { message = "Tạo tài khoản thành công!", id = account.Id });
+        return CreatedAtAction(nameof(Get), new { id = account.Id }, account);
     }
 
     [HttpPut("{id:long}")]
@@ -107,27 +103,30 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
         account.FullName = dto.FullName.Trim();
         account.Email = dto.Email?.Trim();
         account.Phone = dto.Phone?.Trim();
+        if (dto.Role.HasValue) account.Role = dto.Role.Value;
+        if (dto.Active.HasValue) account.Active = dto.Active.Value;
+        if (!string.IsNullOrWhiteSpace(dto.Password)) account.PasswordHash = PasswordService.Hash(dto.Password);
         account.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
-        await audit.WriteAsync(GetActorId(), GetActorName(), "UPDATE_ACCOUNT", $"Cập nhật tài khoản: {account.Username}");
+        await audit.WriteAsync(GetActorId(), GetActorName(), "UPDATE_ACCOUNT", AuditActionType.Update, $"Tài khoản: {account.Username}", ct: ct);
 
-        return Ok(new { message = "Cập nhật tài khoản thành công!" });
+        return Ok(account);
     }
 
     [HttpPatch("{id:long}/role")]
-    public async Task<IActionResult> UpdateRole(long id, [FromBody] AccountRole role, CancellationToken ct)
+    public async Task<IActionResult> UpdateRole(long id, [FromBody] UpdateRoleRequest req, CancellationToken ct)
     {
         var account = await db.Accounts.FindAsync([id], ct);
         if (account is null) return NotFound(new { message = "Không tìm thấy tài khoản!" });
 
-        account.Role = role;
+        account.Role = req.Role;
         account.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
-        await audit.WriteAsync(GetActorId(), GetActorName(), "UPDATE_ROLE", $"Cập nhật vai trò tài khoản {account.Username} thành {role}");
+        await audit.WriteAsync(GetActorId(), GetActorName(), "UPDATE_ROLE", AuditActionType.Update, $"Tài khoản: {account.Username} -> {req.Role}", ct: ct);
 
-        return Ok(new { message = "Cập nhật vai trò thành công!" });
+        return Ok(account);
     }
 
     [HttpDelete("{id:long}")]
@@ -140,8 +139,23 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
         account.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
-        await audit.WriteAsync(GetActorId(), GetActorName(), "DISABLE_ACCOUNT", $"Vô hiệu hóa tài khoản: {account.Username}");
+        await audit.WriteAsync(GetActorId(), GetActorName(), "DISABLE_ACCOUNT", AuditActionType.Delete, $"Tài khoản: {account.Username}", ct: ct);
 
-        return Ok(new { message = "Vô hiệu hóa tài khoản thành công!" });
+        return NoContent();
     }
+}
+
+public class UpdateRoleRequest
+{
+    public AccountRole Role { get; set; }
+}
+
+public class UpdateAccountDto
+{
+    public string FullName { get; set; } = string.Empty;
+    public string? Email { get; set; }
+    public string? Phone { get; set; }
+    public AccountRole? Role { get; set; }
+    public bool? Active { get; set; }
+    public string? Password { get; set; }
 }
