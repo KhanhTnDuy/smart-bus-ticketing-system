@@ -22,6 +22,7 @@ export type AuditModule =
   | 'ROUTE'
   | 'STOP'
   | 'FARE'
+  | 'BUS'
   | 'COMPLAINT'
   | 'RATING'
   | 'PAYMENT'
