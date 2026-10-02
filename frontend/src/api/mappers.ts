@@ -162,6 +162,7 @@ const auditModuleOf = (dto: AuditLogDto): AuditModule => {
   if (target.startsWith('ROUTE-')) return 'ROUTE';
   if (target.startsWith('STOP-')) return 'STOP';
   if (target.startsWith('FARE-')) return 'FARE';
+  if (target.startsWith('BUS-')) return 'BUS';
   if (dto.actionType === AuditActionTypeCode.Payment) return 'PAYMENT';
   if (dto.actionType === AuditActionTypeCode.TicketBuy) return 'TICKET';
   return 'SYSTEM';
