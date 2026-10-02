@@ -232,6 +232,8 @@ export const AssignmentManagementPage: React.FC = () => {
         showSuccess(`Đã xóa phân công ca trực [${selectedAssignment.id}] thành công.`);
         setIsDeleteConfirmOpen(false);
         setSelectedAssignment(null);
+      } else {
+        showError(res.message || 'Không thể xóa phân công ca trực');
       }
     } catch {
       showError('Không thể xóa phân công ca trực');

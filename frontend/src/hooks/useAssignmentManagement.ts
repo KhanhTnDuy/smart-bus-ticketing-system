@@ -20,7 +20,17 @@ const describe = (err: unknown): string => {
 };
 
 /**
- * Kiểm tra trùng lịch tại client khi mất kết nối backend
+ * Kiểm tra xem lỗi có phải do mất kết nối mạng thật sự hay không (offline / server unreachable).
+ * Nếu server đã phản hồi với status code (400, 401, 403, 404, 409, 500) thì đó KHÔNG phải lỗi mạng.
+ */
+const isNetworkFailure = (err: unknown): boolean => {
+  if (err instanceof ApiError) return false;
+  if (err instanceof DOMException && err.name === 'AbortError') return false;
+  return err instanceof TypeError;
+};
+
+/**
+ * Kiểm tra trùng lịch tại client khi mất kết nối mạng
  */
 const checkLocalConflict = (
   candidate: Omit<BusAssignment, 'id'>,
@@ -115,7 +125,6 @@ export const useAssignmentManagement = () => {
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       setError(describe(err));
-      // Fallback giữ nguyên từ localStorage / INITIAL_ASSIGNMENTS
     } finally {
       setLoading(false);
     }
@@ -145,34 +154,41 @@ export const useAssignmentManagement = () => {
 
       return { success: true, assignment: newEntity };
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        return { success: false, conflict: true, message: err.message };
-      }
-
-      // Nếu backend không phản hồi (offline/chưa chạy backend), kiểm tra trùng tại client:
-      const localCheck = checkLocalConflict(data, assignments);
-      if (localCheck.hasConflict) {
-        return { success: false, conflict: true, message: localCheck.message };
-      }
-
-      // Lưu tạm local
-      const newId = `ASN-${String(assignments.length + 1).padStart(3, '0')}`;
-      const fallbackEntity: BusAssignment = { ...data, id: newId };
-      setAssignments((prev) => {
-        const next = [fallbackEntity, ...prev];
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-        } catch {
-          /* ignore */
+      if (err instanceof ApiError) {
+        if (err.status === 409) {
+          return { success: false, conflict: true, message: err.message };
         }
-        return next;
-      });
+        // Phản hồi có mã lỗi từ máy chủ (400, 401, 403, 404, 500) -> Hiển thị lỗi, không báo thành công giả
+        return { success: false, message: err.message };
+      }
 
-      return {
-        success: true,
-        assignment: fallbackEntity,
-        message: 'Đã lưu cục bộ (chưa đồng bộ máy chủ).',
-      };
+      // Chỉ fallback offline khi lỗi mạng kết nối (TypeError / server unreachable)
+      if (isNetworkFailure(err)) {
+        const localCheck = checkLocalConflict(data, assignments);
+        if (localCheck.hasConflict) {
+          return { success: false, conflict: true, message: localCheck.message };
+        }
+
+        const newId = `ASN-${String(assignments.length + 1).padStart(3, '0')}`;
+        const fallbackEntity: BusAssignment = { ...data, id: newId };
+        setAssignments((prev) => {
+          const next = [fallbackEntity, ...prev];
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+          } catch {
+            /* ignore */
+          }
+          return next;
+        });
+
+        return {
+          success: true,
+          assignment: fallbackEntity,
+          message: 'Mất kết nối máy chủ: Đã lưu tạm thời tại máy client.',
+        };
+      }
+
+      return { success: false, message: describe(err) };
     }
   };
 
@@ -181,7 +197,7 @@ export const useAssignmentManagement = () => {
     updates: Partial<BusAssignment>,
   ): Promise<MutationResult> => {
     const current = assignments.find((a) => a.id === id);
-    if (!current) return { success: false, message: 'Không tìm thấy phân công' };
+    if (!current) return { success: false, message: 'Không tìm thấy phân công để cập nhật.' };
 
     const merged: BusAssignment = { ...current, ...updates };
 
@@ -202,18 +218,48 @@ export const useAssignmentManagement = () => {
 
       return { success: true, assignment: updatedEntity };
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        return { success: false, conflict: true, message: err.message };
+      if (err instanceof ApiError) {
+        if (err.status === 409) {
+          return { success: false, conflict: true, message: err.message };
+        }
+        // Phản hồi có mã lỗi từ máy chủ (400, 401, 403, 404, 500) -> Hiển thị lỗi, không lưu cục bộ
+        return { success: false, message: err.message };
       }
 
-      // Kiểm tra trùng lịch tại client nếu offline
-      const localCheck = checkLocalConflict(merged, assignments, id);
-      if (localCheck.hasConflict) {
-        return { success: false, conflict: true, message: localCheck.message };
+      // Chỉ fallback offline khi lỗi mạng kết nối
+      if (isNetworkFailure(err)) {
+        const localCheck = checkLocalConflict(merged, assignments, id);
+        if (localCheck.hasConflict) {
+          return { success: false, conflict: true, message: localCheck.message };
+        }
+
+        setAssignments((prev) => {
+          const next = prev.map((a) => (a.id === id ? merged : a));
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+          } catch {
+            /* ignore */
+          }
+          return next;
+        });
+
+        return {
+          success: true,
+          assignment: merged,
+          message: 'Mất kết nối máy chủ: Đã cập nhật tạm thời tại máy client.',
+        };
       }
 
+      return { success: false, message: describe(err) };
+    }
+  };
+
+  const deleteAssignment = async (id: string): Promise<MutationResult> => {
+    try {
+      await assignApi.deleteAssignment(id);
+      // CHỈ xóa khỏi state khi server đã xử lý thành công
       setAssignments((prev) => {
-        const next = prev.map((a) => (a.id === id ? merged : a));
+        const next = prev.filter((a) => a.id !== id);
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
         } catch {
@@ -222,35 +268,26 @@ export const useAssignmentManagement = () => {
         return next;
       });
 
-      return { success: true, assignment: merged };
+      return { success: true };
+    } catch (err) {
+      // Tuyệt đối không nuốt lỗi (kể cả 403, 404, 500) và không xóa khỏi state khi thất bại
+      return {
+        success: false,
+        message: describe(err),
+      };
     }
-  };
-
-  const deleteAssignment = async (id: string): Promise<MutationResult> => {
-    try {
-      await assignApi.deleteAssignment(id);
-    } catch {
-      // Tiếp tục xoá ở state nếu backend trả lỗi mạng
-    }
-
-    setAssignments((prev) => {
-      const next = prev.filter((a) => a.id !== id);
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-
-    return { success: true };
   };
 
   const checkConflict = async (req: assignApi.CheckConflictRequest) => {
     try {
       return await assignApi.checkAssignmentConflict(req);
-    } catch {
-      return { hasConflict: false };
+    } catch (err) {
+      // Báo rõ lỗi kết nối/máy chủ thay vì âm thầm trả hasConflict=false
+      return {
+        hasConflict: false,
+        error: describe(err),
+        message: `Không thể kiểm tra trùng lịch với máy chủ: ${describe(err)}`,
+      };
     }
   };
 
