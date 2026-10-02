@@ -979,6 +979,11 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.Property<long?>("BusId")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("ActiveBusDepartureKey")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("varchar(255)")
+                        .HasComputedColumnSql("(CASE WHEN `BusId` IS NOT NULL AND `Status` <> 'Cancelled' THEN CONCAT(`BusId`, '-', DATE_FORMAT(`DepartureAt`, '%Y-%m-%d %H:%i:%s.%f')) END)", true);
+
                     b.Property<int>("DelayMinutes")
                         .HasColumnType("int");
 
@@ -1001,7 +1006,7 @@ namespace SmartBusTicketing.Api.Data.Migrations
 
                     b.HasIndex("ScheduleId");
 
-                    b.HasIndex("BusId", "DepartureAt")
+                    b.HasIndex("ActiveBusDepartureKey")
                         .IsUnique();
 
                     b.ToTable("trips", (string)null);
