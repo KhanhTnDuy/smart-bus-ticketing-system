@@ -31,6 +31,8 @@ export const ScheduleManagementPage: React.FC = () => {
   const {
     trips,
     routes,
+    buses,
+    users,
     addTrip,
     addTripsBatch,
     updateTrip,
@@ -241,24 +243,18 @@ export const ScheduleManagementPage: React.FC = () => {
     const endTotal = (endH || 0) * 60 + (endM || 0);
     if (startTotal >= endTotal) return [];
 
-    const mockPlates = [
-      '51B-184.22',
-      '51B-199.88',
-      '51B-240.11',
-      '51B-302.55',
-      '51B-112.44',
-      '51B-289.77',
-      '51B-335.66',
-    ];
-    const mockDrivers = [
-      'Nguyễn Văn Tuấn',
-      'Trần Hữu Long',
-      'Lê Hoàng Nam',
-      'Phạm Quốc Bảo',
-      'Đặng Minh Trí',
-      'Vũ Văn Hải',
-      'Hoàng Đức Thắng',
-    ];
+    // Lấy danh sách biển số xe thật từ đội xe (ưu tiên xe tuyến hiện tại hoặc xe ACTIVE)
+    const activeBuses = buses.filter((b) => b.status === 'ACTIVE');
+    const routeBuses = activeBuses.filter((b) => b.routeId === genRouteId);
+    const candidateBuses = routeBuses.length > 0 ? routeBuses : activeBuses.length > 0 ? activeBuses : buses;
+    const fleetPlates = candidateBuses.map((b) => b.plateNumber);
+    const platesToUse = fleetPlates.length > 0 ? fleetPlates : ['51B-184.22'];
+
+    // Lấy danh sách tài xế thật từ danh sách người dùng (vai trò DRIVER)
+    const activeDrivers = users.filter((u) => u.role === 'DRIVER' && u.status === 'ACTIVE');
+    const allDrivers = activeDrivers.length > 0 ? activeDrivers : users.filter((u) => u.role === 'DRIVER');
+    const driverNames = allDrivers.map((d) => d.fullName);
+    const driversToUse = driverNames.length > 0 ? driverNames : ['Nguyễn Văn Tuấn'];
 
     const items: Array<Omit<BusTrip, 'id' | 'bookedSeats'>> = [];
     let cur = startTotal;
@@ -272,16 +268,19 @@ export const ScheduleManagementPage: React.FC = () => {
       const arrM = arrTotal % 60;
       const arrTime = `${String(arrH).padStart(2, '0')}:${String(arrM).padStart(2, '0')}`;
 
+      const assignedPlate = platesToUse[idx % platesToUse.length];
+      const matchedBus = candidateBuses.find((b) => b.plateNumber === assignedPlate);
+
       items.push({
         routeId: genRouteId,
-        busPlate: mockPlates[idx % mockPlates.length],
-        driverName: mockDrivers[idx % mockDrivers.length],
+        busPlate: assignedPlate,
+        driverName: driversToUse[idx % driversToUse.length],
         assistantName: 'Nhân viên soát vé',
         departureDate: genDate,
         departureTime: depTime,
         estimatedArrivalTime: arrTime,
         price: Number(genPrice),
-        totalSeats: Number(genTotalSeats),
+        totalSeats: matchedBus?.capacity || Number(genTotalSeats),
         status: 'SCHEDULED' as TripStatus,
       });
 
@@ -289,7 +288,18 @@ export const ScheduleManagementPage: React.FC = () => {
       idx++;
     }
     return items;
-  }, [genRouteId, genDate, genFirstDeparture, genLastDeparture, genFrequencyMinutes, genDurationMinutes, genPrice, genTotalSeats]);
+  }, [
+    genRouteId,
+    genDate,
+    genFirstDeparture,
+    genLastDeparture,
+    genFrequencyMinutes,
+    genDurationMinutes,
+    genPrice,
+    genTotalSeats,
+    buses,
+    users,
+  ]);
 
   // Handle open generator modal
   const handleOpenGenerateModal = () => {
@@ -352,15 +362,17 @@ export const ScheduleManagementPage: React.FC = () => {
 
   // Open Add Modal
   const handleOpenAdd = () => {
+    const defaultBus = buses.find((b) => b.status === 'ACTIVE') || buses[0];
+    const defaultDriver = users.find((u) => u.role === 'DRIVER' && u.status === 'ACTIVE') || users.find((u) => u.role === 'DRIVER');
     setFormRouteId(routes[0]?.id || 'r1');
-    setFormBusPlate('51B-199.88');
-    setFormDriverName('Nguyễn Văn Tuấn');
+    setFormBusPlate(defaultBus ? defaultBus.plateNumber : '51B-199.88');
+    setFormDriverName(defaultDriver ? defaultDriver.fullName : 'Nguyễn Văn Tuấn');
     setFormAssistantName('Lê Văn Hùng');
     setFormDepartureDate(new Date().toISOString().split('T')[0]);
     setFormDepartureTime('08:00');
     setFormEstimatedArrival('08:45');
     setFormPrice(15000);
-    setFormTotalSeats(24);
+    setFormTotalSeats(defaultBus ? defaultBus.capacity : 24);
     setFormStatus('SCHEDULED');
     setIsAddModalOpen(true);
   };

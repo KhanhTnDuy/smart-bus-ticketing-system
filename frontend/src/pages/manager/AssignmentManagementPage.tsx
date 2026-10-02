@@ -27,7 +27,16 @@ import { EmptyState } from '../../components/common/EmptyState';
 import { BusAssignment, ShiftType, AssignmentStatus } from '../../types';
 
 export const AssignmentManagementPage: React.FC = () => {
-  const { assignments, routes, users, addAssignment, updateAssignment, deleteAssignment } = useData();
+  const {
+    assignments,
+    routes,
+    users,
+    buses,
+    checkAssignmentConflict,
+    addAssignment,
+    updateAssignment,
+    deleteAssignment,
+  } = useData();
   const { success, error } = useToast();
   const showSuccess = success;
   const showError = error;
@@ -85,8 +94,9 @@ export const AssignmentManagementPage: React.FC = () => {
   // Open Add Modal
   const handleOpenAdd = () => {
     const defaultDriver = driverUsers[0];
+    const defaultBus = buses.find((b) => b.status === 'ACTIVE') || buses[0];
     setFormRouteId(routes[0]?.id || 'r1');
-    setFormBusPlate('51B-201.55');
+    setFormBusPlate(defaultBus ? defaultBus.plateNumber : '51B-201.55');
     setFormDriverId(defaultDriver?.id || 'u3');
     setFormDriverName(defaultDriver?.fullName || 'Nguyễn Văn Tuấn');
     setFormAssistantId('u_as_1');
@@ -99,49 +109,19 @@ export const AssignmentManagementPage: React.FC = () => {
     setIsAddModalOpen(true);
   };
 
-  // Conflict Detection Checker (Requirement 7)
+  // Conflict Detection Checker (Requirement 7) - Sử dụng hàm kiểm tra thống nhất từ DataContext
   const conflictWarning = useMemo(() => {
     if (!isAddModalOpen && !isEditModalOpen) return null;
-    const targetPlate = formBusPlate.trim().toUpperCase();
-    const targetDriver = formDriverName.trim().toLowerCase();
-    if (!targetPlate && !targetDriver) return null;
-
-    const conflict = assignments.find((a) => {
-      if (isEditModalOpen && selectedAssignment && a.id === selectedAssignment.id) return false;
-      if (a.status === 'CANCELLED') return false;
-
-      const sameDate = a.date === formDate;
-      if (!sameDate) return false;
-
-      const overlap =
-        a.shift === 'TOAN_THOI_GIAN' ||
-        formShift === 'TOAN_THOI_GIAN' ||
-        a.shift === formShift;
-
-      if (!overlap) return false;
-
-      if (targetPlate && a.busPlate.trim().toUpperCase() === targetPlate) return true;
-      if (
-        (formDriverId && a.driverId === formDriverId) ||
-        (targetDriver && a.driverName.trim().toLowerCase() === targetDriver)
-      ) {
-        return true;
-      }
-
-      return false;
-    });
-
-    if (conflict) {
-      const isBus = conflict.busPlate.trim().toUpperCase() === targetPlate;
-      return {
-        type: isBus ? 'BUS' : 'DRIVER',
-        message: isBus
-          ? `Xe buýt [${targetPlate}] đã được xếp ca "${conflict.shift}" (${conflict.shiftHours}) ngày ${formDate} (Lệnh: ${conflict.id}, Tuyến: ${conflict.routeId}).`
-          : `Tài xế [${formDriverName}] đã có ca trực "${conflict.shift}" (${conflict.shiftHours}) ngày ${formDate} (Lệnh: ${conflict.id}, Tuyến: ${conflict.routeId}).`,
-      };
-    }
-
-    return null;
+    return checkAssignmentConflict(
+      {
+        busPlate: formBusPlate,
+        driverName: formDriverName,
+        driverId: formDriverId,
+        date: formDate,
+        shift: formShift,
+      },
+      isEditModalOpen && selectedAssignment ? selectedAssignment.id : undefined
+    );
   }, [
     isAddModalOpen,
     isEditModalOpen,
@@ -151,7 +131,7 @@ export const AssignmentManagementPage: React.FC = () => {
     formDriverId,
     formDate,
     formShift,
-    assignments,
+    checkAssignmentConflict,
   ]);
 
   // Submit Add
