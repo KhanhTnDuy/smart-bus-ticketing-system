@@ -110,11 +110,11 @@ export const useAssignmentManagement = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
+  const reload = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const dtos = await assignApi.listAssignments(undefined, signal);
+      const dtos = await assignApi.listAssignments();
       const mapped = dtos.map(assignApi.toBusAssignment);
       setAssignments(mapped);
       try {
@@ -123,7 +123,6 @@ export const useAssignmentManagement = () => {
         /* ignore */
       }
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return;
       setError(describe(err));
     } finally {
       setLoading(false);
@@ -132,9 +131,36 @@ export const useAssignmentManagement = () => {
 
   useEffect(() => {
     const controller = new AbortController();
-    void load(controller.signal);
-    return () => controller.abort();
-  }, [load]);
+    let isCancelled = false;
+
+    assignApi
+      .listAssignments(undefined, controller.signal)
+      .then((dtos) => {
+        if (isCancelled) return;
+        const mapped = dtos.map(assignApi.toBusAssignment);
+        setAssignments(mapped);
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
+        } catch {
+          /* ignore */
+        }
+      })
+      .catch((err) => {
+        if (isCancelled) return;
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setError(describe(err));
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+      controller.abort();
+    };
+  }, []);
 
   const addAssignment = async (data: Omit<BusAssignment, 'id'>): Promise<MutationResult> => {
     try {
@@ -295,7 +321,7 @@ export const useAssignmentManagement = () => {
     assignments,
     loading,
     error,
-    reload: () => load(),
+    reload,
     addAssignment,
     updateAssignment,
     deleteAssignment,
