@@ -13,83 +13,151 @@ namespace SmartBusTicketing.Api.Controllers;
 [Authorize(Roles = "Admin")]
 public class AccountsController(AppDbContext db, AuditLogService audit) : ControllerBase
 {
+    private long? GetActorId() => User.AccountId();
+    private string GetActorName() => User.Username() ?? "system";
+
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] string? search, [FromQuery] AccountRole? role, [FromQuery] bool? active, CancellationToken ct)
     {
         var query = db.Accounts.AsNoTracking();
-        if (!string.IsNullOrWhiteSpace(search)) query = query.Where(a => a.Username.Contains(search) || a.FullName.Contains(search));
-        if (role.HasValue) query = query.Where(a => a.Role == role.Value);
-        if (active.HasValue) query = query.Where(a => a.Active == active.Value);
-        return Ok(await query.OrderByDescending(a => a.Id).Select(a => new { a.Id, a.Username, a.FullName, a.Email, a.Phone, a.Role, a.Active, a.CreatedAt, a.UpdatedAt }).ToListAsync(ct));
+
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(a => a.Username.Contains(search) || a.FullName.Contains(search));
+
+        if (role.HasValue)
+            query = query.Where(a => a.Role == role.Value);
+
+        if (active.HasValue)
+            query = query.Where(a => a.Active == active.Value);
+
+        return Ok(await query.OrderByDescending(a => a.Id)
+            .Select(a => new { a.Id, a.Username, a.FullName, a.Email, a.Phone, a.Role, a.Active, a.CreatedAt, a.UpdatedAt })
+            .ToListAsync(ct));
     }
 
     [HttpGet("{id:long}")]
     public async Task<IActionResult> Get(long id, CancellationToken ct)
     {
         var a = await db.Accounts.AsNoTracking().Where(x => x.Id == id)
-            .Select(x => new { x.Id, x.Username, x.FullName, x.Email, x.Phone, x.Role, x.Active, x.CreatedAt, x.UpdatedAt }).FirstOrDefaultAsync(ct);
+            .Select(x => new { x.Id, x.Username, x.FullName, x.Email, x.Phone, x.Role, x.Active, x.CreatedAt, x.UpdatedAt })
+            .FirstOrDefaultAsync(ct);
+
         return a is null ? NotFound() : Ok(a);
     }
 
     [HttpPost]
-    public async Task<IActionResult> Create(CreateAccountRequest request, CancellationToken ct)
+    public async Task<IActionResult> Create([FromBody] CreateAccountDto dto, CancellationToken ct)
     {
-        if (await db.Accounts.AnyAsync(a => a.Username == request.Username, ct)) return Conflict(new { message = "Username đã tồn tại." });
-        if (request.Email is not null && await db.Accounts.AnyAsync(a => a.Email == request.Email, ct)) return Conflict(new { message = "Email đã tồn tại." });
-        if (request.Phone is not null && await db.Accounts.AnyAsync(a => a.Phone == request.Phone, ct)) return Conflict(new { message = "Số điện thoại đã tồn tại." });
-        var now = DateTime.UtcNow;
-        var entity = new Account { Username = request.Username.Trim(), PasswordHash = PasswordService.Hash(request.Password), FullName = request.FullName.Trim(), Email = request.Email?.Trim(), Phone = request.Phone?.Trim(), Role = request.Role, Active = request.Active, CreatedAt = now, UpdatedAt = now };
-        db.Accounts.Add(entity);
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        var username = dto.Username.Trim();
+        var email = dto.Email?.Trim();
+        var phone = dto.Phone?.Trim();
+
+        if (await db.Accounts.AnyAsync(a => a.Username == username, ct))
+        {
+            return Conflict(new { message = $"Tên đăng nhập '{username}' đã tồn tại!" });
+        }
+
+        if (!string.IsNullOrEmpty(email) && await db.Accounts.AnyAsync(a => a.Email == email, ct))
+        {
+            return Conflict(new { message = $"Email '{email}' đã được sử dụng!" });
+        }
+
+        if (!string.IsNullOrEmpty(phone) && await db.Accounts.AnyAsync(a => a.Phone == phone, ct))
+        {
+            return Conflict(new { message = $"Số điện thoại '{phone}' đã được sử dụng!" });
+        }
+
+        var account = new Account
+        {
+            Username = username,
+            PasswordHash = PasswordService.Hash(dto.Password),
+            FullName = dto.FullName.Trim(),
+            Email = email,
+            Phone = phone,
+            Role = dto.Role,
+            Active = true,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        db.Accounts.Add(account);
         await db.SaveChangesAsync(ct);
-        await audit.WriteAsync(GetActorId(), GetActorName(), "Create account", AuditActionType.Create, $"USR-{entity.Id}", ct: ct);
-        return CreatedAtAction(nameof(Get), new { id = entity.Id }, new { entity.Id, entity.Username, entity.FullName, entity.Email, entity.Phone, entity.Role, entity.Active, entity.CreatedAt, entity.UpdatedAt });
+
+        await audit.WriteAsync(GetActorId(), GetActorName(), "CREATE_ACCOUNT", AuditActionType.Create, $"USR-{account.Id}", ct: ct);
+
+        var result = new { account.Id, account.Username, account.FullName, account.Email, account.Phone, account.Role, account.Active, account.CreatedAt, account.UpdatedAt };
+        return CreatedAtAction(nameof(Get), new { id = account.Id }, result);
     }
 
     [HttpPut("{id:long}")]
-    public async Task<IActionResult> Update(long id, UpdateAccountRequest request, CancellationToken ct)
+    public async Task<IActionResult> Update(long id, [FromBody] UpdateAccountRequest req, CancellationToken ct)
     {
-        var entity = await db.Accounts.FindAsync([id], ct);
-        if (entity is null) return NotFound();
-        if (request.Email is not null && request.Email != entity.Email && await db.Accounts.AnyAsync(a => a.Id != id && a.Email == request.Email, ct)) return Conflict(new { message = "Email đã tồn tại." });
-        if (request.Phone is not null && request.Phone != entity.Phone && await db.Accounts.AnyAsync(a => a.Id != id && a.Phone == request.Phone, ct)) return Conflict(new { message = "Số điện thoại đã tồn tại." });
-        if (request.FullName is not null) entity.FullName = request.FullName.Trim();
-        if (request.Email is not null) entity.Email = request.Email.Trim();
-        if (request.Phone is not null) entity.Phone = request.Phone.Trim();
-        if (request.Role.HasValue) entity.Role = request.Role.Value;
-        if (request.Active.HasValue) entity.Active = request.Active.Value;
-        if (!string.IsNullOrWhiteSpace(request.Password)) entity.PasswordHash = PasswordService.Hash(request.Password);
-        entity.UpdatedAt = DateTime.UtcNow;
+        var account = await db.Accounts.FindAsync([id], ct);
+        if (account is null) return NotFound(new { message = "Không tìm thấy tài khoản!" });
+
+        if (!string.IsNullOrWhiteSpace(req.FullName))
+            account.FullName = req.FullName.Trim();
+
+        if (!string.IsNullOrWhiteSpace(req.Email) && req.Email.Trim() != account.Email)
+        {
+            var email = req.Email.Trim();
+            if (await db.Accounts.AnyAsync(a => a.Email == email && a.Id != id, ct))
+                return Conflict(new { message = $"Email '{email}' đã được sử dụng!" });
+            account.Email = email;
+        }
+
+        if (!string.IsNullOrWhiteSpace(req.Phone) && req.Phone.Trim() != account.Phone)
+        {
+            var phone = req.Phone.Trim();
+            if (await db.Accounts.AnyAsync(a => a.Phone == phone && a.Id != id, ct))
+                return Conflict(new { message = $"Số điện thoại '{phone}' đã được sử dụng!" });
+            account.Phone = phone;
+        }
+
+        if (req.Role.HasValue) account.Role = req.Role.Value;
+        if (req.Active.HasValue) account.Active = req.Active.Value;
+        if (!string.IsNullOrWhiteSpace(req.Password)) account.PasswordHash = PasswordService.Hash(req.Password);
+
+        account.UpdatedAt = DateTime.UtcNow;
+
         await db.SaveChangesAsync(ct);
-        await audit.WriteAsync(GetActorId(), GetActorName(), "Update account", AuditActionType.Update, $"USR-{id}", ct: ct);
-        return Ok(new { entity.Id, entity.Username, entity.FullName, entity.Email, entity.Phone, entity.Role, entity.Active, entity.UpdatedAt });
+        await audit.WriteAsync(GetActorId(), GetActorName(), "UPDATE_ACCOUNT", AuditActionType.Update, $"USR-{account.Id}", ct: ct);
+
+        return Ok(new { account.Id, account.Username, account.FullName, account.Email, account.Phone, account.Role, account.Active, account.CreatedAt, account.UpdatedAt });
     }
 
     [HttpPatch("{id:long}/role")]
-    public async Task<IActionResult> UpdateRole(long id, UpdateRoleRequest request, CancellationToken ct)
+    public async Task<IActionResult> UpdateRole(long id, [FromBody] UpdateRoleRequest req, CancellationToken ct)
     {
-        var entity = await db.Accounts.FindAsync([id], ct);
-        if (entity is null) return NotFound();
-        var old = entity.Role;
-        entity.Role = request.Role;
-        entity.UpdatedAt = DateTime.UtcNow;
+        var account = await db.Accounts.FindAsync([id], ct);
+        if (account is null) return NotFound(new { message = "Không tìm thấy tài khoản!" });
+
+        var oldRole = account.Role;
+        account.Role = req.Role;
+        account.UpdatedAt = DateTime.UtcNow;
+
         await db.SaveChangesAsync(ct);
-        await audit.WriteAsync(GetActorId(), GetActorName(), $"Change role {old} -> {request.Role}", AuditActionType.StatusChange, $"USR-{id}", ct: ct);
-        return Ok(new { entity.Id, entity.Role });
+        await audit.WriteAsync(GetActorId(), GetActorName(), "UPDATE_ROLE", AuditActionType.StatusChange, $"USR-{account.Id}: {oldRole} -> {req.Role}", ct: ct);
+
+        return Ok(new { account.Id, account.Username, account.FullName, account.Email, account.Phone, account.Role, account.Active, account.CreatedAt, account.UpdatedAt });
     }
 
     [HttpDelete("{id:long}")]
     public async Task<IActionResult> Delete(long id, CancellationToken ct)
     {
-        var entity = await db.Accounts.FindAsync([id], ct);
-        if (entity is null) return NotFound();
-        entity.Active = false;
-        entity.UpdatedAt = DateTime.UtcNow;
+        var account = await db.Accounts.FindAsync([id], ct);
+        if (account is null) return NotFound(new { message = "Không tìm thấy tài khoản!" });
+
+        account.Active = false;
+        account.UpdatedAt = DateTime.UtcNow;
+
         await db.SaveChangesAsync(ct);
-        await audit.WriteAsync(GetActorId(), GetActorName(), "Deactivate account", AuditActionType.Delete, $"USR-{id}", ct: ct);
+        await audit.WriteAsync(GetActorId(), GetActorName(), "DISABLE_ACCOUNT", AuditActionType.Delete, $"USR-{account.Id}", ct: ct);
+
         return NoContent();
     }
-
-    // Danh tính lấy từ JWT đã xác thực, không còn đọc từ header do client tự gửi.
-    private long? GetActorId() => User.AccountId();
-    private string GetActorName() => User.Username() ?? "system";
 }
