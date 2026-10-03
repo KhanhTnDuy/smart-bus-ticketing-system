@@ -24,6 +24,12 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
             return BadRequest(ModelState);
         }
 
+        var passengerId = GetActorId();
+        if (passengerId is null)
+        {
+            return Unauthorized(new { message = "Không xác định được tài khoản từ phiên đăng nhập!" });
+        }
+
         using var transaction = await db.Database.BeginTransactionAsync(ct);
 
         try
@@ -32,6 +38,34 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
             if (trip == null)
             {
                 return NotFound(new { message = $"Không tìm thấy chuyến xe có mã ID = {dto.TripId}!" });
+            }
+
+            // SCRUM-62 - kiểm tra lại ở máy chủ: điểm lên và điểm xuống phải nằm trên tuyến
+            // của chuyến, và điểm lên phải đứng trước điểm xuống. Đây là cùng ràng buộc mà
+            // API tìm chuyến (SCRUM-54) đã áp lúc tra cứu; client có thể bỏ qua nên phải
+            // kiểm lại, nếu không vé sẽ ghi một hành trình không tồn tại.
+            if (dto.BoardStopId == dto.AlightStopId)
+            {
+                return BadRequest(new { message = "Điểm lên xe và điểm xuống xe không được trùng nhau!" });
+            }
+
+            var stopOrders = await db.RouteStops
+                .Where(rs => rs.RouteId == trip.RouteId &&
+                             (rs.StopId == dto.BoardStopId || rs.StopId == dto.AlightStopId))
+                .Select(rs => new { rs.StopId, rs.StopOrder })
+                .ToListAsync(ct);
+
+            var boardOrder = stopOrders.FirstOrDefault(x => x.StopId == dto.BoardStopId)?.StopOrder;
+            var alightOrder = stopOrders.FirstOrDefault(x => x.StopId == dto.AlightStopId)?.StopOrder;
+
+            if (boardOrder is null || alightOrder is null)
+            {
+                return BadRequest(new { message = "Điểm lên xe hoặc điểm xuống xe không thuộc tuyến của chuyến này!" });
+            }
+
+            if (boardOrder >= alightOrder)
+            {
+                return BadRequest(new { message = "Điểm lên xe phải đứng trước điểm xuống xe trên tuyến!" });
             }
 
             var seats = await db.Seats
@@ -68,8 +102,11 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
             // Bổ sung đầy đủ BookingCode, PassengerId, TripId, FinalAmount
             var booking = new Booking
             {
-                BookingCode = "BK-" + Guid.NewGuid().ToString("N")[..8].ToUpper(),
-                PassengerId = GetActorId() ?? throw new UnauthorizedAccessException("Không tìm thấy thông tin tài khoản người dùng!"),
+                // 16 ký tự thay vì 8: booking_code có unique index, mà mọi DbUpdateException ở
+                // đây đều bị quy về "ghế vừa bị người khác chọn". Mã càng ngắn thì càng dễ trùng
+                // và càng dễ báo sai nguyên nhân. 19 ký tự vẫn vừa cột VARCHAR(20).
+                BookingCode = "BK-" + Guid.NewGuid().ToString("N")[..16].ToUpper(),
+                PassengerId = passengerId.Value,
                 TripId = dto.TripId,
                 Status = BookingStatus.Pending,
                 HoldExpiresAt = DateTime.UtcNow.AddMinutes(10),
