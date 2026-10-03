@@ -177,7 +177,8 @@ public class AppDbContext : DbContext
             e.HasOne(t => t.BoardStop).WithMany().HasForeignKey(t => t.BoardStopId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(t => t.AlightStop).WithMany().HasForeignKey(t => t.AlightStopId).OnDelete(DeleteBehavior.Restrict);
             // Chống bán trùng ghế: MySQL không hỗ trợ unique index có điều kiện,
-            // nên dùng cột sinh tự động (giống schema.sql) = "trip-seat" khi vé đang giữ chỗ, NULL khi đã hủy.
+            // dùng cột tính toán lưu trữ (stored) trả về chuỗi duy nhất khi ghế bận,
+            // trả về NULL khi ghế trống (MySQL cho phép nhiều giá trị NULL trong UNIQUE index).
             e.Property<string?>("ActiveSeatKey")
                 .HasComputedColumnSql("(CASE WHEN `Status` IN ('Held','Valid','Used') THEN CONCAT(`TripId`, '-', `SeatId`) END)", stored: true);
             e.HasIndex("ActiveSeatKey").IsUnique();
@@ -312,3 +313,4 @@ public class AppDbContext : DbContext
         }
     }
 }
+

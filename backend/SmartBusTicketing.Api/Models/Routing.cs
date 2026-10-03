@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace SmartBusTicketing.Api.Models;
 
 public class BusRoute
