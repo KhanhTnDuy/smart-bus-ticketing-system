@@ -20,6 +20,7 @@ import { FareManagementPage } from '../pages/manager/FareManagementPage';
 import { ComplaintManagementPage } from '../pages/manager/ComplaintManagementPage';
 
 // Manager Pages (Sprint 2)
+import { BusManagementPage } from '../pages/manager/BusManagementPage';
 import { ScheduleManagementPage } from '../pages/manager/ScheduleManagementPage';
 import { AssignmentManagementPage } from '../pages/manager/AssignmentManagementPage';
 import { RefundManagementPage } from '../pages/manager/RefundManagementPage';
@@ -80,6 +81,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/manager/fares" element={<FareManagementPage />} />
           <Route path="/manager/complaints" element={<ComplaintManagementPage />} />
           {/* Sprint 2 Manager Features */}
+          <Route path="/manager/buses" element={<BusManagementPage />} />
           <Route path="/manager/schedules" element={<ScheduleManagementPage />} />
           <Route path="/manager/assignments" element={<AssignmentManagementPage />} />
           <Route path="/manager/refunds" element={<RefundManagementPage />} />

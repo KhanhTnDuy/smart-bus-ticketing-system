@@ -33,7 +33,6 @@ export const AssignmentManagementPage: React.FC = () => {
   const {
     assignments,
     loading: isLoading,
-    error: loadError,
     reload,
     addAssignment,
     updateAssignment,
