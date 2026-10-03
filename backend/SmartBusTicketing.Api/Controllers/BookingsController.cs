@@ -36,8 +36,8 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
                 return NotFound(new { message = $"Không tìm thấy chuyến xe có mã ID = {dto.TripId}!" });
             }
 
-            // 2. Tải danh sách các ghế được chọn
-            var seats = await db.TripSeats
+            // 2. Tải danh sách các ghế được chọn (Dùng DbSet Seats trong AppDbContext)
+            var seats = await db.Seats
                 .Where(s => s.TripId == dto.TripId && dto.SeatIds.Contains(s.Id))
                 .ToListAsync(ct);
 
@@ -46,17 +46,17 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
                 return BadRequest(new { message = "Một số ghế được chọn không thuộc chuyến xe này hoặc không tồn tại!" });
             }
 
-            // 3. Kiểm tra trạng thái từng ghế (phải ở trạng thái Available - Còn trống)
+            // 3. Kiểm tra trạng thái từng ghế (Dùng enum SeatStatus)
             foreach (var seat in seats)
             {
-                if (seat.Status != TripSeatStatus.Available)
+                if (seat.Status != SeatStatus.Available)
                 {
                     await transaction.RollbackAsync(ct);
                     return Conflict(new { message = $"Ghế '{seat.SeatNumber}' vừa bị người khác chọn! Vui lòng chọn ghế khác." });
                 }
 
                 // Cập nhật trạng thái ghế sang Đã đặt (Booked)
-                seat.Status = TripSeatStatus.Booked;
+                seat.Status = SeatStatus.Booked;
                 seat.UpdatedAt = DateTime.UtcNow;
             }
 
@@ -77,7 +77,7 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
         }
         catch (DbUpdateException)
         {
-            // Bắt lỗi trùng khóa duy nhất ActiveSeatKey khi 2 người bấm đặt cùng một thời điểm
+            // Bắt lỗi trùng khóa duy nhất khi 2 người bấm đặt cùng một thời điểm
             await transaction.RollbackAsync(ct);
             return Conflict(new { message = "Ghế vừa bị người khác đặt đồng thời! Vui lòng chọn lại ghế." });
         }
