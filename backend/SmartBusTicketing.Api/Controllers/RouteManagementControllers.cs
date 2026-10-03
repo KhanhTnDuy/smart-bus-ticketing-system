@@ -26,9 +26,14 @@ internal static class RouteAuditExtensions
     /// Nhật ký hệ thống, xem auditModuleOf trong frontend/src/api/mappers.ts.
     /// Dùng ROUTE-, STOP-, FARE- cho US3.
     /// </summary>
+    /// <param name="details">Mô tả chi tiết thay đổi, hiển thị ở cột Mô tả của trang Nhật ký hệ thống.
+    /// Bỏ trống thì trang đó hiển thị tạm "Đối tượng: {target}".</param>
+    /// <param name="status">Đặt <see cref="AuditStatus.Failure"/> để ghi lại cả thao tác bị từ chối.</param>
     public static Task LogAsync(this AuditLogService audit, ControllerBase c, string action,
-        AuditActionType type, string target, CancellationToken ct) =>
-        audit.WriteAsync(c.User.AccountId(), c.User.Username() ?? "system", action, type, target, ct: ct);
+        AuditActionType type, string target, CancellationToken ct,
+        string? details = null, AuditStatus status = AuditStatus.Success) =>
+        audit.WriteAsync(c.User.AccountId(), c.User.Username() ?? "system", action, type, target,
+            status, details, ct);
 }
 
 /// <summary>US3 - Quản lý tuyến đường. Xem: mọi người; thêm/sửa/xóa: Admin, Quản lý.</summary>
