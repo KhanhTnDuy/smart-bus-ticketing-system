@@ -19,7 +19,7 @@ export const Footer: React.FC = () => {
               Cổng thông tin chính thức của Cục Quản Lý Giao Thông Vận Tải Đô Thị. Ứng dụng công nghệ số trong quản lý hạ tầng tuyến, trạm dừng xe buýt, định giá vé điện tử và tiếp nhận phản hồi của nhân dân.
             </p>
             <div className="flex items-center gap-4 text-[11px] text-slate-400">
-              <span>Phiên bản: Sprint 1 (v1.0.0-PROD)</span>
+              <span>Phiên bản: v1.0.0-PROD</span>
               <span>•</span>
               <span className="flex items-center gap-1">
                 <Shield className="w-3.5 h-3.5 text-emerald-500" />
