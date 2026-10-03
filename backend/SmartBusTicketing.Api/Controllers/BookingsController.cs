@@ -24,60 +24,97 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
             return BadRequest(ModelState);
         }
 
-        // 1. Mở Database Transaction để đảm bảo tính toàn vẹn dữ liệu
         using var transaction = await db.Database.BeginTransactionAsync(ct);
 
         try
         {
-            // Kiểm tra sự tồn tại của chuyến xe
-            var tripExists = await db.Trips.AnyAsync(t => t.Id == dto.TripId, ct);
-            if (!tripExists)
+            var trip = await db.Trips.FirstOrDefaultAsync(t => t.Id == dto.TripId, ct);
+            if (trip == null)
             {
                 return NotFound(new { message = $"Không tìm thấy chuyến xe có mã ID = {dto.TripId}!" });
             }
 
-            // 2. Tải danh sách các ghế được chọn (Dùng DbSet Seats trong AppDbContext)
             var seats = await db.Seats
-                .Where(s => s.TripId == dto.TripId && dto.SeatIds.Contains(s.Id))
+                .Where(s => s.BusId == trip.BusId && dto.SeatIds.Contains(s.Id))
                 .ToListAsync(ct);
 
             if (seats.Count != dto.SeatIds.Count)
             {
-                return BadRequest(new { message = "Một số ghế được chọn không thuộc chuyến xe này hoặc không tồn tại!" });
+                return BadRequest(new { message = "Một số ghế được chọn không thuộc xe của chuyến này hoặc không tồn tại!" });
             }
 
-            // 3. Kiểm tra trạng thái từng ghế (Dùng enum SeatStatus)
+            var takenSeatIds = await db.Tickets
+                .Where(t => t.TripId == dto.TripId && dto.SeatIds.Contains(t.SeatId))
+                .Where(t => t.Status == TicketStatus.Valid ||
+                            t.Status == TicketStatus.Used ||
+                            (t.Status == TicketStatus.Held && t.Booking != null &&
+                             (t.Booking.Status == BookingStatus.Pending || t.Booking.HoldExpiresAt > DateTime.UtcNow)))
+                .Select(t => t.SeatId)
+                .Distinct()
+                .ToListAsync(ct);
+
+            if (takenSeatIds.Any())
+            {
+                var takenSeatCodes = seats
+                    .Where(s => takenSeatIds.Contains(s.Id))
+                    .Select(s => s.SeatCode)
+                    .ToList();
+
+                await transaction.RollbackAsync(ct);
+                return Conflict(new { message = $"Ghế '{string.Join(", ", takenSeatCodes)}' vừa bị người khác chọn! Vui lòng chọn ghế khác." });
+            }
+
+            var booking = new Booking
+            {
+                AccountId = GetActorId(),
+                CustomerName = dto.CustomerName,
+                CustomerPhone = dto.CustomerPhone,
+                Status = BookingStatus.Pending,
+                HoldExpiresAt = DateTime.UtcNow.AddMinutes(10),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            db.Bookings.Add(booking);
+            await db.SaveChangesAsync(ct);
+
             foreach (var seat in seats)
             {
-                if (seat.Status != SeatStatus.Available)
+                var ticket = new Ticket
                 {
-                    await transaction.RollbackAsync(ct);
-                    return Conflict(new { message = $"Ghế '{seat.SeatNumber}' vừa bị người khác chọn! Vui lòng chọn ghế khác." });
-                }
+                    BookingId = booking.Id,
+                    TripId = dto.TripId,
+                    SeatId = seat.Id,
+                    BoardStopId = dto.BoardStopId,
+                    AlightStopId = dto.AlightStopId,
+                    Status = TicketStatus.Held,
+                    QrCode = Guid.NewGuid().ToString("N"),
+                    ActiveSeatKey = $"{dto.TripId}-{seat.Id}",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
 
-                // Cập nhật trạng thái ghế sang Đã đặt (Booked)
-                seat.Status = SeatStatus.Booked;
-                seat.UpdatedAt = DateTime.UtcNow;
+                db.Tickets.Add(ticket);
             }
 
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
 
-            // 4. Ghi nhật ký hệ thống (Audit Log)
             await audit.WriteAsync(GetActorId(), GetActorName(), "CONFIRM_BOOKING", AuditActionType.Create, $"TRIP-{dto.TripId}", ct: ct);
 
             return Ok(new
             {
                 message = "Xác nhận đặt vé thành công!",
+                bookingId = booking.Id,
                 tripId = dto.TripId,
-                bookedSeats = seats.Select(s => s.SeatNumber).ToList(),
+                bookedSeats = seats.Select(s => s.SeatCode).ToList(),
                 totalSeats = seats.Count,
-                bookedAt = DateTime.UtcNow
+                holdExpiresAt = booking.HoldExpiresAt,
+                createdAt = DateTime.UtcNow
             });
         }
         catch (DbUpdateException)
         {
-            // Bắt lỗi trùng khóa duy nhất khi 2 người bấm đặt cùng một thời điểm
             await transaction.RollbackAsync(ct);
             return Conflict(new { message = "Ghế vừa bị người khác đặt đồng thời! Vui lòng chọn lại ghế." });
         }
