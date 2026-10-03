@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   Filter,
@@ -18,12 +18,14 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { Modal } from '../../components/common/Modal';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { EmptyState } from '../../components/common/EmptyState';
+import { listBuses, BackendBusStatus } from '../../api/busManagement';
 import { BusAssignment, ShiftType, AssignmentStatus } from '../../types';
 
 export const AssignmentManagementPage: React.FC = () => {
   const {
     assignments,
     loading: isLoading,
+    error: loadError,
     reload,
     addAssignment,
     updateAssignment,
@@ -33,6 +35,34 @@ export const AssignmentManagementPage: React.FC = () => {
   const { success, error } = useToast();
   const showSuccess = success;
   const showError = error;
+
+  const [realBuses, setRealBuses] = useState<Array<{ plateNumber: string; status?: string }>>([]);
+
+  useEffect(() => {
+    let active = true;
+    listBuses({ pageSize: 100 })
+      .then((res) => {
+        if (active && res?.data?.length > 0) {
+          setRealBuses(
+            res.data.map((b) => ({
+              plateNumber: b.plateNumber,
+              status: b.status === BackendBusStatus.Active ? 'ACTIVE' : 'INACTIVE',
+            }))
+          );
+        }
+      })
+      .catch(() => {
+        // Fallback sang danh sách xe từ DataContext nếu API gặp lỗi
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const availableBuses = useMemo(() => {
+    if (realBuses.length > 0) return realBuses;
+    return buses.map((b) => ({ plateNumber: b.plateNumber, status: b.status }));
+  }, [realBuses, buses]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [shiftFilter, setShiftFilter] = useState('ALL');
@@ -89,7 +119,7 @@ export const AssignmentManagementPage: React.FC = () => {
   const handleOpenAdd = () => {
     setFormConflictWarning(null);
     const defaultDriver = driverUsers[0];
-    const defaultBus = buses.find((b) => b.status === 'ACTIVE') || buses[0];
+    const defaultBus = availableBuses.find((b) => b.status === 'ACTIVE') || availableBuses[0];
     setFormRouteId(routes[0]?.id || 'r1');
     setFormBusPlate(defaultBus ? defaultBus.plateNumber : '51B-201.55');
     setFormDriverId(defaultDriver?.id || 'u3');
@@ -331,6 +361,21 @@ export const AssignmentManagementPage: React.FC = () => {
         }
       />
 
+      {loadError && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-4 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50">
+          <span className="text-xs font-semibold text-rose-800 dark:text-rose-300">
+            Không thể tải dữ liệu phân công từ máy chủ: {loadError}
+          </span>
+          <button
+            type="button"
+            onClick={() => void reload()}
+            className="px-3 py-1.5 text-xs font-bold rounded-md border border-rose-400 text-rose-800 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/40"
+          >
+            Thử lại
+          </button>
+        </div>
+      )}
+
       {/* KPI Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm">
@@ -571,12 +616,20 @@ export const AssignmentManagementPage: React.FC = () => {
                 </label>
                 <input
                   type="text"
+                  list="bus-plates-list"
                   value={formBusPlate}
                   onChange={(e) => setFormBusPlate(e.target.value)}
                   placeholder="VD: 51B-201.55"
                   className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] font-mono text-slate-900 dark:text-white uppercase focus:ring-2 focus:ring-institutional-500"
                   required
                 />
+                <datalist id="bus-plates-list">
+                  {availableBuses.map((b) => (
+                    <option key={b.plateNumber} value={b.plateNumber}>
+                      {b.plateNumber} {b.status === 'ACTIVE' ? '(Đang hoạt động)' : ''}
+                    </option>
+                  ))}
+                </datalist>
               </div>
             </div>
 
