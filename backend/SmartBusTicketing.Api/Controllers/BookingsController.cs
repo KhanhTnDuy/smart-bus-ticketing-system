@@ -66,13 +66,8 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
 
             var booking = new Booking
             {
-                AccountId = GetActorId(),
-                CustomerName = dto.CustomerName,
-                CustomerPhone = dto.CustomerPhone,
                 Status = BookingStatus.Pending,
-                HoldExpiresAt = DateTime.UtcNow.AddMinutes(10),
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                HoldExpiresAt = DateTime.UtcNow.AddMinutes(10)
             };
 
             db.Bookings.Add(booking);
@@ -88,10 +83,7 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
                     BoardStopId = dto.BoardStopId,
                     AlightStopId = dto.AlightStopId,
                     Status = TicketStatus.Held,
-                    QrCode = Guid.NewGuid().ToString("N"),
-                    ActiveSeatKey = $"{dto.TripId}-{seat.Id}",
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
+                    QrCode = Guid.NewGuid().ToString("N")
                 };
 
                 db.Tickets.Add(ticket);
@@ -109,8 +101,7 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
                 tripId = dto.TripId,
                 bookedSeats = seats.Select(s => s.SeatCode).ToList(),
                 totalSeats = seats.Count,
-                holdExpiresAt = booking.HoldExpiresAt,
-                createdAt = DateTime.UtcNow
+                holdExpiresAt = booking.HoldExpiresAt
             });
         }
         catch (DbUpdateException)
