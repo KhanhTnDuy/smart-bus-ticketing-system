@@ -31,19 +31,19 @@ export const AssignmentManagementPage: React.FC = () => {
     updateAssignment,
     deleteAssignment,
   } = useAssignmentManagement();
-  const { routes, users, buses, checkAssignmentConflict } = useData();
+  const { routes, users } = useData();
   const { success, error } = useToast();
   const showSuccess = success;
   const showError = error;
 
-  const [realBuses, setRealBuses] = useState<Array<{ plateNumber: string; status?: string }>>([]);
+  const [availableBuses, setAvailableBuses] = useState<Array<{ plateNumber: string; status?: string }>>([]);
 
   useEffect(() => {
     let active = true;
     listBuses({ pageSize: 100 })
       .then((res) => {
         if (active && res?.data?.length > 0) {
-          setRealBuses(
+          setAvailableBuses(
             res.data.map((b) => ({
               plateNumber: b.plateNumber,
               status: b.status === BackendBusStatus.Active ? 'ACTIVE' : 'INACTIVE',
@@ -52,17 +52,12 @@ export const AssignmentManagementPage: React.FC = () => {
         }
       })
       .catch(() => {
-        // Fallback sang danh sách xe từ DataContext nếu API gặp lỗi
+        /* ignore */
       });
     return () => {
       active = false;
     };
   }, []);
-
-  const availableBuses = useMemo(() => {
-    if (realBuses.length > 0) return realBuses;
-    return buses.map((b) => ({ plateNumber: b.plateNumber, status: b.status }));
-  }, [realBuses, buses]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [shiftFilter, setShiftFilter] = useState('ALL');
@@ -134,31 +129,6 @@ export const AssignmentManagementPage: React.FC = () => {
     setIsAddModalOpen(true);
   };
 
-  // Conflict Detection Checker (Requirement 7) - Sử dụng hàm kiểm tra thống nhất từ DataContext
-  const conflictWarning = useMemo(() => {
-    if (!isAddModalOpen && !isEditModalOpen) return null;
-    return checkAssignmentConflict(
-      {
-        busPlate: formBusPlate,
-        driverName: formDriverName,
-        driverId: formDriverId,
-        date: formDate,
-        shift: formShift,
-      },
-      isEditModalOpen && selectedAssignment ? selectedAssignment.id : undefined
-    );
-  }, [
-    isAddModalOpen,
-    isEditModalOpen,
-    selectedAssignment,
-    formBusPlate,
-    formDriverName,
-    formDriverId,
-    formDate,
-    formShift,
-    checkAssignmentConflict,
-  ]);
-
   // Submit Add
   const handleConfirmAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -168,11 +138,6 @@ export const AssignmentManagementPage: React.FC = () => {
     }
 
     setFormConflictWarning(null);
-    if (conflictWarning && conflictWarning.hasConflict) {
-      showError(conflictWarning.message);
-      return;
-    }
-
     setIsSubmitting(true);
     try {
       const res = await addAssignment({
@@ -230,10 +195,6 @@ export const AssignmentManagementPage: React.FC = () => {
     if (!selectedAssignment) return;
 
     setFormConflictWarning(null);
-    if (conflictWarning && conflictWarning.hasConflict) {
-      showError(conflictWarning.message);
-      return;
-    }
     setIsSubmitting(true);
     try {
       const res = await updateAssignment(selectedAssignment.id, {
@@ -751,19 +712,6 @@ export const AssignmentManagementPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Conflict Warning Alert Banner */}
-            {conflictWarning && (
-              <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-lg flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-300 animate-fadeIn">
-                <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 mt-0.5 shrink-0" />
-                <div>
-                  <strong className="block font-semibold">Cảnh báo xung đột trùng lịch xe / nhân sự:</strong>
-                  <span>{conflictWarning.message}</span>
-                  <span className="block text-[11px] text-rose-600 dark:text-rose-400 mt-0.5">
-                    Quy tắc hệ thống: Một xe buýt hoặc tài xế không thể phục vụ 2 ca chạy chồng chéo thời gian trong cùng một ngày. Lệnh phân công này sẽ bị chặn lưu.
-                  </span>
-                </div>
-              </div>
-            )}
 
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
 
