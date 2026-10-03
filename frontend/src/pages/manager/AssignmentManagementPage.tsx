@@ -27,7 +27,16 @@ import { EmptyState } from '../../components/common/EmptyState';
 import { BusAssignment, ShiftType, AssignmentStatus } from '../../types';
 
 export const AssignmentManagementPage: React.FC = () => {
-  const { assignments, routes, users, addAssignment, updateAssignment, deleteAssignment } = useData();
+  const {
+    assignments,
+    routes,
+    users,
+    buses,
+    checkAssignmentConflict,
+    addAssignment,
+    updateAssignment,
+    deleteAssignment,
+  } = useData();
   const { success, error } = useToast();
   const showSuccess = success;
   const showError = error;
@@ -85,8 +94,9 @@ export const AssignmentManagementPage: React.FC = () => {
   // Open Add Modal
   const handleOpenAdd = () => {
     const defaultDriver = driverUsers[0];
+    const defaultBus = buses.find((b) => b.status === 'ACTIVE') || buses[0];
     setFormRouteId(routes[0]?.id || 'r1');
-    setFormBusPlate('51B-201.55');
+    setFormBusPlate(defaultBus ? defaultBus.plateNumber : '51B-201.55');
     setFormDriverId(defaultDriver?.id || 'u3');
     setFormDriverName(defaultDriver?.fullName || 'Nguyễn Văn Tuấn');
     setFormAssistantId('u_as_1');
@@ -99,11 +109,41 @@ export const AssignmentManagementPage: React.FC = () => {
     setIsAddModalOpen(true);
   };
 
+  // Conflict Detection Checker (Requirement 7) - Sử dụng hàm kiểm tra thống nhất từ DataContext
+  const conflictWarning = useMemo(() => {
+    if (!isAddModalOpen && !isEditModalOpen) return null;
+    return checkAssignmentConflict(
+      {
+        busPlate: formBusPlate,
+        driverName: formDriverName,
+        driverId: formDriverId,
+        date: formDate,
+        shift: formShift,
+      },
+      isEditModalOpen && selectedAssignment ? selectedAssignment.id : undefined
+    );
+  }, [
+    isAddModalOpen,
+    isEditModalOpen,
+    selectedAssignment,
+    formBusPlate,
+    formDriverName,
+    formDriverId,
+    formDate,
+    formShift,
+    checkAssignmentConflict,
+  ]);
+
   // Submit Add
   const handleConfirmAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formBusPlate.trim() || !formDriverName.trim()) {
       showError('Vui lòng nhập biển số xe và tên tài xế');
+      return;
+    }
+
+    if (conflictWarning) {
+      showError(conflictWarning.message);
       return;
     }
 
@@ -126,6 +166,8 @@ export const AssignmentManagementPage: React.FC = () => {
       if (res.success) {
         showSuccess(`Phân công mới [${res.assignment?.id}] đã được lưu thành công!`);
         setIsAddModalOpen(false);
+      } else {
+        showError(res.message || 'Không thể tạo phân công (Xung đột trùng lịch)');
       }
     } catch {
       showError('Không thể tạo phân công vào lúc này');
@@ -133,6 +175,7 @@ export const AssignmentManagementPage: React.FC = () => {
       setIsSubmitting(false);
     }
   };
+
 
   // Open Edit Modal
   const handleOpenEdit = (asn: BusAssignment) => {
@@ -156,6 +199,11 @@ export const AssignmentManagementPage: React.FC = () => {
     e.preventDefault();
     if (!selectedAssignment) return;
 
+    if (conflictWarning) {
+      showError(conflictWarning.message);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const res = updateAssignment(selectedAssignment.id, {
@@ -175,6 +223,8 @@ export const AssignmentManagementPage: React.FC = () => {
       if (res.success) {
         showSuccess(`Đã cập nhật phân công [${selectedAssignment.id}] thành công!`);
         setIsEditModalOpen(false);
+      } else {
+        showError(res.message || 'Không thể cập nhật phân công (Xung đột trùng lịch)');
       }
     } catch {
       showError('Không thể cập nhật phân công');
@@ -182,6 +232,7 @@ export const AssignmentManagementPage: React.FC = () => {
       setIsSubmitting(false);
     }
   };
+
 
   // Open Detail
   const handleOpenDetail = (asn: BusAssignment) => {
@@ -612,7 +663,22 @@ export const AssignmentManagementPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Conflict Warning Alert Banner */}
+            {conflictWarning && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-lg flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-300 animate-fadeIn">
+                <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 mt-0.5 shrink-0" />
+                <div>
+                  <strong className="block font-semibold">Cảnh báo xung đột trùng lịch xe / nhân sự:</strong>
+                  <span>{conflictWarning.message}</span>
+                  <span className="block text-[11px] text-rose-600 dark:text-rose-400 mt-0.5">
+                    Quy tắc hệ thống: Một xe buýt hoặc tài xế không thể phục vụ 2 ca chạy chồng chéo thời gian trong cùng một ngày. Lệnh phân công này sẽ bị chặn lưu.
+                  </span>
+                </div>
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+
               <button
                 type="button"
                 onClick={() => {
