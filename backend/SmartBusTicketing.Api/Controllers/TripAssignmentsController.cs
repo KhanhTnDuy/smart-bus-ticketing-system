@@ -137,7 +137,14 @@ public sealed class TripAssignmentsController(ITripAssignmentService service, Au
     public async Task<ActionResult<TripAssignmentDto>> CreateAssignment([FromBody] CreateTripRequest request, CancellationToken ct)
     {
         var result = await service.CreateTripWithAssignmentAsync(request, ct);
-        if (!result.Ok) return ToProblem(this, result);
+        if (!result.Ok)
+        {
+            await audit.WriteAsync(User.AccountId(), User.Username() ?? "system",
+                "Tạo phân công chuyến chạy thất bại", AuditActionType.Create,
+                request.RouteId.HasValue ? $"ASSIGNMENT-ROUTE-{request.RouteId}" : "ASSIGNMENT",
+                AuditStatus.Failure, result.Message, ct);
+            return ToProblem(this, result);
+        }
 
         var details = $"Tuyến: {result.Value!.RouteCode}, Xe: {result.Value.BusPlate}, " +
                       $"Lái xe: {result.Value.DriverName}, Phụ xe: {result.Value.AssistantName ?? "Không có"}";
@@ -165,7 +172,13 @@ public sealed class TripAssignmentsController(ITripAssignmentService service, Au
         }
 
         var result = await service.AssignTripAsync(tripId.Value, request, ct);
-        if (!result.Ok) return ToProblem(this, result);
+        if (!result.Ok)
+        {
+            await audit.WriteAsync(User.AccountId(), User.Username() ?? "system",
+                $"Phân công xe và nhân sự cho chuyến #{tripId.Value} thất bại", AuditActionType.Update,
+                $"ASSIGNMENT-{tripId.Value}", AuditStatus.Failure, result.Message, ct);
+            return ToProblem(this, result);
+        }
 
         var details = $"Xe: {(result.Value!.Bus != null ? result.Value.Bus.PlateNumber : "Chưa gán")}, " +
                       $"Lái xe: {(result.Value.Driver != null ? result.Value.Driver.FullName : "Chưa gán")}, " +
@@ -193,7 +206,13 @@ public sealed class TripAssignmentsController(ITripAssignmentService service, Au
 
         var req = request ?? new UnassignTripRequest();
         var result = await service.UnassignTripAsync(tripId.Value, req, ct);
-        if (!result.Ok) return ToProblem(this, result);
+        if (!result.Ok)
+        {
+            await audit.WriteAsync(User.AccountId(), User.Username() ?? "system",
+                $"Gỡ phân công chuyến #{tripId.Value} thất bại", AuditActionType.Delete,
+                $"ASSIGNMENT-{tripId.Value}", AuditStatus.Failure, result.Message, ct);
+            return ToProblem(this, result);
+        }
 
         await LogAuditAsync($"Gỡ phân công xe/nhân sự của chuyến #{tripId.Value}",
             AuditActionType.Delete, $"ASSIGNMENT-{tripId.Value}", null, ct);
@@ -209,7 +228,13 @@ public sealed class TripAssignmentsController(ITripAssignmentService service, Au
     public async Task<ActionResult<BatchAssignResultDto>> BatchAssign([FromBody] BatchAssignTripRequest request, CancellationToken ct)
     {
         var result = await service.BatchAssignAsync(request, ct);
-        if (!result.Ok) return ToProblem(this, result);
+        if (!result.Ok)
+        {
+            await audit.WriteAsync(User.AccountId(), User.Username() ?? "system",
+                "Phân công hàng loạt thất bại", AuditActionType.Update,
+                "ASSIGNMENT-BATCH", AuditStatus.Failure, result.Message, ct);
+            return ToProblem(this, result);
+        }
 
         await LogAuditAsync($"Phân công hàng loạt cho {request.TripIds.Count} chuyến chạy (Thành công: {result.Value!.SuccessCount})",
             AuditActionType.Update, "ASSIGNMENT-BATCH", null, ct);
