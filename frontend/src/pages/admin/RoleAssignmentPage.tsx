@@ -11,7 +11,7 @@ import {
   Car,
   User as UserIcon,
 } from 'lucide-react';
-import { useAccountManagement } from '../../hooks/useAccountManagement';
+import { useData } from '../../context/DataContext';
 import { useToast } from '../../context/ToastContext';
 import { Role, User } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -19,14 +19,13 @@ import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 
 export const RoleAssignmentPage: React.FC = () => {
-  const { users, assignRole, error: loadError, reload } = useAccountManagement();
+  const { users, assignRole } = useData();
   const { success, error } = useToast();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [targetRole, setTargetRole] = useState<Role>('PASSENGER');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
 
   const filteredUsers = users.filter(
     (u) =>
@@ -43,17 +42,12 @@ export const RoleAssignmentPage: React.FC = () => {
 
   const handleConfirmRoleChange = async () => {
     if (!selectedUser) return;
-    setIsSaving(true);
-    try {
-      const res = await assignRole(selectedUser.id, targetRole);
-      if (res.success) {
-        success(`Cập nhật vai trò cho [${selectedUser.fullName}] sang ${targetRole} thành công!`);
-        setIsConfirmModalOpen(false);
-      } else {
-        error(res.message || 'Phân quyền không thành công.');
-      }
-    } finally {
-      setIsSaving(false);
+    const res = await assignRole(selectedUser.id, targetRole);
+    if (res.success) {
+      success(`Cập nhật vai trò cho [${selectedUser.fullName}] sang ${targetRole} thành công!`);
+      setIsConfirmModalOpen(false);
+    } else {
+      error(res.message || 'Phân quyền không thành công.');
     }
   };
 
@@ -71,21 +65,6 @@ export const RoleAssignmentPage: React.FC = () => {
         ]}
         icon={<ShieldCheck className="w-5 h-5 text-purple-600" />}
       />
-
-      {loadError && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-4 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50">
-          <span className="text-xs font-semibold text-rose-700 dark:text-rose-300">
-            Không thể đồng bộ với máy chủ: {loadError} (Đang hiển thị bản sao cục bộ)
-          </span>
-          <button
-            type="button"
-            onClick={reload}
-            className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded border border-rose-400 dark:border-rose-700 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 transition-colors shrink-0"
-          >
-            Thử lại
-          </button>
-        </div>
-      )}
 
       {/* 2. Institutional Role Scope Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
