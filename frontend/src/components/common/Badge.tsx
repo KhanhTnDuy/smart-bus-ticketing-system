@@ -12,12 +12,14 @@ import {
   IncidentStatus,
   TripStatus,
   AssignmentStatus,
+  BusStatus,
 } from '../../types';
 
 interface BadgeProps {
   variant?:
     | 'role'
     | 'routeStatus'
+    | 'busStatus'
     | 'stopStatus'
     | 'fareStatus'
     | 'complaintStatus'
@@ -81,8 +83,8 @@ export const Badge: React.FC<BadgeProps> = ({
           'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/50 dark:text-rose-400 dark:border-rose-800';
         break;
     }
-  } else if (variant === 'routeStatus') {
-    switch (value as RouteStatus) {
+  } else if (variant === 'routeStatus' || variant === 'busStatus') {
+    switch (value as RouteStatus | BusStatus) {
       case 'ACTIVE':
         badgeStyle =
           'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-400 dark:border-emerald-800';
@@ -94,6 +96,10 @@ export const Badge: React.FC<BadgeProps> = ({
       case 'MAINTENANCE':
         badgeStyle =
           'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/50 dark:text-amber-400 dark:border-amber-800';
+        break;
+      case 'INACTIVE':
+        badgeStyle =
+          'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700';
         break;
     }
   } else if (variant === 'complaintStatus') {

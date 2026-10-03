@@ -33,7 +33,9 @@ export type AuditModule =
   | 'INCIDENT'
   | 'SCHEDULE'
   | 'ASSIGNMENT'
+  | 'VEHICLE'
   | 'SYSTEM';
+
 
 export type AuditStatus = 'SUCCESS' | 'FAILURE' | 'WARNING';
 
@@ -360,3 +362,35 @@ export interface BusAssignment {
   status: AssignmentStatus;
   notes?: string;
 }
+
+export type BusStatus = 'ACTIVE' | 'MAINTENANCE' | 'INACTIVE';
+
+export interface BusVehicle {
+  id: string; // e.g. "BUS-001"
+  plateNumber: string; // e.g. "51B-184.22"
+  model: string; // e.g. "Thaco City TB85S"
+  capacity: number; // e.g. 24
+  rows: number; // e.g. 6
+  cols: number; // e.g. 4
+  status: BusStatus;
+  routeId?: string; // Route code or ID
+  manufactureYear?: number;
+  lastInspectionDate?: string;
+  notes?: string;
+}
+
+export interface TimetableTemplate {
+  id: string; // e.g. "TT-001"
+  routeId: string;
+  name: string; // e.g. "Lịch ngày thường Tuyến 01"
+  firstDeparture: string; // "05:30"
+  lastDeparture: string; // "21:00"
+  frequencyMinutes: number; // 20
+  durationMinutes: number; // 45
+  daysOfWeek: number[]; // [1, 2, 3, 4, 5, 6, 0] (1: T2, 0: CN)
+  price: number;
+  totalSeats: number;
+  isActive: boolean;
+  notes?: string;
+}
+
