@@ -51,7 +51,7 @@ export const ComplaintPage: React.FC = () => {
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
 
@@ -68,9 +68,8 @@ export const ComplaintPage: React.FC = () => {
       description: description.trim(),
     };
 
-    const res = addComplaint(complaintData);
-
-    setTimeout(() => {
+    try {
+      const res = await addComplaint(complaintData);
       setIsSubmitting(false);
       if (res.success) {
         success('Đã gửi khiếu nại thành công! Ban quản lý sẽ xác minh và phản hồi sớm.');
@@ -81,7 +80,10 @@ export const ComplaintPage: React.FC = () => {
       } else {
         error(res.message || 'Gửi khiếu nại thất bại.');
       }
-    }, 400);
+    } catch (err: any) {
+      setIsSubmitting(false);
+      error(err.message || 'Lỗi gửi khiếu nại.');
+    }
   };
 
   const handleResetForm = () => {
