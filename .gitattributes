@@ -1,0 +1,10 @@
+# Auto-detect text files and normalize line endings to LF on commit
+* text=auto eol=lf
+
+# Keep legacy repository files untouched so git does not rewrite their line endings in PR
+backend/SmartBusTicketing.Api/Data/AppDbContext.cs -text
+backend/SmartBusTicketing.Api/Data/Migrations/20260929075731_InitialCreate.cs -text
+backend/SmartBusTicketing.Api/Data/Migrations/20260929075731_InitialCreate.Designer.cs -text
+backend/SmartBusTicketing.Api/Data/Migrations/AppDbContextModelSnapshot.cs -text
+backend/database/schema.sql -text
+
