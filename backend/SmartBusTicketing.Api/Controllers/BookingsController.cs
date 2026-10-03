@@ -43,12 +43,13 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
                 return BadRequest(new { message = "Một số ghế được chọn không thuộc xe của chuyến này hoặc không tồn tại!" });
             }
 
+            // Sửa dấu || thành && để giải phóng ghế khi hết hạn
             var takenSeatIds = await db.Tickets
                 .Where(t => t.TripId == dto.TripId && dto.SeatIds.Contains(t.SeatId))
                 .Where(t => t.Status == TicketStatus.Valid ||
                             t.Status == TicketStatus.Used ||
                             (t.Status == TicketStatus.Held && t.Booking != null &&
-                             (t.Booking.Status == BookingStatus.Pending || t.Booking.HoldExpiresAt > DateTime.UtcNow)))
+                             t.Booking.Status == BookingStatus.Pending && t.Booking.HoldExpiresAt > DateTime.UtcNow))
                 .Select(t => t.SeatId)
                 .Distinct()
                 .ToListAsync(ct);
@@ -64,10 +65,15 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
                 return Conflict(new { message = $"Ghế '{string.Join(", ", takenSeatCodes)}' vừa bị người khác chọn! Vui lòng chọn ghế khác." });
             }
 
+            // Bổ sung đầy đủ BookingCode, PassengerId, TripId, FinalAmount
             var booking = new Booking
             {
+                BookingCode = "BK-" + Guid.NewGuid().ToString("N")[..8].ToUpper(),
+                PassengerId = GetActorId() ?? throw new UnauthorizedAccessException("Không tìm thấy thông tin tài khoản người dùng!"),
+                TripId = dto.TripId,
                 Status = BookingStatus.Pending,
-                HoldExpiresAt = DateTime.UtcNow.AddMinutes(10)
+                HoldExpiresAt = DateTime.UtcNow.AddMinutes(10),
+                FinalAmount = 0
             };
 
             db.Bookings.Add(booking);
@@ -98,9 +104,11 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
             {
                 message = "Xác nhận đặt vé thành công!",
                 bookingId = booking.Id,
+                bookingCode = booking.BookingCode,
                 tripId = dto.TripId,
                 bookedSeats = seats.Select(s => s.SeatCode).ToList(),
                 totalSeats = seats.Count,
+                finalAmount = booking.FinalAmount,
                 holdExpiresAt = booking.HoldExpiresAt
             });
         }
