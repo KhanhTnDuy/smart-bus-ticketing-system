@@ -20,6 +20,7 @@ import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { EmptyState } from '../../components/common/EmptyState';
 import { listBuses, BackendBusStatus } from '../../api/busManagement';
 import { BusAssignment, ShiftType, AssignmentStatus } from '../../types';
+import { parseNumericId } from '../../api/assignments';
 
 export const AssignmentManagementPage: React.FC = () => {
   const {
@@ -36,7 +37,7 @@ export const AssignmentManagementPage: React.FC = () => {
   const showSuccess = success;
   const showError = error;
 
-  const [availableBuses, setAvailableBuses] = useState<Array<{ plateNumber: string; status?: string }>>([]);
+  const [availableBuses, setAvailableBuses] = useState<Array<{ id: number; plateNumber: string; status?: string }>>([]);
 
   useEffect(() => {
     let active = true;
@@ -45,6 +46,7 @@ export const AssignmentManagementPage: React.FC = () => {
         if (active && res?.data?.length > 0) {
           setAvailableBuses(
             res.data.map((b) => ({
+              id: b.id,
               plateNumber: b.plateNumber,
               status: b.status === BackendBusStatus.Active ? 'ACTIVE' : 'INACTIVE',
             }))
@@ -140,19 +142,43 @@ export const AssignmentManagementPage: React.FC = () => {
     setFormConflictWarning(null);
     setIsSubmitting(true);
     try {
-      const res = await addAssignment({
-        routeId: formRouteId,
-        busPlate: formBusPlate.trim().toUpperCase(),
-        driverId: formDriverId || 'u_drv_new',
-        driverName: formDriverName.trim(),
-        assistantId: formAssistantId || undefined,
-        assistantName: formAssistantName.trim() || undefined,
-        date: formDate,
-        shift: formShift,
-        shiftHours: formShiftHours,
-        status: formStatus,
-        notes: formNotes.trim() || undefined,
-      });
+      const matchedBus = availableBuses.find(
+        (b) => b.plateNumber.trim().toUpperCase() === formBusPlate.trim().toUpperCase(),
+      );
+      const busId = matchedBus?.id;
+
+      const matchedDriver = driverUsers.find(
+        (d) => d.id === formDriverId || d.fullName === formDriverName,
+      );
+      const driverNumericId = matchedDriver ? parseNumericId(matchedDriver.id) : parseNumericId(formDriverId);
+
+      const matchedRoute = routes.find(
+        (r) => r.id === formRouteId || r.code === formRouteId || r.routeCode === formRouteId,
+      );
+      const routeNumericId = matchedRoute ? parseNumericId(matchedRoute.id) : parseNumericId(formRouteId);
+      const assistantNumericId = parseNumericId(formAssistantId);
+
+      const res = await addAssignment(
+        {
+          routeId: formRouteId,
+          busPlate: formBusPlate.trim().toUpperCase(),
+          driverId: formDriverId || 'u_drv_new',
+          driverName: formDriverName.trim(),
+          assistantId: formAssistantId || undefined,
+          assistantName: formAssistantName.trim() || undefined,
+          date: formDate,
+          shift: formShift,
+          shiftHours: formShiftHours,
+          status: formStatus,
+          notes: formNotes.trim() || undefined,
+        },
+        {
+          busId,
+          driverId: driverNumericId,
+          conductorId: assistantNumericId,
+          routeId: routeNumericId,
+        },
+      );
 
       if (res.success) {
         showSuccess(`Phân công mới [${res.assignment?.id}] đã được lưu thành công!`);
@@ -197,19 +223,38 @@ export const AssignmentManagementPage: React.FC = () => {
     setFormConflictWarning(null);
     setIsSubmitting(true);
     try {
-      const res = await updateAssignment(selectedAssignment.id, {
-        routeId: formRouteId,
-        busPlate: formBusPlate.trim().toUpperCase(),
-        driverId: formDriverId,
-        driverName: formDriverName.trim(),
-        assistantId: formAssistantId || undefined,
-        assistantName: formAssistantName.trim() || undefined,
-        date: formDate,
-        shift: formShift,
-        shiftHours: formShiftHours,
-        status: formStatus,
-        notes: formNotes.trim() || undefined,
-      });
+      const matchedBus = availableBuses.find(
+        (b) => b.plateNumber.trim().toUpperCase() === formBusPlate.trim().toUpperCase(),
+      );
+      const busId = matchedBus?.id;
+
+      const matchedDriver = driverUsers.find(
+        (d) => d.id === formDriverId || d.fullName === formDriverName,
+      );
+      const driverNumericId = matchedDriver ? parseNumericId(matchedDriver.id) : parseNumericId(formDriverId);
+      const assistantNumericId = parseNumericId(formAssistantId);
+
+      const res = await updateAssignment(
+        selectedAssignment.id,
+        {
+          routeId: formRouteId,
+          busPlate: formBusPlate.trim().toUpperCase(),
+          driverId: formDriverId,
+          driverName: formDriverName.trim(),
+          assistantId: formAssistantId || undefined,
+          assistantName: formAssistantName.trim() || undefined,
+          date: formDate,
+          shift: formShift,
+          shiftHours: formShiftHours,
+          status: formStatus,
+          notes: formNotes.trim() || undefined,
+        },
+        {
+          busId,
+          driverId: driverNumericId,
+          conductorId: assistantNumericId,
+        },
+      );
 
       if (res.success) {
         showSuccess(`Đã cập nhật phân công [${selectedAssignment.id}] thành công!`);

@@ -162,9 +162,12 @@ export const useAssignmentManagement = () => {
     };
   }, []);
 
-  const addAssignment = async (data: Omit<BusAssignment, 'id'>): Promise<MutationResult> => {
+  const addAssignment = async (
+    data: Omit<BusAssignment, 'id'>,
+    extra?: { busId?: number; driverId?: number; conductorId?: number; routeId?: number },
+  ): Promise<MutationResult> => {
     try {
-      const req = assignApi.toAssignmentRequest(data);
+      const req = assignApi.toCreateTripRequest(data, extra);
       const createdDto = await assignApi.createAssignment(req);
       const newEntity = assignApi.toBusAssignment(createdDto);
 
@@ -221,6 +224,7 @@ export const useAssignmentManagement = () => {
   const updateAssignment = async (
     id: string,
     updates: Partial<BusAssignment>,
+    extra?: { busId?: number; driverId?: number; conductorId?: number },
   ): Promise<MutationResult> => {
     const current = assignments.find((a) => a.id === id);
     if (!current) return { success: false, message: 'Không tìm thấy phân công để cập nhật.' };
@@ -228,7 +232,7 @@ export const useAssignmentManagement = () => {
     const merged: BusAssignment = { ...current, ...updates };
 
     try {
-      const req = assignApi.toAssignmentRequest(merged);
+      const req = assignApi.toAssignTripRequest(merged, extra);
       const updatedDto = await assignApi.updateAssignment(id, req);
       const updatedEntity = assignApi.toBusAssignment(updatedDto);
 
