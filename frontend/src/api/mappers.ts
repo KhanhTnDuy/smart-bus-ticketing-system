@@ -159,10 +159,17 @@ const auditModuleOf = (dto: AuditLogDto): AuditModule => {
   if (target.startsWith('USR-')) {
     return dto.actionType === AuditActionTypeCode.StatusChange ? 'ROLE' : 'ACCOUNT';
   }
+  // SCHEDULE- phải xét trước ROUTE-: nhật ký tạo lịch trình thất bại dùng target
+  // SCHEDULE-ROUTE-{id} vì lúc đó lịch trình chưa có id.
+  if (target.startsWith('SCHEDULE-')) return 'SCHEDULE';
   if (target.startsWith('ROUTE-')) return 'ROUTE';
   if (target.startsWith('STOP-')) return 'STOP';
   if (target.startsWith('FARE-')) return 'FARE';
   if (target.startsWith('BUS-')) return 'BUS';
+  // Phân công điều xe ghi target theo chuyến hoặc theo bản phân công.
+  if (target.startsWith('ASSIGNMENT-') || target.startsWith('ASN-') || target.startsWith('TRIP-')) {
+    return 'ASSIGNMENT';
+  }
   if (dto.actionType === AuditActionTypeCode.Payment) return 'PAYMENT';
   if (dto.actionType === AuditActionTypeCode.TicketBuy) return 'TICKET';
   return 'SYSTEM';
@@ -173,8 +180,8 @@ export const toAuditLog = (dto: AuditLogDto): AuditLog => ({
   user: dto.username,
   action: dto.action,
   module: auditModuleOf(dto),
-  // Backend hiện chưa truyền `details` ở chỗ nào, nên phần lớn bản ghi sẽ rơi
-  // vào nhánh mô tả đối tượng tác động.
+  // Lịch trình (SCRUM-47) đã truyền `details`; các phân hệ còn lại chưa, nên
+  // bản ghi của chúng vẫn rơi vào nhánh mô tả đối tượng tác động.
   description: dto.details?.trim() || (dto.targetResource ? `Đối tượng: ${dto.targetResource}` : ''),
   dateTime: formatLocal(parseUtc(dto.createdAt)),
   status: AUDIT_STATUS_BY_CODE[dto.status] ?? 'WARNING',
