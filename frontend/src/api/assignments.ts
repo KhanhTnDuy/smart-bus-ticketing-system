@@ -92,7 +92,7 @@ export const toBusAssignment = (dto: AssignmentDto): BusAssignment => ({
   notes: dto.notes || undefined,
 });
 
-export const toAssignmentRequest = (data: Omit<BusAssignment, 'id'>): CreateAssignmentRequest => ({
+export const toAssignmentRequest = (data: Omit<BusAssignment, 'id'>): UpdateAssignmentRequest => ({
   routeId: data.routeId,
   busPlate: data.busPlate.trim().toUpperCase(),
   driverId: data.driverId,
