@@ -26,7 +26,6 @@ import {
   Search,
   LifeBuoy,
   TrendingUp,
-  Bus,
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
