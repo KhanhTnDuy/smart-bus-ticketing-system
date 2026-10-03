@@ -15,6 +15,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddScoped<IRouteManagementService, RouteManagementService>();
 builder.Services.AddScoped<IBusManagementService, BusManagementService>();
 builder.Services.AddScoped<ITripService, TripService>();
+builder.Services.AddScoped<ITripAssignmentService, TripAssignmentService>();
 builder.Services.AddScoped<AuditLogService>();
 builder.Services.AddSingleton<JwtTokenService>();
 
@@ -82,5 +83,9 @@ app.UseAuthorization();
 app.MapControllers();
 
 await DbSeeder.SeedAdminAsync(app);
+if (app.Environment.IsDevelopment())
+{
+    await DbSeeder.SeedAssignmentSampleDataAsync(app);
+}
 
 app.Run();
