@@ -480,3 +480,9 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Local test and scratch scripts
+test_*.ps1
+test_*.sql
+run_all_tests.ps1
+*.local.*
