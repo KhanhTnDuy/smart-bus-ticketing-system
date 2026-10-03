@@ -18,6 +18,9 @@ import {
   BusTracking,
   BusIncident,
   BusAssignment,
+  ShiftType,
+  BusVehicle,
+  TimetableTemplate,
   PaymentMethod,
   RefundStatus,
   IncidentStatus,
@@ -40,9 +43,10 @@ import {
   INITIAL_TRACKINGS,
   INITIAL_INCIDENTS,
   INITIAL_ASSIGNMENTS,
+  INITIAL_BUSES,
+  INITIAL_TIMETABLES,
 } from '../data/mockData';
 import { useAuth } from './AuthContext';
-
 interface DataContextType {
   // Accounts (Sprint 1)
   users: User[];
@@ -98,6 +102,7 @@ interface DataContextType {
   // Trips / Schedules (Sprint 2)
   trips: BusTrip[];
   addTrip: (tripData: Omit<BusTrip, 'id' | 'bookedSeats'>) => { success: boolean; message?: string; data?: BusTrip };
+  addTripsBatch: (tripsData: Array<Omit<BusTrip, 'id' | 'bookedSeats'>>) => { success: boolean; count: number; skippedCount?: number; message?: string; data?: BusTrip[] };
   updateTrip: (id: string, updates: Partial<BusTrip>) => { success: boolean; message?: string };
   deleteTrip: (id: string) => { success: boolean; message?: string };
 
@@ -146,6 +151,21 @@ interface DataContextType {
 
   // Driver/Assistant Assignments (Sprint 2)
   assignments: BusAssignment[];
+  checkAssignmentConflict: (
+    data: {
+      busPlate?: string;
+      driverName?: string;
+      driverId?: string;
+      date?: string;
+      shift?: ShiftType;
+    },
+    excludeId?: string
+  ) => {
+    hasConflict: boolean;
+    type?: 'BUS' | 'DRIVER';
+    message: string;
+    conflicting?: BusAssignment;
+  } | null;
   addAssignment: (data: Omit<BusAssignment, 'id'>) => { success: boolean; message?: string; assignment?: BusAssignment };
   updateAssignment: (id: string, updates: Partial<BusAssignment>) => { success: boolean; message?: string };
   deleteAssignment: (id: string) => { success: boolean; message?: string };
@@ -157,7 +177,20 @@ interface DataContextType {
     ticket?: Ticket;
     message: string;
   };
+
+  // Bus Fleet (Sprint 2 - Quản lý xe buýt)
+  buses: BusVehicle[];
+  addBus: (data: Omit<BusVehicle, 'id'>) => { success: boolean; message?: string; bus?: BusVehicle };
+  updateBus: (id: string, updates: Partial<BusVehicle>) => { success: boolean; message?: string };
+  deleteBus: (id: string) => { success: boolean; message?: string };
+
+  // Timetables (Sprint 2 - Quản lý thời gian biểu)
+  timetables: TimetableTemplate[];
+  addTimetable: (data: Omit<TimetableTemplate, 'id'>) => { success: boolean; message?: string; timetable?: TimetableTemplate };
+  updateTimetable: (id: string, updates: Partial<TimetableTemplate>) => { success: boolean; message?: string };
+  deleteTimetable: (id: string) => { success: boolean; message?: string };
 }
+
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
@@ -171,6 +204,43 @@ const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
     console.error(`Error loading ${key} from storage:`, e);
   }
   return defaultValue;
+};
+
+// Safe ID generator that finds the maximum numeric suffix to prevent collision on deleted records
+const generateNextSequentialId = (
+  items: Array<{ id: string }>,
+  prefix: string,
+  padLength: number = 2
+): string => {
+  const maxNum = items.reduce((max, item) => {
+    const regex = new RegExp(`^${prefix}-?(\\d+)`, 'i');
+    const match = item.id.match(regex);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      return !isNaN(num) ? Math.max(max, num) : max;
+    }
+    return max;
+  }, 0);
+  return `${prefix}-${String(maxNum + 1).padStart(padLength, '0')}`;
+};
+
+const generateYearPrefixId = (
+  items: Array<{ id: string }>,
+  prefix: string,
+  padLength: number = 3
+): string => {
+  const year = new Date().getFullYear();
+  const fullPrefix = `${prefix}-${year}`;
+  const maxNum = items.reduce((max, item) => {
+    const regex = new RegExp(`^${fullPrefix}-?(\\d+)`, 'i');
+    const match = item.id.match(regex);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      return !isNaN(num) ? Math.max(max, num) : max;
+    }
+    return max;
+  }, 0);
+  return `${fullPrefix}-${String(maxNum + 1).padStart(padLength, '0')}`;
 };
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -227,6 +297,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [assignments, setAssignments] = useState<BusAssignment[]>(() =>
     loadFromStorage('smart_bus_assignments', INITIAL_ASSIGNMENTS)
   );
+  const [buses, setBuses] = useState<BusVehicle[]>(() =>
+    loadFromStorage('smart_bus_buses', INITIAL_BUSES)
+  );
+  const [timetables, setTimetables] = useState<TimetableTemplate[]>(() =>
+    loadFromStorage('smart_bus_timetables', INITIAL_TIMETABLES)
+  );
+
 
   // Sync state to LocalStorage
   useEffect(() => {
@@ -293,6 +370,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     localStorage.setItem('smart_bus_assignments', JSON.stringify(assignments));
   }, [assignments]);
+
+  useEffect(() => {
+    localStorage.setItem('smart_bus_buses', JSON.stringify(buses));
+  }, [buses]);
+
+  useEffect(() => {
+    localStorage.setItem('smart_bus_timetables', JSON.stringify(timetables));
+  }, [timetables]);
+
 
   // Keep route stopCount in sync with actual stops
   useEffect(() => {
@@ -363,7 +449,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Tên đăng nhập này đã tồn tại trong hệ thống.' };
     }
 
-    const newId = `USR-${String(users.length + 1).padStart(3, '0')}`;
+    const newId = generateNextSequentialId(users, 'USR', 3);
     const newUser: User = {
       ...userData,
       id: newId,
@@ -495,7 +581,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Mã số tuyến này đã tồn tại.' };
     }
 
-    const newId = `RT-${String(routes.length + 1).padStart(2, '0')}`;
+    const newId = generateNextSequentialId(routes, 'RT', 2);
     const newRoute: BusRoute = {
       ...routeData,
       id: newId,
@@ -836,7 +922,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const formattedDate = getFormattedNow();
-    const newId = `CMP-${new Date().getFullYear()}-${String(complaints.length + 1).padStart(3, '0')}`;
+    const newId = generateYearPrefixId(complaints, 'CMP', 3);
     const newComplaint: Complaint = {
       ...data,
       id: newId,
@@ -917,11 +1003,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ------------------------------------------
   const addRating = (data: Omit<TripRating, 'id' | 'createdAt'>) => {
     if (data.rating < 1 || data.rating > 5 || !data.routeId) {
-      return { success: false, message: 'Thông tin đánh giá không hợp lệ.' };
+      return { success: false, message: 'Thông tin đánh giá không hợp lệ (Bắt buộc từ 1 đến 5 sao).' };
     }
 
     const formattedDate = getFormattedNow();
-    const newId = `RAT-${new Date().getFullYear()}-${String(ratings.length + 1).padStart(3, '0')}`;
+    const newId = generateYearPrefixId(ratings, 'RAT', 3);
     const newRating: TripRating = {
       ...data,
       id: newId,
@@ -981,6 +1067,62 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true, data: newTrip };
   };
 
+  const addTripsBatch = (tripsData: Array<Omit<BusTrip, 'id' | 'bookedSeats'>>) => {
+    if (!tripsData.length) return { success: false, count: 0, skippedCount: 0, message: 'Danh sách chuyến rỗng' };
+
+    // Chống trùng chuyến: Lọc bỏ các chuyến đã tồn tại cùng tuyến, cùng ngày và cùng giờ khởi hành
+    const nonDuplicateTrips = tripsData.filter((candidate) => {
+      const alreadyExists = trips.some(
+        (existing) =>
+          existing.routeId === candidate.routeId &&
+          existing.departureDate === candidate.departureDate &&
+          existing.departureTime === candidate.departureTime
+      );
+      return !alreadyExists;
+    });
+
+    const skippedCount = tripsData.length - nonDuplicateTrips.length;
+
+    if (nonDuplicateTrips.length === 0) {
+      return {
+        success: false,
+        count: 0,
+        skippedCount,
+        message: `Tất cả ${tripsData.length} chuyến trong khung giờ này đã tồn tại trên hệ thống (chống trùng chuyến).`,
+      };
+    }
+
+    const baseNum = Math.floor(100 + Math.random() * 800);
+    const createdTrips: BusTrip[] = nonDuplicateTrips.map((tripData, idx) => ({
+      ...tripData,
+      id: `TRIP-${baseNum + idx}`,
+      bookedSeats: [],
+    }));
+
+    setTrips((prev) => [...createdTrips, ...prev]);
+
+    const route = routes.find((r) => r.id === tripsData[0].routeId);
+    addAuditLog({
+      user: getActorName(),
+      action: 'Sinh lịch chuyến tự động',
+      module: 'SCHEDULE',
+      description: `Sinh tự động ${createdTrips.length} chuyến xe (đã lọc ${skippedCount} chuyến trùng) theo thời gian biểu tuyến ${route?.code || tripsData[0].routeId} ngày ${tripsData[0].departureDate}`,
+      status: 'SUCCESS',
+      targetId: createdTrips[0]?.id,
+    });
+
+    return {
+      success: true,
+      count: createdTrips.length,
+      skippedCount,
+      data: createdTrips,
+      message: skippedCount > 0
+        ? `Đã tạo ${createdTrips.length} chuyến mới (đã tự động bỏ qua ${skippedCount} chuyến bị trùng giờ).`
+        : `Đã sinh thành công toàn bộ ${createdTrips.length} chuyến xe theo lịch trình!`,
+    };
+  };
+
+
   const updateTrip = (id: string, updates: Partial<BusTrip>) => {
     setTrips((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } : t)));
 
@@ -1024,10 +1166,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     departureDate: string;
     departureTime: string;
   }) => {
-    // Check if seat already booked in trip
+    // Support single or multiple comma-separated seats (e.g. "A1, A2")
+    const seatsToBook = bookingData.seatNumber
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    // Check if any seat already booked in trip
     const trip = trips.find((t) => t.id === bookingData.tripId);
-    if (trip && trip.bookedSeats.includes(bookingData.seatNumber)) {
-      return { success: false, message: `Ghế ${bookingData.seatNumber} đã có người đặt trước.` };
+    if (trip && seatsToBook.some((s) => trip.bookedSeats.includes(s))) {
+      return { success: false, message: 'Một hoặc nhiều ghế đã chọn đã có người đặt trước.' };
     }
 
     const newTicketId = `TKT-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`;
@@ -1055,11 +1203,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Update tickets
     setTickets((prev) => [newTicket, ...prev]);
 
-    // Mark seat as booked in trip
+    // Mark seats as booked in trip
     setTrips((prev) =>
       prev.map((t) =>
         t.id === bookingData.tripId
-          ? { ...t, bookedSeats: [...t.bookedSeats, bookingData.seatNumber] }
+          ? { ...t, bookedSeats: [...t.bookedSeats, ...seatsToBook] }
           : t
       )
     );
@@ -1105,11 +1253,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       )
     );
 
-    // 2. Free up the seat in the trip
+    // 2. Free up the seat in the trip (support comma-separated multi-seat tickets e.g. "A1, A2")
+    const seatsToFree = ticket.seatNumber
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
     setTrips((prev) =>
       prev.map((trip) =>
         trip.id === ticket.tripId
-          ? { ...trip, bookedSeats: trip.bookedSeats.filter((s) => s !== ticket.seatNumber) }
+          ? { ...trip, bookedSeats: trip.bookedSeats.filter((s) => !seatsToFree.includes(s)) }
           : trip
       )
     );
@@ -1167,7 +1320,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Chuyến xe mới không tồn tại.' };
     }
 
-    if (newTrip.bookedSeats.includes(newSeat)) {
+    const oldSeats = oldTicket.seatNumber
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const newSeats = newSeat
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (newSeats.some((s) => newTrip.bookedSeats.includes(s))) {
       return { success: false, message: `Ghế ${newSeat} của chuyến mới đã có người chọn.` };
     }
 
@@ -1195,17 +1357,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (trip.id === oldTicket.tripId && trip.id === newTripId) {
           return {
             ...trip,
-            bookedSeats: [...trip.bookedSeats.filter((s) => s !== oldTicket.seatNumber), newSeat],
+            bookedSeats: [...trip.bookedSeats.filter((s) => !oldSeats.includes(s)), ...newSeats],
           };
         } else if (trip.id === oldTicket.tripId) {
           return {
             ...trip,
-            bookedSeats: trip.bookedSeats.filter((s) => s !== oldTicket.seatNumber),
+            bookedSeats: trip.bookedSeats.filter((s) => !oldSeats.includes(s)),
           };
         } else if (trip.id === newTripId) {
           return {
             ...trip,
-            bookedSeats: [...trip.bookedSeats, newSeat],
+            bookedSeats: [...trip.bookedSeats, ...newSeats],
           };
         }
         return trip;
@@ -1486,16 +1648,93 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true, message: 'Đã cập nhật phương án xử lý sự cố!' };
   };
 
-  // 7. DRIVER & ASSISTANT ASSIGNMENTS (Sprint 2)
+  // 7. DRIVER & ASSISTANT ASSIGNMENTS (Sprint 2 - Kiểm tra trùng lịch)
+  const isShiftOverlapping = (
+    shift1: ShiftType,
+    date1: string,
+    shift2: ShiftType,
+    date2: string
+  ): boolean => {
+    if (date1 !== date2) return false;
+    if (shift1 === 'TOAN_THOI_GIAN' || shift2 === 'TOAN_THOI_GIAN') return true;
+    return shift1 === shift2;
+  };
+
+  const checkAssignmentConflict = (
+    data: {
+      busPlate?: string;
+      driverName?: string;
+      driverId?: string;
+      date?: string;
+      shift?: ShiftType;
+    },
+    excludeId?: string
+  ): {
+    hasConflict: boolean;
+    type?: 'BUS' | 'DRIVER';
+    message: string;
+    conflicting?: BusAssignment;
+  } | null => {
+    const targetPlate = (data.busPlate || '').trim().toUpperCase();
+    const targetDriver = (data.driverName || '').trim().toLowerCase();
+    const targetDate = data.date || '';
+    const targetShift = data.shift;
+
+    if (!targetDate || !targetShift || (!targetPlate && !targetDriver)) {
+      return null;
+    }
+
+    const conflicting = assignments.find((a) => {
+      if (excludeId && a.id === excludeId) return false;
+      if (a.status === 'CANCELLED') return false;
+      const overlaps = isShiftOverlapping(targetShift, targetDate, a.shift, a.date);
+      if (!overlaps) return false;
+
+      if (targetPlate && a.busPlate.trim().toUpperCase() === targetPlate) return true;
+      if (
+        (data.driverId && a.driverId === data.driverId) ||
+        (targetDriver && a.driverName.trim().toLowerCase() === targetDriver)
+      ) {
+        return true;
+      }
+      return false;
+    });
+
+    if (conflicting) {
+      const isBus = Boolean(targetPlate && conflicting.busPlate.trim().toUpperCase() === targetPlate);
+      const hoursInfo = conflicting.shiftHours ? ` (${conflicting.shiftHours})` : '';
+      const message = isBus
+        ? `Xung đột trùng lịch: Xe buýt [${targetPlate}] đã được xếp ca "${conflicting.shift}"${hoursInfo} ngày ${targetDate} (Lệnh: ${conflicting.id}, Tuyến: ${conflicting.routeId}).`
+        : `Xung đột trùng lịch: Tài xế [${data.driverName || conflicting.driverName}] đã có ca trực "${conflicting.shift}"${hoursInfo} ngày ${targetDate} (Lệnh: ${conflicting.id}, Tuyến: ${conflicting.routeId}).`;
+
+      return {
+        hasConflict: true,
+        type: isBus ? 'BUS' : 'DRIVER',
+        message,
+        conflicting,
+      };
+    }
+
+    return null;
+  };
+
   const addAssignment = (data: Omit<BusAssignment, 'id'>) => {
     if (!data.routeId || !data.busPlate || !data.driverName) {
       return { success: false, message: 'Vui lòng điền đủ thông tin phân công.' };
     }
 
-    const newId = `ASN-${String(assignments.length + 1).padStart(3, '0')}`;
+    // Kiểm tra trùng lịch xe hoặc tài xế trong cùng ngày & ca làm việc (Requirement 7)
+    const conflict = checkAssignmentConflict(data);
+    if (conflict?.hasConflict) {
+      return { success: false, message: conflict.message };
+    }
+
+    const normalizedPlate = data.busPlate.trim().toUpperCase();
+    const newId = generateNextSequentialId(assignments, 'ASN', 3);
     const newAssignment: BusAssignment = {
       ...data,
       id: newId,
+      busPlate: normalizedPlate,
     };
 
     setAssignments((prev) => [newAssignment, ...prev]);
@@ -1504,7 +1743,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       user: getActorName(),
       action: 'Thêm phân công lái xe / phụ xe',
       module: 'ASSIGNMENT',
-      description: `Phân công tài xế ${data.driverName} điều khiển xe ${data.busPlate} tuyến ${data.routeId}`,
+      description: `Phân công tài xế ${data.driverName} điều khiển xe ${normalizedPlate} tuyến ${data.routeId}`,
       status: 'SUCCESS',
       targetId: newId,
     });
@@ -1513,8 +1752,38 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateAssignment = (id: string, updates: Partial<BusAssignment>) => {
+    // Kiểm tra trùng lịch khi cập nhật (loại trừ chính id đang sửa)
+    const current = assignments.find((a) => a.id === id);
+    if (current) {
+      const conflict = checkAssignmentConflict(
+        {
+          busPlate: updates.busPlate || current.busPlate,
+          driverName: updates.driverName || current.driverName,
+          driverId: updates.driverId || current.driverId,
+          date: updates.date || current.date,
+          shift: updates.shift || current.shift,
+        },
+        id
+      );
+
+      if (conflict?.hasConflict) {
+        return {
+          success: false,
+          message: conflict.message,
+        };
+      }
+    }
+
     setAssignments((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, ...updates } : a))
+      prev.map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              ...updates,
+              ...(updates.busPlate ? { busPlate: updates.busPlate.trim().toUpperCase() } : {}),
+            }
+          : a
+      )
     );
 
     addAuditLog({
@@ -1543,6 +1812,143 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return { success: true };
   };
+
+  // 8. BUS FLEET MANAGEMENT (Sprint 2 - Quản lý xe buýt)
+  const addBus = (data: Omit<BusVehicle, 'id'>) => {
+    const normalizedPlate = data.plateNumber.trim().toUpperCase();
+    const existing = buses.find(
+      (b) => b.plateNumber.trim().toUpperCase() === normalizedPlate
+    );
+    if (existing) {
+      return { success: false, message: `Biển số xe [${data.plateNumber}] đã tồn tại trong đội xe!` };
+    }
+
+    const newId = generateNextSequentialId(buses, 'BUS', 2);
+    const newBus: BusVehicle = {
+      ...data,
+      id: newId,
+      plateNumber: normalizedPlate,
+    };
+
+    setBuses((prev) => [newBus, ...prev]);
+
+    addAuditLog({
+      user: getActorName(),
+      action: 'Thêm mới xe buýt vào đội xe',
+      module: 'VEHICLE',
+      description: `Thêm xe buýt [${newBus.plateNumber}] sức chứa ${newBus.capacity} chỗ (${newBus.rows} hàng x ${newBus.cols} cột)`,
+      status: 'SUCCESS',
+      targetId: newId,
+    });
+
+    return { success: true, bus: newBus };
+  };
+
+  const updateBus = (id: string, updates: Partial<BusVehicle>) => {
+    if (updates.plateNumber) {
+      const normalizedPlate = updates.plateNumber.trim().toUpperCase();
+      const duplicate = buses.find(
+        (b) => b.id !== id && b.plateNumber.trim().toUpperCase() === normalizedPlate
+      );
+      if (duplicate) {
+        return { success: false, message: `Biển số xe [${updates.plateNumber}] đã được sử dụng bởi xe khác!` };
+      }
+    }
+
+    setBuses((prev) =>
+      prev.map((b) =>
+        b.id === id
+          ? {
+              ...b,
+              ...updates,
+              ...(updates.plateNumber ? { plateNumber: updates.plateNumber.trim().toUpperCase() } : {}),
+            }
+          : b
+      )
+    );
+
+    addAuditLog({
+      user: getActorName(),
+      action: 'Cập nhật thông tin xe buýt',
+      module: 'VEHICLE',
+      description: `Cập nhật thông số/trạng thái xe [${id}]`,
+      status: 'SUCCESS',
+      targetId: id,
+    });
+
+    return { success: true };
+  };
+
+  const deleteBus = (id: string) => {
+    setBuses((prev) => prev.filter((b) => b.id !== id));
+
+    addAuditLog({
+      user: getActorName(),
+      action: 'Xóa xe buýt khỏi hệ thống',
+      module: 'VEHICLE',
+      description: `Xóa xe buýt mã [${id}]`,
+      status: 'SUCCESS',
+      targetId: id,
+    });
+
+    return { success: true };
+  };
+
+  // 9. TIMETABLE TEMPLATES (Sprint 2 - Quản lý thời gian biểu)
+  const addTimetable = (data: Omit<TimetableTemplate, 'id'>) => {
+    const newId = generateNextSequentialId(timetables, 'TT', 3);
+    const newTimetable: TimetableTemplate = {
+      ...data,
+      id: newId,
+    };
+
+    setTimetables((prev) => [newTimetable, ...prev]);
+
+    const route = routes.find((r) => r.id === data.routeId);
+    addAuditLog({
+      user: getActorName(),
+      action: 'Tạo thời gian biểu mẫu theo tuyến',
+      module: 'SCHEDULE',
+      description: `Tạo mẫu thời gian biểu [${data.name}] tuyến ${route?.code || data.routeId} (${data.firstDeparture} - ${data.lastDeparture}, tần suất ${data.frequencyMinutes}p)`,
+      status: 'SUCCESS',
+      targetId: newId,
+    });
+
+    return { success: true, timetable: newTimetable };
+  };
+
+  const updateTimetable = (id: string, updates: Partial<TimetableTemplate>) => {
+    setTimetables((prev) =>
+      prev.map((tt) => (tt.id === id ? { ...tt, ...updates } : tt))
+    );
+
+    addAuditLog({
+      user: getActorName(),
+      action: 'Cập nhật thời gian biểu mẫu',
+      module: 'SCHEDULE',
+      description: `Cập nhật thời gian biểu mã [${id}]`,
+      status: 'SUCCESS',
+      targetId: id,
+    });
+
+    return { success: true };
+  };
+
+  const deleteTimetable = (id: string) => {
+    setTimetables((prev) => prev.filter((tt) => tt.id !== id));
+
+    addAuditLog({
+      user: getActorName(),
+      action: 'Xóa thời gian biểu mẫu',
+      module: 'SCHEDULE',
+      description: `Xóa mẫu thời gian biểu mã [${id}]`,
+      status: 'SUCCESS',
+      targetId: id,
+    });
+
+    return { success: true };
+  };
+
 
   // 8. QR CODE SCANNING (Sprint 2)
   const scanQrCode = (qrString: string) => {
@@ -1645,6 +2051,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // SPRINT 2
         trips,
         addTrip,
+        addTripsBatch,
         updateTrip,
         deleteTrip,
 
@@ -1669,12 +2076,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         processIncident,
 
         assignments,
+        checkAssignmentConflict,
         addAssignment,
         updateAssignment,
         deleteAssignment,
 
+        buses,
+        addBus,
+        updateBus,
+        deleteBus,
+
+        timetables,
+        addTimetable,
+        updateTimetable,
+        deleteTimetable,
+
         scanQrCode,
       }}
+
     >
       {children}
     </DataContext.Provider>
