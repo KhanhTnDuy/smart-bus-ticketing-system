@@ -90,9 +90,13 @@ public static class DbSeeder
         logger.LogInformation("Đã tạo tài khoản quản trị đầu tiên: '{Username}'.", username);
     }
 
-    public static async Task SeedAssignmentsAsync(WebApplication app, CancellationToken ct = default)
+    /// <summary>
+    /// Dữ liệu mẫu phục vụ phát triển & kiểm thử chức năng Phân công xe và nhân sự (SCRUM-50).
+    /// Chỉ khởi tạo ở môi trường Development khi database chưa có dữ liệu chuyến chạy.
+    /// Giữ nguyên vẹn toàn bộ hàm SeedAdminAsync ban đầu của dự án.
+    /// </summary>
+    public static async Task SeedAssignmentSampleDataAsync(WebApplication app, CancellationToken ct = default)
     {
-        // Chỉ chạy khởi tạo dữ liệu mẫu trong môi trường Development
         if (!app.Environment.IsDevelopment()) return;
 
         using var scope = app.Services.CreateScope();
@@ -101,75 +105,226 @@ public static class DbSeeder
 
         try
         {
-            if (await db.Trips.AnyAsync(ct)) return;
+            var now = DateTime.UtcNow;
 
-            var route = await db.BusRoutes.FirstOrDefaultAsync(ct);
-            if (route == null) return;
-
-            var bus1 = await db.Buses.FirstOrDefaultAsync(b => b.PlateNumber == "51B-184.22", ct);
-            if (bus1 == null)
+            // 1. Tạo tài khoản Manager, Driver, Conductor nếu chưa có
+            if (!await db.Accounts.AnyAsync(a => a.Role == AccountRole.Manager, ct))
             {
-                bus1 = new Bus { PlateNumber = "51B-184.22", Capacity = 40, Status = BusStatus.Active };
-                db.Buses.Add(bus1);
+                db.Accounts.Add(new Account
+                {
+                    Username = "manager",
+                    PasswordHash = PasswordService.Hash(DevelopmentFallbackPassword),
+                    FullName = "Nguyễn Quản Lý",
+                    Phone = "0981112233",
+                    Role = AccountRole.Manager,
+                    Active = true,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
             }
 
-            var bus2 = await db.Buses.FirstOrDefaultAsync(b => b.PlateNumber == "51B-221.78", ct);
-            if (bus2 == null)
+            if (!await db.Accounts.AnyAsync(a => a.Role == AccountRole.Driver, ct))
             {
-                bus2 = new Bus { PlateNumber = "51B-221.78", Capacity = 40, Status = BusStatus.Active };
-                db.Buses.Add(bus2);
+                db.Accounts.AddRange(
+                    new Account
+                    {
+                        Username = "driver1",
+                        PasswordHash = PasswordService.Hash(DevelopmentFallbackPassword),
+                        FullName = "Nguyễn Văn Tuấn",
+                        Phone = "0901234567",
+                        Role = AccountRole.Driver,
+                        Active = true,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    },
+                    new Account
+                    {
+                        Username = "driver2",
+                        PasswordHash = PasswordService.Hash(DevelopmentFallbackPassword),
+                        FullName = "Trần Đình Trọng",
+                        Phone = "0908765432",
+                        Role = AccountRole.Driver,
+                        Active = true,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    }
+                );
             }
+
+            if (!await db.Accounts.AnyAsync(a => a.Role == AccountRole.Conductor, ct))
+            {
+                db.Accounts.AddRange(
+                    new Account
+                    {
+                        Username = "conductor1",
+                        PasswordHash = PasswordService.Hash(DevelopmentFallbackPassword),
+                        FullName = "Trần Minh Đức",
+                        Phone = "0902234567",
+                        Role = AccountRole.Conductor,
+                        Active = true,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    },
+                    new Account
+                    {
+                        Username = "conductor2",
+                        PasswordHash = PasswordService.Hash(DevelopmentFallbackPassword),
+                        FullName = "Lê Hoàng Nam",
+                        Phone = "0903344556",
+                        Role = AccountRole.Conductor,
+                        Active = true,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    }
+                );
+            }
+
             await db.SaveChangesAsync(ct);
 
-            var driver = await db.Accounts.FirstOrDefaultAsync(a => a.Role == AccountRole.Driver, ct);
-            if (driver == null)
+            // 2. Tạo xe buýt mẫu nếu chưa có
+            if (!await db.Buses.AnyAsync(ct))
             {
-                driver = new Account
+                var busPlates = new[]
                 {
-                    Username = "driver1",
-                    PasswordHash = PasswordService.Hash("Driver@12345"),
-                    FullName = "Lê Thị Mai",
-                    Role = AccountRole.Driver,
-                    Active = true,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
+                    ("51B-184.22", 47, BusStatus.Active),
+                    ("51B-221.78", 47, BusStatus.Active),
+                    ("51B-302.15", 24, BusStatus.Active),
+                    ("51B-998.01", 24, BusStatus.Active),
+                    ("51B-201.55", 47, BusStatus.Maintenance)
                 };
-                db.Accounts.Add(driver);
+
+                foreach (var (plate, capacity, status) in busPlates)
+                {
+                    var bus = new Bus
+                    {
+                        PlateNumber = plate,
+                        Capacity = capacity,
+                        Status = status
+                    };
+
+                    for (int i = 1; i <= capacity; i++)
+                    {
+                        char row = (char)('A' + ((i - 1) % 4));
+                        int col = ((i - 1) / 4) + 1;
+                        bus.Seats.Add(new Seat
+                        {
+                            SeatCode = $"{row}{col}",
+                            SeatRow = col,
+                            SeatCol = (i - 1) % 4 + 1
+                        });
+                    }
+
+                    db.Buses.Add(bus);
+                }
+
+                await db.SaveChangesAsync(ct);
+                logger.LogInformation("Đã khởi tạo xe buýt mẫu cho kiểm thử.");
+            }
+
+            // 3. Tạo tuyến đường & trạm mẫu nếu chưa có
+            if (!await db.BusRoutes.AnyAsync(ct))
+            {
+                var route1 = new BusRoute
+                {
+                    Code = "T01",
+                    Name = "Bến Thành — Bến xe Miền Tây",
+                    StartPoint = "Công viên 23/9 (Bến Thành)",
+                    EndPoint = "Bến xe Miền Tây",
+                    DistanceKm = 14.5m,
+                    Active = true
+                };
+
+                db.BusRoutes.Add(route1);
+                await db.SaveChangesAsync(ct);
+
+                var stop1 = new Stop { Name = "Công viên 23/9", Latitude = 10.7686m, Longitude = 106.6942m };
+                var stop2 = new Stop { Name = "Chợ Bến Thành", Latitude = 10.7725m, Longitude = 106.6980m };
+                var stop3 = new Stop { Name = "Bệnh viện Chợ Rẫy", Latitude = 10.7578m, Longitude = 106.6596m };
+                var stop4 = new Stop { Name = "Bến xe Miền Tây", Latitude = 10.7411m, Longitude = 106.6186m };
+
+                db.Stops.AddRange(stop1, stop2, stop3, stop4);
+                await db.SaveChangesAsync(ct);
+
+                db.RouteStops.AddRange(
+                    new RouteStop { RouteId = route1.Id, StopId = stop1.Id, StopOrder = 1, MinutesFromStart = 0 },
+                    new RouteStop { RouteId = route1.Id, StopId = stop2.Id, StopOrder = 2, MinutesFromStart = 10 },
+                    new RouteStop { RouteId = route1.Id, StopId = stop3.Id, StopOrder = 3, MinutesFromStart = 30 },
+                    new RouteStop { RouteId = route1.Id, StopId = stop4.Id, StopOrder = 4, MinutesFromStart = 50 }
+                );
                 await db.SaveChangesAsync(ct);
             }
 
-            var now = DateTime.UtcNow;
-            var today = DateOnly.FromDateTime(now);
-
-            var trip1 = new Trip
+            // 4. Tạo chuyến chạy & phân công mẫu nếu chưa có
+            if (!await db.Trips.AnyAsync(ct))
             {
-                RouteId = route.Id,
-                BusId = bus1.Id,
-                DepartureAt = today.ToDateTime(new TimeOnly(6, 0)),
-                Status = TripStatus.Scheduled,
-            };
-            var trip2 = new Trip
-            {
-                RouteId = route.Id,
-                BusId = bus2.Id,
-                DepartureAt = today.ToDateTime(new TimeOnly(14, 0)),
-                Status = TripStatus.Scheduled,
-            };
+                var route = await db.BusRoutes.FirstAsync(ct);
+                var bus1 = await db.Buses.FirstOrDefaultAsync(b => b.Status == BusStatus.Active, ct);
+                var bus2 = await db.Buses.Where(b => b.Status == BusStatus.Active).Skip(1).FirstOrDefaultAsync(ct);
+                var driver1 = await db.Accounts.FirstOrDefaultAsync(a => a.Role == AccountRole.Driver, ct);
+                var conductor1 = await db.Accounts.FirstOrDefaultAsync(a => a.Role == AccountRole.Conductor, ct);
 
-            db.Trips.AddRange(trip1, trip2);
-            await db.SaveChangesAsync(ct);
+                var today = DateTime.UtcNow.Date;
 
-            db.TripStaff.AddRange(
-                new TripStaff { TripId = trip1.Id, AccountId = driver.Id, Duty = StaffDuty.Driver },
-                new TripStaff { TripId = trip2.Id, AccountId = driver.Id, Duty = StaffDuty.Driver }
-            );
-            await db.SaveChangesAsync(ct);
+                // Chuyến 1: Đã phân công đầy đủ xe, tài xế, phụ xe
+                var trip1 = new Trip
+                {
+                    RouteId = route.Id,
+                    BusId = bus1?.Id,
+                    DepartureAt = today.AddHours(7).AddMinutes(30),
+                    Status = TripStatus.Scheduled,
+                    DelayMinutes = 0
+                };
 
-            logger.LogInformation("Đã khởi tạo các chuyến xe phân công mẫu cho môi trường Development.");
+                // Chuyến 2: Đã phân công xe
+                var trip2 = new Trip
+                {
+                    RouteId = route.Id,
+                    BusId = bus2?.Id,
+                    DepartureAt = today.AddHours(10).AddMinutes(0),
+                    Status = TripStatus.Scheduled,
+                    DelayMinutes = 0
+                };
+
+                // Chuyến 3: Chưa phân công phương tiện hay nhân sự
+                var trip3 = new Trip
+                {
+                    RouteId = route.Id,
+                    BusId = null,
+                    DepartureAt = today.AddHours(14).AddMinutes(30),
+                    Status = TripStatus.Scheduled,
+                    DelayMinutes = 0
+                };
+
+                db.Trips.AddRange(trip1, trip2, trip3);
+                await db.SaveChangesAsync(ct);
+
+                if (driver1 != null)
+                {
+                    db.TripStaff.Add(new TripStaff
+                    {
+                        TripId = trip1.Id,
+                        AccountId = driver1.Id,
+                        Duty = StaffDuty.Driver
+                    });
+                }
+
+                if (conductor1 != null)
+                {
+                    db.TripStaff.Add(new TripStaff
+                    {
+                        TripId = trip1.Id,
+                        AccountId = conductor1.Id,
+                        Duty = StaffDuty.Conductor
+                    });
+                }
+
+                await db.SaveChangesAsync(ct);
+                logger.LogInformation("Đã khởi tạo các chuyến chạy và phân công mẫu (SCRUM-50).");
+            }
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Bỏ qua khởi tạo dữ liệu mẫu phân công chuyến xe.");
+            logger.LogWarning(ex, "Bỏ qua khởi tạo dữ liệu mẫu phân công xe & nhân sự: {Message}", ex.Message);
         }
     }
 }
