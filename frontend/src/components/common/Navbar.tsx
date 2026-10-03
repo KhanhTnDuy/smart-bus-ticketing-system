@@ -11,6 +11,7 @@ import {
   MessageSquareWarning,
   Star,
   Calendar,
+  Bus,
   ChevronDown,
   Menu,
   X,
@@ -64,6 +65,7 @@ export const Navbar: React.FC = () => {
     location.pathname.startsWith('/manager/fares');
 
   const isManagerScheduleActive =
+    location.pathname.startsWith('/manager/buses') ||
     location.pathname.startsWith('/manager/schedules') ||
     location.pathname.startsWith('/manager/assignments');
 
@@ -201,6 +203,14 @@ export const Navbar: React.FC = () => {
                         <span>Quản lý sự cố xe</span>
                       </NavLink>
                       <NavLink
+                        to="/manager/buses"
+                        onClick={() => setActiveDropdown(null)}
+                        className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-blue-800/50 hover:text-white"
+                      >
+                        <Bus className="w-4 h-4 text-emerald-400" />
+                        <span>Quản lý xe buýt</span>
+                      </NavLink>
+                      <NavLink
                         to="/manager/schedules"
                         onClick={() => setActiveDropdown(null)}
                         className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-blue-800/50 hover:text-white"
@@ -319,6 +329,20 @@ export const Navbar: React.FC = () => {
 
                   {activeDropdown === 'mgrSchedule' && (
                     <div className="absolute left-0 mt-1 w-56 bg-[#09254d] dark:bg-[#061530] text-white rounded-md shadow-2xl border border-blue-900/60 py-1.5 z-50 animate-fadeIn">
+                      <NavLink
+                        to="/manager/buses"
+                        onClick={() => setActiveDropdown(null)}
+                        className={({ isActive }) =>
+                          `flex items-center gap-2.5 px-4 py-2 text-xs font-medium transition-colors ${
+                            isActive
+                              ? 'bg-blue-800/80 text-amber-300 font-semibold'
+                              : 'text-slate-200 hover:bg-blue-800/50 hover:text-white'
+                          }`
+                        }
+                      >
+                        <Bus className="w-4 h-4 text-emerald-400" />
+                        <span>Quản lý xe buýt</span>
+                      </NavLink>
                       <NavLink
                         to="/manager/schedules"
                         onClick={() => setActiveDropdown(null)}
@@ -839,6 +863,13 @@ export const Navbar: React.FC = () => {
               <div className="pt-2 pb-1 px-3 text-[10px] font-bold text-amber-400 uppercase tracking-wider">
                 Lịch & Phân công (Sprint 2)
               </div>
+              <NavLink
+                to="/manager/buses"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <Bus className="w-4 h-4 text-emerald-400" />
+                <span>Quản lý xe buýt</span>
+              </NavLink>
               <NavLink
                 to="/manager/schedules"
                 className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
