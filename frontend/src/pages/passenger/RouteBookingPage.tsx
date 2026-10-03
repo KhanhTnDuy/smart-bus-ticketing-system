@@ -3,8 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   Compass,
   Calendar,
-  Clock,
-  MapPin,
   Search,
   ArrowRight,
   CheckCircle2,
@@ -13,9 +11,6 @@ import {
   QrCode,
   ArrowLeft,
   Armchair,
-  Sparkles,
-  ShieldCheck,
-  Building2,
   RefreshCw,
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
@@ -78,18 +73,27 @@ export const RouteBookingPage: React.FC = () => {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [createdTicketId, setCreatedTicketId] = useState<string>('');
 
-  // All distinct start and end points for filter dropdowns
-  const startPoints = useMemo(() => {
-    const list = new Set<string>();
-    routes.forEach((r) => list.add(r.startPoint));
-    return Array.from(list);
-  }, [routes]);
+  // Danh sách tên trạm của từng tuyến theo thứ tự chạy (đảm bảo có đủ bến đầu và bến cuối)
+  const routeStopNames = useMemo(() => {
+    const map = new Map<string, string[]>();
+    routes.forEach((route) => {
+      // Bến đầu/cuối dùng tên của tuyến (khớp bộ lọc cũ); chỉ lấy trạm ở giữa từ danh sách trạm
+      const middle = stops
+        .filter((s) => s.routeId === route.id)
+        .sort((a, b) => a.order - b.order)
+        .slice(1, -1)
+        .map((s) => s.name);
+      map.set(route.id, [route.startPoint, ...middle, route.endPoint]);
+    });
+    return map;
+  }, [routes, stops]);
 
-  const endPoints = useMemo(() => {
+  // Mọi trạm có trên các tuyến, dùng cho cả ô điểm đi và điểm đến
+  const allStopNames = useMemo(() => {
     const list = new Set<string>();
-    routes.forEach((r) => list.add(r.endPoint));
+    routeStopNames.forEach((names) => names.forEach((n) => list.add(n)));
     return Array.from(list);
-  }, [routes]);
+  }, [routeStopNames]);
 
   // Validation: Xử lý ngoại lệ chọn sai thứ tự trạm hoặc trùng trạm
   const stopOrderValidation = useMemo(() => {
@@ -104,26 +108,24 @@ export const RouteBookingPage: React.FC = () => {
       };
     }
 
-    // Kiểm tra thứ tự trạm theo tuyến (nếu cả 2 điểm thuộc danh sách trạm của tuyến nào đó)
-    for (const route of routes) {
-      const routeStops = stops.filter((s) => s.routeId === route.id).sort((a, b) => a.order - b.order);
-      const startIdx = routeStops.findIndex(
-        (s) => s.name === departurePoint || route.startPoint === departurePoint
-      );
-      const endIdx = routeStops.findIndex(
-        (s) => s.name === destinationPoint || route.endPoint === destinationPoint
-      );
-
-      if (startIdx !== -1 && endIdx !== -1 && startIdx >= endIdx) {
-        return {
-          isValid: false,
-          message: `Thứ tự trạm không hợp lệ: Trạm lên xe "${departurePoint}" phải nằm trước trạm xuống xe "${destinationPoint}" theo lộ trình tuyến ${route.code}!`,
-        };
-      }
+    // Sai thứ tự: có tuyến đi qua cả hai trạm nhưng không tuyến nào đi theo chiều điểm đi → điểm đến
+    const routesWithBoth = routes.filter((route) => {
+      const names = routeStopNames.get(route.id) ?? [];
+      return names.includes(departurePoint) && names.includes(destinationPoint);
+    });
+    const hasValidRoute = routesWithBoth.some((route) => {
+      const names = routeStopNames.get(route.id) ?? [];
+      return names.indexOf(departurePoint) < names.indexOf(destinationPoint);
+    });
+    if (routesWithBoth.length > 0 && !hasValidRoute) {
+      return {
+        isValid: false,
+        message: `Thứ tự trạm không hợp lệ: Trạm lên xe "${departurePoint}" phải nằm trước trạm xuống xe "${destinationPoint}" theo lộ trình tuyến ${routesWithBoth[0].code}!`,
+      };
     }
 
     return { isValid: true, message: '' };
-  }, [departurePoint, destinationPoint, routes, stops]);
+  }, [departurePoint, destinationPoint, routes, routeStopNames]);
 
   // Handle date change with validation for past date
   const handleDateChange = (newDate: string) => {
@@ -145,15 +147,17 @@ export const RouteBookingPage: React.FC = () => {
 
       const matchRoute =
         selectedRouteFilter === 'ALL' || trip.routeId === selectedRouteFilter;
-      const matchDeparture =
-        departurePoint === 'ALL' || route.startPoint === departurePoint;
-      const matchDestination =
-        destinationPoint === 'ALL' || route.endPoint === destinationPoint;
+      const names = routeStopNames.get(route.id) ?? [];
+      const fromIdx = departurePoint === 'ALL' ? -1 : names.indexOf(departurePoint);
+      const toIdx = destinationPoint === 'ALL' ? -1 : names.indexOf(destinationPoint);
+      const matchDeparture = departurePoint === 'ALL' || fromIdx !== -1;
+      const matchDestination = destinationPoint === 'ALL' || toIdx !== -1;
+      const matchOrder = fromIdx === -1 || toIdx === -1 || fromIdx < toIdx;
       const matchDate = !travelDate || trip.departureDate === travelDate;
 
-      return matchRoute && matchDeparture && matchDestination && matchDate;
+      return matchRoute && matchDeparture && matchDestination && matchOrder && matchDate;
     });
-  }, [trips, routes, selectedRouteFilter, departurePoint, destinationPoint, travelDate, stopOrderValidation]);
+  }, [trips, routes, routeStopNames, selectedRouteFilter, departurePoint, destinationPoint, travelDate, stopOrderValidation]);
 
   // Step 1: Handle trip selection ("Đặt vé")
   const handleSelectTrip = (trip: BusTrip) => {
@@ -373,7 +377,7 @@ export const RouteBookingPage: React.FC = () => {
                   }`}
                 >
                   <option value="ALL">-- Tất cả điểm đi --</option>
-                  {startPoints.map((p) => (
+                  {allStopNames.map((p) => (
                     <option key={p} value={p}>
                       {p}
                     </option>
@@ -396,7 +400,7 @@ export const RouteBookingPage: React.FC = () => {
                   }`}
                 >
                   <option value="ALL">-- Tất cả điểm đến --</option>
-                  {endPoints.map((p) => (
+                  {allStopNames.map((p) => (
                     <option key={p} value={p}>
                       {p}
                     </option>
