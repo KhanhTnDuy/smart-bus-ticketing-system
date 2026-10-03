@@ -29,6 +29,9 @@ public interface ITripAssignmentService
 
 public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentService
 {
+    /// <summary>Việt Nam không dùng giờ mùa hè nên dùng độ lệch cố định, không phụ thuộc tzdata máy chủ.</summary>
+    private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
+
     private static (int Page, int PageSize) Normalize(int page, int pageSize) =>
         (Math.Max(1, page), Math.Clamp(pageSize, 1, 100));
 
@@ -697,29 +700,43 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
             return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Conflict, $"Tuyến xe buýt '{route.Code}' đang tạm dừng hoạt động.");
         }
 
-        // 2. Phân giải DepartureAt
-        DateTime departureAt = request.DepartureAt ?? DateTime.UtcNow;
-        if (!request.DepartureAt.HasValue && !string.IsNullOrWhiteSpace(request.Date))
+        // 2. Phân giải DepartureAt.
+        // Thiếu giờ khởi hành thì báo lỗi, không lấy DateTime.UtcNow làm mặc định: làm vậy
+        // sẽ lặng lẽ tạo ra một chuyến khởi hành ngay lúc gọi API.
+        if (!request.DepartureAt.HasValue && string.IsNullOrWhiteSpace(request.Date))
         {
-            if (DateOnly.TryParse(request.Date, out var parsedDate))
-            {
-                var timePart = new TimeOnly(7, 30);
-                if (!string.IsNullOrWhiteSpace(request.ShiftHours) && request.ShiftHours.Contains('—'))
-                {
-                    var parts = request.ShiftHours.Split('—');
-                    if (TimeOnly.TryParse(parts[0].Trim(), out var parsedTime)) timePart = parsedTime;
-                }
-                else if (string.Equals(request.Shift, "CA_CHIEU", StringComparison.OrdinalIgnoreCase))
-                {
-                    timePart = new TimeOnly(13, 30);
-                }
-                else if (string.Equals(request.Shift, "CA_TOI", StringComparison.OrdinalIgnoreCase))
-                {
-                    timePart = new TimeOnly(18, 0);
-                }
+            return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Invalid,
+                "Vui lòng nhập giờ khởi hành (DepartureAt) hoặc ngày chạy (Date) cho chuyến.");
+        }
 
-                departureAt = parsedDate.ToDateTime(timePart);
+        DateTime departureAt = request.DepartureAt ?? default;
+        if (!request.DepartureAt.HasValue)
+        {
+            if (!DateOnly.TryParse(request.Date, out var parsedDate))
+            {
+                return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Invalid,
+                    $"Ngày chạy '{request.Date}' không hợp lệ, cần dạng yyyy-MM-dd.");
             }
+
+            var timePart = new TimeOnly(7, 30);
+            if (!string.IsNullOrWhiteSpace(request.ShiftHours) && request.ShiftHours.Contains('—'))
+            {
+                var parts = request.ShiftHours.Split('—');
+                if (TimeOnly.TryParse(parts[0].Trim(), out var parsedTime)) timePart = parsedTime;
+            }
+            else if (string.Equals(request.Shift, "CA_CHIEU", StringComparison.OrdinalIgnoreCase))
+            {
+                timePart = new TimeOnly(13, 30);
+            }
+            else if (string.Equals(request.Shift, "CA_TOI", StringComparison.OrdinalIgnoreCase))
+            {
+                timePart = new TimeOnly(18, 0);
+            }
+
+            // Giờ nhập vào là giờ Việt Nam, còn trips.DepartureAt lưu UTC (xem backend/README.md),
+            // nên phải trừ đi độ lệch. Thiếu bước này thì chuyến lệch 7 tiếng và việc kiểm tra
+            // trùng lịch so sai mốc thời gian.
+            departureAt = DateTime.SpecifyKind(parsedDate.ToDateTime(timePart) - VietnamOffset, DateTimeKind.Utc);
         }
 
         var trip = new Trip
@@ -912,7 +929,10 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                     timePart = new TimeOnly(18, 0);
                 }
 
-                departureAt = parsedDate.ToDateTime(timePart);
+                // Giờ nhập vào là giờ Việt Nam, còn trips.DepartureAt lưu UTC (xem backend/README.md),
+                // nên phải trừ đi độ lệch. Thiếu bước này thì chuyến lệch 7 tiếng và việc kiểm tra
+                // trùng lịch so sai mốc thời gian.
+                departureAt = DateTime.SpecifyKind(parsedDate.ToDateTime(timePart) - VietnamOffset, DateTimeKind.Utc);
             }
         }
 
