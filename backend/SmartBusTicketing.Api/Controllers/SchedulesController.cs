@@ -9,7 +9,9 @@ namespace SmartBusTicketing.Api.Controllers;
 /// <summary>
 /// SCRUM-44 - Quản lý lịch trình (giờ đầu, giờ cuối, tần suất, ngày chạy).
 /// SCRUM-45 - Sinh chuyến xe từ lịch trình.
-/// Chỉ Admin và Quản lý được xem / thao tác.
+/// SCRUM-47 - Chỉ Admin và Quản lý được thao tác; mọi thay đổi lịch trình đều ghi nhật ký,
+/// kể cả thao tác bị từ chối, để trang Nhật ký hệ thống truy được ai đổi gì lúc nào.
+/// Target của nhật ký dùng tiền tố SCHEDULE- (xem auditModuleOf trong frontend/src/api/mappers.ts).
 /// </summary>
 [ApiController]
 [Route("api/schedules")]
@@ -31,23 +33,36 @@ public sealed class SchedulesController(IScheduleManagementService service, Audi
     public async Task<ActionResult<ScheduleDto>> Create(ScheduleRequest request, CancellationToken ct)
     {
         var result = await service.CreateScheduleAsync(request, ct);
-        if (!result.Ok) return this.ToProblem(result);
+        if (!result.Ok)
+        {
+            await audit.LogAsync(this, "Tạo lịch trình thất bại", AuditActionType.Create,
+                $"SCHEDULE-ROUTE-{request.RouteId}", ct, result.Message, AuditStatus.Failure);
+            return this.ToProblem(result);
+        }
 
         var s = result.Value!;
-        await audit.LogAsync(this, $"Tạo lịch trình tuyến {s.RouteCode} ({s.FirstDeparture} - {s.LastDeparture}, {s.FrequencyMinutes} phút/chuyến)",
-            AuditActionType.Create, $"SCHEDULE-{s.Id}", ct);
+        await audit.LogAsync(this, $"Tạo lịch trình tuyến {s.RouteCode}", AuditActionType.Create,
+            $"SCHEDULE-{s.Id}", ct, Describe(s));
         return CreatedAtAction(nameof(GetById), new { id = s.Id }, s);
     }
 
     [HttpPut("{id:long}")]
     public async Task<ActionResult<ScheduleDto>> Update(long id, ScheduleRequest request, CancellationToken ct)
     {
+        // Đọc trước khi sửa để nhật ký nói được thay đổi từ giá trị nào sang giá trị nào.
+        var before = await service.GetScheduleAsync(id, ct);
+
         var result = await service.UpdateScheduleAsync(id, request, ct);
-        if (!result.Ok) return this.ToProblem(result);
+        if (!result.Ok)
+        {
+            await audit.LogAsync(this, "Cập nhật lịch trình thất bại", AuditActionType.Update,
+                $"SCHEDULE-{id}", ct, result.Message, AuditStatus.Failure);
+            return this.ToProblem(result);
+        }
 
         var s = result.Value!;
-        await audit.LogAsync(this, $"Cập nhật lịch trình tuyến {s.RouteCode} ({s.FirstDeparture} - {s.LastDeparture}, {s.FrequencyMinutes} phút/chuyến)",
-            AuditActionType.Update, $"SCHEDULE-{id}", ct);
+        await audit.LogAsync(this, $"Cập nhật lịch trình tuyến {s.RouteCode}", AuditActionType.Update,
+            $"SCHEDULE-{id}", ct, DescribeChange(before, s));
         return Ok(s);
     }
 
@@ -56,9 +71,16 @@ public sealed class SchedulesController(IScheduleManagementService service, Audi
     {
         var before = await service.GetScheduleAsync(id, ct);
         var result = await service.DeleteScheduleAsync(id, ct);
-        if (!result.Ok) return this.ToProblem(result);
+        if (!result.Ok)
+        {
+            await audit.LogAsync(this, "Xóa lịch trình thất bại", AuditActionType.Delete,
+                $"SCHEDULE-{id}", ct, result.Message, AuditStatus.Failure);
+            return this.ToProblem(result);
+        }
 
-        await audit.LogAsync(this, $"Xóa lịch trình tuyến {before?.RouteCode ?? id.ToString()}", AuditActionType.Delete, $"SCHEDULE-{id}", ct);
+        await audit.LogAsync(this, $"Xóa lịch trình tuyến {before?.RouteCode ?? id.ToString()}",
+            AuditActionType.Delete, $"SCHEDULE-{id}", ct,
+            before is null ? null : $"Lịch trình đã xóa — {Describe(before)}");
         return NoContent();
     }
 
@@ -81,14 +103,58 @@ public sealed class SchedulesController(IScheduleManagementService service, Audi
     public async Task<ActionResult<GenerateTripsResult>> GenerateTrips(long id, GenerateTripsRequest request, CancellationToken ct)
     {
         var result = await service.GenerateTripsAsync(id, request, ct);
-        if (!result.Ok) return this.ToProblem(result);
+        if (!result.Ok)
+        {
+            if (!request.DryRun)
+            {
+                await audit.LogAsync(this, "Sinh chuyến từ lịch trình thất bại", AuditActionType.Create,
+                    $"SCHEDULE-{id}", ct, result.Message, AuditStatus.Failure);
+            }
+            return this.ToProblem(result);
+        }
 
+        // DryRun chỉ là xem trước, không đổi dữ liệu nên không ghi nhật ký.
         if (!request.DryRun)
         {
-            await audit.LogAsync(this,
-                $"Sinh {result.Value!.Created} chuyến từ lịch trình ({request.FromDate:yyyy-MM-dd} đến {request.ToDate:yyyy-MM-dd}), bỏ qua {result.Value.Skipped} chuyến đã có",
-                AuditActionType.Create, $"SCHEDULE-{id}", ct);
+            var r = result.Value!;
+            await audit.LogAsync(this, $"Sinh {r.Created} chuyến từ lịch trình",
+                AuditActionType.Create, $"SCHEDULE-{id}", ct,
+                $"Khoảng ngày {request.FromDate:dd/MM/yyyy} - {request.ToDate:dd/MM/yyyy}. " +
+                $"Tạo mới {r.Created} chuyến, bỏ qua {r.Skipped} chuyến đã có, " +
+                $"bỏ qua {r.SkippedPast} mốc giờ đã trôi qua.");
         }
         return Ok(result.Value);
+    }
+
+    // ----- SCRUM-47: mô tả thay đổi để ghi vào nhật ký -----
+
+    private static string Describe(ScheduleDto s) =>
+        $"Tuyến {s.RouteCode} ({s.RouteName}), chạy {s.FirstDeparture} - {s.LastDeparture}, " +
+        $"{s.FrequencyMinutes} phút/chuyến, các ngày {string.Join(", ", s.DaysOfWeek)}, " +
+        $"{s.TripsPerDay} chuyến mỗi ngày chạy";
+
+    /// <summary>Liệt kê những trường thực sự đổi. Không đổi gì thì nói rõ, để nhật ký không gây hiểu nhầm.</summary>
+    private static string DescribeChange(ScheduleDto? before, ScheduleDto after)
+    {
+        if (before is null) return Describe(after);
+
+        var changes = new List<string>();
+        if (before.RouteId != after.RouteId)
+            changes.Add($"Tuyến: {before.RouteCode} → {after.RouteCode}");
+        if (before.FirstDeparture != after.FirstDeparture)
+            changes.Add($"Giờ chuyến đầu: {before.FirstDeparture} → {after.FirstDeparture}");
+        if (before.LastDeparture != after.LastDeparture)
+            changes.Add($"Giờ chuyến cuối: {before.LastDeparture} → {after.LastDeparture}");
+        if (before.FrequencyMinutes != after.FrequencyMinutes)
+            changes.Add($"Tần suất: {before.FrequencyMinutes} → {after.FrequencyMinutes} phút/chuyến");
+
+        var dayBefore = string.Join(", ", before.DaysOfWeek);
+        var dayAfter = string.Join(", ", after.DaysOfWeek);
+        if (dayBefore != dayAfter)
+            changes.Add($"Ngày chạy: {dayBefore} → {dayAfter}");
+
+        return changes.Count == 0
+            ? $"Không có trường nào thay đổi. Hiện tại: {Describe(after)}"
+            : string.Join("; ", changes);
     }
 }
