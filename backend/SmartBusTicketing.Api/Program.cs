@@ -14,6 +14,7 @@ builder.Services.AddProblemDetails();
 
 builder.Services.AddScoped<IRouteManagementService, RouteManagementService>();
 builder.Services.AddScoped<IBusManagementService, BusManagementService>();
+builder.Services.AddScoped<ITripService, TripService>();
 builder.Services.AddScoped<AuditLogService>();
 builder.Services.AddSingleton<JwtTokenService>();
 
@@ -49,7 +50,7 @@ builder.Services.AddAuthorization();
 
 // Frontend Vite chạy ở origin khác nên cần CORS để gọi được API.
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-    ?? ["http://localhost:5173"];
+    ?? ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "http://localhost:8080"];
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
     .WithOrigins(allowedOrigins)
     .AllowAnyHeader()
