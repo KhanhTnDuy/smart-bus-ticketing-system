@@ -137,6 +137,32 @@ public sealed class BusManagementService(AppDbContext db) : IBusManagementServic
         if (await db.Buses.AnyAsync(b => b.Id != id && b.PlateNumber == plate, ct))
             return ServiceResult<BusDetailDto>.Fail(ServiceError.Conflict, $"Biển số {plate} đã tồn tại.");
 
+        // Nếu xe đang chuyển sang bảo trì hoặc ngừng hoạt động, kiểm tra xem có chuyến đang lên lịch sắp tới không
+        if (request.Status != BusStatus.Active && bus.Status == BusStatus.Active)
+        {
+            var upcomingTrips = await db.Trips.AnyAsync(t => t.BusId == id &&
+                (t.Status == TripStatus.Scheduled || t.Status == TripStatus.Running) &&
+                t.DepartureAt >= DateTime.UtcNow.AddHours(-1), ct);
+
+            if (upcomingTrips)
+            {
+                return ServiceResult<BusDetailDto>.Fail(ServiceError.Conflict,
+                    $"Xe buýt '{bus.PlateNumber}' đang được gán cho các chuyến chạy sắp tới. " +
+                    "Vui lòng phân công xe khác thay thế trước khi chuyển sang trạng thái Bảo trì/Ngừng hoạt động.");
+            }
+        }
+
+        // Nếu thay đổi capacity, kiểm tra xe đã có vé nào bán ra chưa
+        if (request.Capacity != bus.Capacity)
+        {
+            var hasTickets = await db.Tickets.AnyAsync(t => t.Seat.BusId == id, ct);
+            if (hasTickets)
+            {
+                return ServiceResult<BusDetailDto>.Fail(ServiceError.Conflict,
+                    $"Không thể thay đổi sức chứa của xe buýt '{bus.PlateNumber}' từ {bus.Capacity} thành {request.Capacity} chỗ vì xe đã có vé được bán ra cho hành khách.");
+            }
+        }
+
         var wanted = LayoutOf(request.Capacity, request.Columns)
             .ToDictionary(c => SeatCodeOf(c.Row, c.Col), c => c);
 
