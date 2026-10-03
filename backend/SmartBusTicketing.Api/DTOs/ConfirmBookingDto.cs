@@ -11,6 +11,12 @@ public class ConfirmBookingDto
     [MinLength(1, ErrorMessage = "Phải chọn ít nhất 1 ghế để đặt!")]
     public List<long> SeatIds { get; set; } = new();
 
+    [Required(ErrorMessage = "Điểm lên xe (BoardStopId) không được để trống!")]
+    public long BoardStopId { get; set; }
+
+    [Required(ErrorMessage = "Điểm xuống xe (AlightStopId) không được để trống!")]
+    public long AlightStopId { get; set; }
+
     public string? CustomerName { get; set; }
     public string? CustomerPhone { get; set; }
 }
