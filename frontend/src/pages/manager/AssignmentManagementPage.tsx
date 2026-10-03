@@ -1,20 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import {
-  Users,
   Search,
   Filter,
   Plus,
   Eye,
   Edit2,
   Trash2,
-  Bus,
-  Calendar,
-  Clock,
   UserCheck,
-  Phone,
-  Shield,
-  FileText,
-  CheckCircle,
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
@@ -26,7 +18,6 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { Modal } from '../../components/common/Modal';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { EmptyState } from '../../components/common/EmptyState';
-import { LoadingState } from '../../components/common/LoadingState';
 import { BusAssignment, ShiftType, AssignmentStatus } from '../../types';
 
 export const AssignmentManagementPage: React.FC = () => {
