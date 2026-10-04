@@ -16,6 +16,18 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
     private long? GetActorId() => User.AccountId();
     private string GetActorName() => User.Username() ?? "Customer";
 
+    /// <summary>Loại hành khách tiêu chuẩn, dùng khi tài khoản chưa được duyệt đối tượng ưu đãi.</summary>
+    private const int StandardPassengerTypeId = 1;
+
+    /// <summary>
+    /// Giá dự phòng khi tuyến chưa cấu hình bảng giá. Giữ đúng bằng giá trị TripService dùng
+    /// để số tiền ở bước xác nhận không lệch với giá đã hiện lúc tra cứu.
+    /// </summary>
+    private const decimal FallbackUnitPrice = 7000m;
+
+    /// <summary>Việt Nam không dùng giờ mùa hè nên dùng độ lệch cố định.</summary>
+    private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
+
     [HttpPost]
     public async Task<IActionResult> ConfirmBooking([FromBody] ConfirmBookingDto dto, CancellationToken ct)
     {
@@ -24,10 +36,10 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
             return BadRequest(ModelState);
         }
 
-        var actorId = GetActorId();
-        if (!actorId.HasValue)
+        var passengerId = GetActorId();
+        if (passengerId is null)
         {
-            return Unauthorized(new { message = "Không tìm thấy thông tin tài khoản người dùng hoặc token không hợp lệ!" });
+            return Unauthorized(new { message = "Không xác định được tài khoản từ phiên đăng nhập!" });
         }
 
         using var transaction = await db.Database.BeginTransactionAsync(ct);
@@ -40,39 +52,45 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
                 return NotFound(new { message = $"Không tìm thấy chuyến xe có mã ID = {dto.TripId}!" });
             }
 
-            // Chặn giữ chỗ trên chuyến đã hủy, đã kết thúc hoặc đã rời bến
-            if (trip.Status == TripStatus.Cancelled)
+            // SCRUM-62 - kiểm tra lại ở máy chủ: không giữ chỗ trên chuyến đã huỷ, đã kết thúc
+            // hoặc đã rời bến. Client có chặn ngày trong quá khứ (SCRUM-57) nhưng đó chỉ là lớp
+            // hiển thị, và chuyến có thể bị huỷ ngay trong lúc khách đang chọn ghế.
+            if (trip.Status is TripStatus.Cancelled or TripStatus.Completed)
             {
-                return BadRequest(new { message = "Chuyến xe này đã bị hủy, không thể đặt vé!" });
+                return BadRequest(new { message = "Chuyến xe đã bị hủy hoặc đã kết thúc, không thể đặt vé!" });
             }
-            if (trip.Status == TripStatus.Completed)
-            {
-                return BadRequest(new { message = "Chuyến xe này đã kết thúc, không thể đặt vé!" });
-            }
+
             if (trip.DepartureAt <= DateTime.UtcNow)
             {
-                return BadRequest(new { message = "Chuyến xe đã rời bến hoặc quá giờ khởi hành, không thể đặt vé!" });
+                return BadRequest(new { message = "Chuyến xe đã khởi hành, không thể đặt vé!" });
             }
 
-            // Xác thực điểm lên và điểm xuống: cùng thuộc tuyến của chuyến và điểm lên phải đứng trước điểm xuống
-            var routeStops = await db.RouteStops
-                .Where(rs => rs.RouteId == trip.RouteId && (rs.StopId == dto.BoardStopId || rs.StopId == dto.AlightStopId))
+            // SCRUM-62 - kiểm tra lại ở máy chủ: điểm lên và điểm xuống phải nằm trên tuyến
+            // của chuyến, và điểm lên phải đứng trước điểm xuống. Đây là cùng ràng buộc mà
+            // API tìm chuyến (SCRUM-54) đã áp lúc tra cứu; client có thể bỏ qua nên phải
+            // kiểm lại, nếu không vé sẽ ghi một hành trình không tồn tại.
+            if (dto.BoardStopId == dto.AlightStopId)
+            {
+                return BadRequest(new { message = "Điểm lên xe và điểm xuống xe không được trùng nhau!" });
+            }
+
+            var stopOrders = await db.RouteStops
+                .Where(rs => rs.RouteId == trip.RouteId &&
+                             (rs.StopId == dto.BoardStopId || rs.StopId == dto.AlightStopId))
+                .Select(rs => new { rs.StopId, rs.StopOrder })
                 .ToListAsync(ct);
 
-            var boardStop = routeStops.FirstOrDefault(rs => rs.StopId == dto.BoardStopId);
-            var alightStop = routeStops.FirstOrDefault(rs => rs.StopId == dto.AlightStopId);
+            var boardOrder = stopOrders.FirstOrDefault(x => x.StopId == dto.BoardStopId)?.StopOrder;
+            var alightOrder = stopOrders.FirstOrDefault(x => x.StopId == dto.AlightStopId)?.StopOrder;
 
-            if (boardStop == null)
+            if (boardOrder is null || alightOrder is null)
             {
-                return BadRequest(new { message = "Điểm lên xe không thuộc lộ trình tuyến của chuyến xe này!" });
+                return BadRequest(new { message = "Điểm lên xe hoặc điểm xuống xe không thuộc tuyến của chuyến này!" });
             }
-            if (alightStop == null)
+
+            if (boardOrder >= alightOrder)
             {
-                return BadRequest(new { message = "Điểm xuống xe không thuộc lộ trình tuyến của chuyến xe này!" });
-            }
-            if (boardStop.StopOrder >= alightStop.StopOrder)
-            {
-                return BadRequest(new { message = "Điểm lên xe phải đứng trước điểm xuống xe theo thứ tự trạm dừng!" });
+                return BadRequest(new { message = "Điểm lên xe phải đứng trước điểm xuống xe trên tuyến!" });
             }
 
             var seats = await db.Seats
@@ -84,7 +102,9 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
                 return BadRequest(new { message = "Một số ghế được chọn không thuộc xe của chuyến này hoặc không tồn tại!" });
             }
 
-            // Kiểm tra ghế đã bị chọn
+            // Ghế coi là đã chiếm khi vé còn hiệu lực, đã dùng, hoặc đang được giữ bởi một
+            // booking chưa quá hạn. Hai điều kiện của nhánh giữ chỗ phải cùng đúng, nếu dùng
+            // OR thì vé hết hạn vẫn bị tính là chiếm và ghế không bao giờ được nhả.
             var takenSeatIds = await db.Tickets
                 .Where(t => t.TripId == dto.TripId && dto.SeatIds.Contains(t.SeatId))
                 .Where(t => t.Status == TicketStatus.Valid ||
@@ -106,53 +126,19 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
                 return Conflict(new { message = $"Ghế '{string.Join(", ", takenSeatCodes)}' vừa bị người khác chọn! Vui lòng chọn ghế khác." });
             }
 
-            // Tính FinalAmount thật theo đối tượng hành khách và vé lượt của tuyến (giống TripService)
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
-            var approvedVerification = await db.PassengerVerifications
-                .Include(pv => pv.PassengerType)
-                .Where(pv => pv.AccountId == actorId.Value && pv.Status == VerificationStatus.Approved && (pv.ValidUntil == null || pv.ValidUntil >= today))
-                .OrderByDescending(pv => pv.Id)
-                .FirstOrDefaultAsync(ct);
-
-            var passengerType = approvedVerification?.PassengerType;
-            int passengerTypeId = passengerType?.Id ?? 1;
-
-            var travelDate = DateOnly.FromDateTime(trip.DepartureAt);
-            var routeFares = await db.Fares
-                .Where(f => f.RouteId == trip.RouteId && f.TicketType == TicketType.Single && f.EffectiveFrom <= travelDate)
-                .OrderByDescending(f => f.EffectiveFrom)
-                .ToListAsync(ct);
-
-            var standardFare = routeFares.FirstOrDefault(f => f.PassengerTypeId == 1)?.Price
-                               ?? routeFares.FirstOrDefault()?.Price
-                               ?? 7000m;
-
-            var specificFare = routeFares.FirstOrDefault(f => f.PassengerTypeId == passengerTypeId);
-            decimal unitPrice;
-            if (specificFare != null)
-            {
-                unitPrice = specificFare.Price;
-            }
-            else if (passengerType != null && passengerType.DiscountPercent > 0)
-            {
-                unitPrice = Math.Round(standardFare * (100 - passengerType.DiscountPercent) / 100m, 0);
-            }
-            else
-            {
-                unitPrice = standardFare;
-            }
-
-            decimal finalAmount = unitPrice * seats.Count;
-
-            // Mã booking 16 ký tự hex (tổng 19 ký tự, vừa vặn VARCHAR(20) và chống đụng độ)
+            // Booking phải có đủ các cột NOT NULL theo schema, nếu không SaveChanges sẽ ném
+            // DbUpdateException và bị catch bên dưới quy nhầm thành lỗi tranh chấp ghế.
             var booking = new Booking
             {
+                // 16 ký tự thay vì 8: booking_code có unique index, mà mọi DbUpdateException ở
+                // đây đều bị quy về "ghế vừa bị người khác chọn". Mã càng ngắn thì càng dễ trùng
+                // và càng dễ báo sai nguyên nhân. 19 ký tự vẫn vừa cột VARCHAR(20).
                 BookingCode = "BK-" + Guid.NewGuid().ToString("N")[..16].ToUpper(),
-                PassengerId = actorId.Value,
+                PassengerId = passengerId.Value,
                 TripId = dto.TripId,
                 Status = BookingStatus.Pending,
                 HoldExpiresAt = DateTime.UtcNow.AddMinutes(10),
-                FinalAmount = finalAmount
+                FinalAmount = await CalculateFinalAmountAsync(trip, passengerId.Value, seats.Count, ct)
             };
 
             db.Bookings.Add(booking);
@@ -177,7 +163,7 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
 
-            await audit.WriteAsync(actorId.Value, GetActorName(), "CONFIRM_BOOKING", AuditActionType.Create, $"TRIP-{dto.TripId}", ct: ct);
+            await audit.WriteAsync(GetActorId(), GetActorName(), "CONFIRM_BOOKING", AuditActionType.Create, $"TRIP-{dto.TripId}", ct: ct);
 
             return Ok(new
             {
@@ -187,7 +173,6 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
                 tripId = dto.TripId,
                 bookedSeats = seats.Select(s => s.SeatCode).ToList(),
                 totalSeats = seats.Count,
-                unitPrice,
                 finalAmount = booking.FinalAmount,
                 holdExpiresAt = booking.HoldExpiresAt
             });
@@ -202,5 +187,44 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
             await transaction.RollbackAsync(ct);
             return StatusCode(500, new { message = "Lỗi hệ thống khi xác nhận đặt vé!", detail = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Tổng tiền tạm tính của lần giữ chỗ: giá vé lượt của tuyến theo đối tượng hành khách,
+    /// nhân số ghế đã chọn. Cách chọn giá giữ giống TripService (SCRUM-55) để số tiền ở bước
+    /// xác nhận khớp với giá hành khách đã thấy lúc tra cứu.
+    /// </summary>
+    private async Task<decimal> CalculateFinalAmountAsync(Trip trip, long passengerId, int seatCount, CancellationToken ct)
+    {
+        // Ngày đi theo góc nhìn hành khách: DepartureAt lưu UTC nên phải đổi sang giờ Việt Nam
+        // trước khi so với Fare.EffectiveFrom.
+        var travelDate = DateOnly.FromDateTime(trip.DepartureAt + VietnamOffset);
+
+        // Giá ưu đãi chỉ áp khi hồ sơ đối tượng đã được duyệt và còn hiệu lực; còn lại tính giá
+        // tiêu chuẩn. Phần duyệt đối tượng ưu đãi nằm ở backlog nên hiện hầu hết sẽ rơi vào
+        // nhánh tiêu chuẩn.
+        var passengerTypeId = await db.PassengerVerifications
+            .AsNoTracking()
+            .Where(v => v.AccountId == passengerId
+                     && v.Status == VerificationStatus.Approved
+                     && (v.ValidUntil == null || v.ValidUntil >= travelDate))
+            .OrderByDescending(v => v.Id)
+            .Select(v => (int?)v.PassengerTypeId)
+            .FirstOrDefaultAsync(ct) ?? StandardPassengerTypeId;
+
+        var routeFares = await db.Fares
+            .AsNoTracking()
+            .Where(f => f.RouteId == trip.RouteId
+                     && f.TicketType == TicketType.Single
+                     && f.EffectiveFrom <= travelDate)
+            .OrderByDescending(f => f.EffectiveFrom)
+            .ToListAsync(ct);
+
+        var unitPrice = routeFares.FirstOrDefault(f => f.PassengerTypeId == passengerTypeId)?.Price
+                        ?? routeFares.FirstOrDefault(f => f.PassengerTypeId == StandardPassengerTypeId)?.Price
+                        ?? routeFares.FirstOrDefault()?.Price
+                        ?? FallbackUnitPrice;
+
+        return unitPrice * seatCount;
     }
 }
