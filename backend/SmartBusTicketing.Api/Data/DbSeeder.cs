@@ -263,14 +263,16 @@ public static class DbSeeder
                 var driver1 = await db.Accounts.FirstOrDefaultAsync(a => a.Role == AccountRole.Driver, ct);
                 var conductor1 = await db.Accounts.FirstOrDefaultAsync(a => a.Role == AccountRole.Conductor, ct);
 
-                var today = DateTime.UtcNow.Date;
+                // Giờ khởi hành dưới đây là giờ Việt Nam (UTC+7), còn trips.DepartureAt lưu UTC nên phải trừ 7 giờ.
+                var vietnamOffset = TimeSpan.FromHours(7);
+                var today = (DateTime.UtcNow + vietnamOffset).Date;
 
                 // Chuyến 1: Đã phân công đầy đủ xe, tài xế, phụ xe
                 var trip1 = new Trip
                 {
                     RouteId = route.Id,
                     BusId = bus1?.Id,
-                    DepartureAt = today.AddHours(7).AddMinutes(30),
+                    DepartureAt = today.AddHours(7).AddMinutes(30) - vietnamOffset,
                     Status = TripStatus.Scheduled,
                     DelayMinutes = 0
                 };
@@ -280,7 +282,7 @@ public static class DbSeeder
                 {
                     RouteId = route.Id,
                     BusId = bus2?.Id,
-                    DepartureAt = today.AddHours(10).AddMinutes(0),
+                    DepartureAt = today.AddHours(10).AddMinutes(0) - vietnamOffset,
                     Status = TripStatus.Scheduled,
                     DelayMinutes = 0
                 };
@@ -290,7 +292,7 @@ public static class DbSeeder
                 {
                     RouteId = route.Id,
                     BusId = null,
-                    DepartureAt = today.AddHours(14).AddMinutes(30),
+                    DepartureAt = today.AddHours(14).AddMinutes(30) - vietnamOffset,
                     Status = TripStatus.Scheduled,
                     DelayMinutes = 0
                 };

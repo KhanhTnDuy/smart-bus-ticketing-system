@@ -39,11 +39,17 @@ public sealed class TripAssignmentDto
     public string DriverName => Driver?.FullName ?? string.Empty;
     public string? AssistantId => Conductor?.AccountId.ToString();
     public string? AssistantName => Conductor?.FullName;
-    public string Date => DepartureAt.ToString("yyyy-MM-dd");
-    public string Shift => DepartureAt.Hour < 12 ? "CA_SANG" : (DepartureAt.Hour < 18 ? "CA_CHIEU" : "CA_TOI");
-    public string ShiftHours => $"{DepartureAt:HH:mm} — {EstimatedArrivalAt:HH:mm}";
-    public string StartTime => DepartureAt.ToString("HH:mm");
-    public string EndTime => EstimatedArrivalAt.ToString("HH:mm");
+    // DepartureAt/EstimatedArrivalAt lưu UTC (xem backend/README.md); ngày, ca và giờ hiển thị
+    // cho người dùng phải tính theo giờ Việt Nam (UTC+7), nếu không chuyến 05:30 sáng sẽ hiện thành 22:30 hôm trước.
+    private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
+    private DateTime LocalDepartureAt => DepartureAt + VietnamOffset;
+    private DateTime LocalArrivalAt => EstimatedArrivalAt + VietnamOffset;
+
+    public string Date => LocalDepartureAt.ToString("yyyy-MM-dd");
+    public string Shift => LocalDepartureAt.Hour < 12 ? "CA_SANG" : (LocalDepartureAt.Hour < 18 ? "CA_CHIEU" : "CA_TOI");
+    public string ShiftHours => $"{LocalDepartureAt:HH:mm} — {LocalArrivalAt:HH:mm}";
+    public string StartTime => LocalDepartureAt.ToString("HH:mm");
+    public string EndTime => LocalArrivalAt.ToString("HH:mm");
 }
 
 public sealed class BusAssignmentInfo
