@@ -28,6 +28,85 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
     /// <summary>Việt Nam không dùng giờ mùa hè nên dùng độ lệch cố định.</summary>
     private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
 
+    /// <summary>
+    /// Vé của hành khách đang đăng nhập, chuyến khởi hành gần nhất lên đầu.
+    /// Mỗi ghế là một vé nên một lượt đặt nhiều ghế trả về nhiều phần tử cùng BookingCode.
+    /// </summary>
+    [HttpGet("my")]
+    public async Task<ActionResult<IReadOnlyList<MyTicketDto>>> GetMyTickets(CancellationToken ct)
+    {
+        var passengerId = GetActorId();
+        if (passengerId is null)
+        {
+            return Unauthorized(new { message = "Không xác định được tài khoản từ phiên đăng nhập!" });
+        }
+
+        // Chiếu thẳng ra các cột cần dùng thay vì Include: tránh nạp cả đồ thị quan hệ,
+        // và tránh luôn nguy cơ Include vòng như đã gặp ở my-schedule.
+        var rows = await db.Tickets
+            .AsNoTracking()
+            .Where(t => t.Booking.PassengerId == passengerId.Value)
+            .OrderByDescending(t => t.Trip.DepartureAt)
+            .ThenBy(t => t.Seat.SeatCode)
+            .Select(t => new
+            {
+                t.Id,
+                t.BookingId,
+                t.Booking.BookingCode,
+                t.QrCode,
+                t.Seat.SeatCode,
+                TicketStatus = t.Status,
+                BookingStatus = t.Booking.Status,
+                t.Booking.HoldExpiresAt,
+                t.Booking.FinalAmount,
+                // Số vé của cùng lượt đặt, để chia tổng tiền ra giá từng vé.
+                SeatCount = t.Booking.Tickets.Count,
+                t.TripId,
+                t.Trip.RouteId,
+                RouteCode = t.Trip.BusRoute.Code,
+                RouteName = t.Trip.BusRoute.Name,
+                t.Trip.DepartureAt,
+                BusPlate = t.Trip.Bus != null ? t.Trip.Bus.PlateNumber : null,
+                BoardStopName = t.BoardStop.Name,
+                AlightStopName = t.AlightStop.Name,
+                PassengerName = t.Booking.Passenger.FullName,
+                PassengerPhone = t.Booking.Passenger.Phone
+            })
+            .ToListAsync(ct);
+
+        // Định dạng ngày/giờ theo giờ Việt Nam làm ở bộ nhớ: DepartureAt lưu UTC và
+        // ToString có định dạng thì không dịch được sang SQL.
+        return Ok(rows.Select(r =>
+        {
+            var localDeparture = r.DepartureAt + VietnamOffset;
+
+            return new MyTicketDto
+            {
+                TicketId = r.Id,
+                BookingId = r.BookingId,
+                BookingCode = r.BookingCode,
+                QrCode = r.QrCode,
+                SeatCode = r.SeatCode,
+                Status = r.TicketStatus.ToString(),
+                BookingStatus = r.BookingStatus.ToString(),
+                HoldExpiresAt = r.HoldExpiresAt,
+                TripId = r.TripId,
+                RouteId = r.RouteId,
+                RouteCode = r.RouteCode,
+                RouteName = r.RouteName,
+                DepartureDate = localDeparture.ToString("yyyy-MM-dd"),
+                DepartureTime = localDeparture.ToString("HH:mm"),
+                BusPlate = r.BusPlate ?? string.Empty,
+                BoardStopName = r.BoardStopName,
+                AlightStopName = r.AlightStopName,
+                Price = r.SeatCount > 0 ? r.FinalAmount / r.SeatCount : r.FinalAmount,
+                BookingFinalAmount = r.FinalAmount,
+                PassengerName = r.PassengerName,
+                PassengerPhone = r.PassengerPhone
+            };
+        }).ToList());
+    }
+
     [HttpPost]
     public async Task<IActionResult> ConfirmBooking([FromBody] ConfirmBookingDto dto, CancellationToken ct)
     {
