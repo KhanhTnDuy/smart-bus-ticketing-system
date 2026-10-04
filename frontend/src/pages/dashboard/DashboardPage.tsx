@@ -10,12 +10,8 @@ import {
   FileText,
   ShieldCheck,
   Calendar,
-  Clock,
   ArrowRight,
-  Info,
-  CheckCircle2,
   AlertTriangle,
-  Bus,
   Ticket,
   QrCode,
   Radio,
@@ -26,37 +22,21 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { useData } from '../../context/DataContext';
+import { useDashboardData } from '../../hooks/useDashboardData';
+import { toAuditLog } from '../../api/mappers';
+import { formatDateTime } from '../../api/datetime';
 import { Badge } from '../../components/common/Badge';
 
 export const DashboardPage: React.FC = () => {
   const { currentUser, role } = useAuth();
-  const {
-    users,
-    routes,
-    stops,
-    fares,
-    complaints,
-    ratings,
-    auditLogs,
-    trips,
-    tickets,
-    payments,
-    refunds,
-    trackings,
-    incidents,
-  } = useData();
+  // Số liệu thật từ backend theo quyền của vai trò. Không còn dữ liệu mẫu ở trang này.
+  const data = useDashboardData(role);
   const navigate = useNavigate();
 
-  const pendingComplaints = complaints.filter((c) => c.status === 'PENDING');
-  const pendingRefunds = refunds.filter((r) => r.status === 'PENDING');
-  const activeIncidents = incidents.filter((i) => i.status !== 'RESOLVED');
-  const runningBuses = trackings.filter((t) => t.status === 'RUNNING');
-  const recentLogs = auditLogs.slice(0, 5);
+  /** " (3 chờ)" khi có số liệu; chuỗi rỗng khi null, để không khoe một con số 0 sai. */
+  const countLabel = (n: number | null, unit: string) => (n === null ? '' : ` (${n} ${unit})`);
 
-  const totalRevenue = payments
-    .filter((p) => p.status === 'SUCCESS')
-    .reduce((acc, curr) => acc + curr.amount, 0);
+  const recentLogs = data.recentAuditLogs.map(toAuditLog);
 
   return (
     <div className="space-y-6">
@@ -77,7 +57,8 @@ export const DashboardPage: React.FC = () => {
               Xin chào, {currentUser?.fullName || 'Người dùng'}
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Đơn vị: <strong>{currentUser?.department || 'Cục Quản Lý Vận Tải Đô Thị'}</strong> • Email: {currentUser?.email}
+              Đơn vị: <strong>{currentUser?.department || 'Cục Quản Lý Vận Tải Đô Thị'}</strong>
+              {currentUser?.email ? <> • Email: {currentUser.email}</> : null}
             </p>
           </div>
 
@@ -134,7 +115,7 @@ export const DashboardPage: React.FC = () => {
                         <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
-                        Tìm tuyến, chọn chỗ 24 ghế trực quan, thanh toán MoMo, VNPay, ZaloPay, Bank.
+                        Tìm chuyến theo điểm đi, điểm đến và ngày, chọn ghế trên sơ đồ thật của xe, giữ chỗ 10 phút.
                       </p>
                     </div>
                   </button>
@@ -149,11 +130,11 @@ export const DashboardPage: React.FC = () => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-400 flex items-center justify-between">
-                        <span>Vé Điện Tử Của Tôi ({tickets.length} vé)</span>
+                        <span>Vé Điện Tử Của Tôi{countLabel(data.myActiveTicketCount, 'vé còn hiệu lực')}</span>
                         <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
-                        Mã QR check-in lên xe, Xem chi tiết, Xuất PDF, Đổi chuyến & Hủy vé hoàn tiền.
+                        Mã QR lên xe, xem chi tiết, gửi yêu cầu đổi chuyến hoặc hủy vé.
                       </p>
                     </div>
                   </button>
@@ -211,11 +192,11 @@ export const DashboardPage: React.FC = () => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-institutional-600 dark:group-hover:text-sky-400 flex items-center justify-between">
-                        <span>Quản Lý Lịch Chuyến Xe ({trips.length} chuyến)</span>
+                        <span>Quản Lý Lịch Chuyến Xe{countLabel(data.upcomingTripCount, 'chuyến sắp chạy')}</span>
                         <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
-                        Thêm chuyến mới, quản lý sơ đồ 24 ghế, giờ xuất bến và cập nhật trạng thái.
+                        Thiết lập thời gian biểu, sinh chuyến tự động theo tần suất và theo dõi trạng thái từng chuyến.
                       </p>
                     </div>
                   </button>
@@ -230,7 +211,7 @@ export const DashboardPage: React.FC = () => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 flex items-center justify-between">
-                        <span>Phân Công Tài Xế & Phụ Xe</span>
+                        <span>Phân Công Tài Xế & Phụ Xe{countLabel(data.unassignedTripCount, 'chuyến thiếu người')}</span>
                         <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
@@ -241,7 +222,7 @@ export const DashboardPage: React.FC = () => {
 
                   <button
                     type="button"
-                    onClick={() => navigate('/manager/refunds')}
+                    onClick={() => navigate('/manager/ticket-requests')}
                     className="flex items-start gap-3 p-3.5 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-[#1f1a10] hover:bg-amber-100/70 dark:hover:bg-amber-900/40 transition-all text-left group"
                   >
                     <div className="p-2.5 rounded-lg bg-amber-500 text-slate-950 shrink-0 shadow-sm">
@@ -249,11 +230,11 @@ export const DashboardPage: React.FC = () => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-400 flex items-center justify-between">
-                        <span>Xử Lý Hoàn Tiền Vé ({pendingRefunds.length} chờ)</span>
+                        <span>Duyệt Yêu Cầu Hủy / Đổi Vé{countLabel(data.pendingChangeRequestCount, 'chờ')}</span>
                         <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
-                        Xét duyệt / Từ chối yêu cầu hoàn tiền vé hủy theo chính sách vận tải đô thị.
+                        Xét duyệt hoặc từ chối yêu cầu hủy vé và đổi chuyến do hành khách gửi lên.
                       </p>
                     </div>
                   </button>
@@ -272,7 +253,7 @@ export const DashboardPage: React.FC = () => {
                         <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
-                        Bản đồ mô phỏng định vị trực tuyến {runningBuses.length} xe đang di chuyển trên tuyến.
+                        Bản đồ mô phỏng vị trí xe buýt trên tuyến.
                       </p>
                     </div>
                   </button>
@@ -287,7 +268,7 @@ export const DashboardPage: React.FC = () => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-400 flex items-center justify-between">
-                        <span>Báo Cáo & Thống Kê Doanh Thu Bán Vé ({totalRevenue.toLocaleString('vi-VN')} đ)</span>
+                        <span>Báo Cáo & Thống Kê Doanh Thu Bán Vé</span>
                         <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
@@ -506,7 +487,7 @@ export const DashboardPage: React.FC = () => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-institutional-600 dark:group-hover:text-sky-400 flex items-center justify-between">
-                        <span>Xử lý khiếu nại ({pendingComplaints.length} chờ)</span>
+                        <span>Xử lý khiếu nại{countLabel(data.pendingFeedbackCount, 'chờ')}</span>
                         <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
@@ -587,11 +568,11 @@ export const DashboardPage: React.FC = () => {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h3 className="text-sm font-bold uppercase tracking-wider text-institutional-800 dark:text-sky-400">
-                  Tuyến Xe Buýt Đang Vận Hành ({routes.length} Tuyến)
+                  Tuyến Xe Buýt Đang Vận Hành ({data.routes.length} Tuyến)
                 </h3>
                 <div className="h-0.5 bg-amber-500 w-16 mt-1 rounded-full" />
               </div>
-              {role === 'MANAGER' && (
+              {(role === 'MANAGER' || role === 'ADMIN') && (
                 <button
                   onClick={() => navigate('/manager/routes')}
                   className="text-xs font-semibold text-institutional-600 dark:text-sky-400 hover:underline"
@@ -602,31 +583,40 @@ export const DashboardPage: React.FC = () => {
             </div>
 
             <div className="divide-y divide-slate-100 dark:divide-[#1a2b53] mt-2">
-              {routes.map((rt) => (
-                <div key={rt.id} className="py-3 flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-institutional-50 dark:bg-[#1c2c54] border border-institutional-200 dark:border-institutional-800 flex items-center justify-center font-bold text-xs text-institutional-800 dark:text-sky-300 shrink-0">
-                      {rt.code}
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-slate-900 dark:text-white">
-                        {rt.name}
-                      </div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                        {rt.startPoint} ⇄ {rt.endPoint}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="text-right hidden sm:block text-[11px] text-slate-500 dark:text-slate-400">
-                      <div>{rt.distance} km • {rt.durationMinutes} phút</div>
-                      <div>{rt.operatingHours}</div>
-                    </div>
-                    <Badge variant="routeStatus" value={rt.status} size="sm" />
-                  </div>
+              {data.isLoading ? (
+                <div className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">
+                  Đang tải danh sách tuyến…
                 </div>
-              ))}
+              ) : data.routes.length === 0 ? (
+                <div className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">
+                  Chưa có tuyến xe nào trong hệ thống.
+                </div>
+              ) : (
+                data.routes.map((rt) => (
+                  <div key={rt.id} className="py-3 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-institutional-50 dark:bg-[#1c2c54] border border-institutional-200 dark:border-institutional-800 flex items-center justify-center font-bold text-xs text-institutional-800 dark:text-sky-300 shrink-0">
+                        {rt.code}
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-slate-900 dark:text-white">{rt.name}</div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          {rt.startPoint} ⇄ {rt.endPoint}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      {/* Backend chưa lưu thời lượng hay giờ hoạt động của tuyến nên không hiển thị: chỉ nêu cái có thật. */}
+                      <div className="text-right hidden sm:block text-[11px] text-slate-500 dark:text-slate-400">
+                        <div>{rt.distanceKm} km</div>
+                        <div>{rt.stopCount} trạm dừng</div>
+                      </div>
+                      <Badge variant="routeStatus" value={rt.active ? 'ACTIVE' : 'SUSPENDED'} size="sm" />
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -634,59 +624,54 @@ export const DashboardPage: React.FC = () => {
         {/* Right 1 Col: Recent Audit / Complaints / Status Notices */}
         <div className="space-y-6">
 
-          {/* SPRINT 2 OPERATIONAL KPI METRICS */}
-          <div className="bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#1e2f57] p-5 shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
+          {/* Chỉ số vận hành: chỉ những số có nguồn thật */}
+          {(data.upcomingTripCount !== null || data.pendingChangeRequestCount !== null || data.pendingFeedbackCount !== null) && (
+            <div className="bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#1e2f57] p-5 shadow-sm space-y-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                Chỉ Số Vận Hành Trực Tuyến
+                Chỉ Số Vận Hành
               </h3>
-              <span className="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Live GPS
-              </span>
-            </div>
-            <div className="h-0.5 bg-amber-500 w-12 rounded-full" />
+              <div className="h-0.5 bg-amber-500 w-12 rounded-full" />
 
-            <div className="grid grid-cols-2 gap-2.5 pt-1">
-              <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
-                <div className="text-[11px] text-slate-400 uppercase font-semibold">Chuyến xe hoạt động</div>
-                <div className="text-xl font-bold text-sky-600 dark:text-sky-400 mt-0.5">
-                  {trips.length}
-                </div>
-              </div>
+              <div className="grid grid-cols-2 gap-2.5 pt-1">
+                {data.upcomingTripCount !== null && (
+                  <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
+                    <div className="text-[11px] text-slate-400 uppercase font-semibold">Chuyến sắp chạy</div>
+                    <div className="text-xl font-bold text-sky-600 dark:text-sky-400 mt-0.5">
+                      {data.upcomingTripCount}
+                    </div>
+                  </div>
+                )}
 
-              <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
-                <div className="text-[11px] text-slate-400 uppercase font-semibold">Xe chạy thực tế</div>
-                <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                  {runningBuses.length}
-                </div>
-              </div>
+                {data.unassignedTripCount !== null && (
+                  <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
+                    <div className="text-[11px] text-slate-400 uppercase font-semibold">Chuyến thiếu người/xe</div>
+                    <div className="text-xl font-bold text-rose-600 dark:text-rose-400 mt-0.5">
+                      {data.unassignedTripCount}
+                    </div>
+                  </div>
+                )}
 
-              <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
-                <div className="text-[11px] text-slate-400 uppercase font-semibold">Yêu cầu hoàn vé</div>
-                <div className="text-xl font-bold text-amber-600 dark:text-amber-400 mt-0.5">
-                  {pendingRefunds.length}
-                </div>
-              </div>
+                {data.pendingChangeRequestCount !== null && (
+                  <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
+                    <div className="text-[11px] text-slate-400 uppercase font-semibold">Hủy/đổi vé chờ duyệt</div>
+                    <div className="text-xl font-bold text-amber-600 dark:text-amber-400 mt-0.5">
+                      {data.pendingChangeRequestCount}
+                    </div>
+                  </div>
+                )}
 
-              <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
-                <div className="text-[11px] text-slate-400 uppercase font-semibold">Sự cố kỹ thuật</div>
-                <div className="text-xl font-bold text-rose-600 dark:text-rose-400 mt-0.5">
-                  {activeIncidents.length}
-                </div>
-              </div>
-            </div>
-
-            <div className="p-3 rounded-lg bg-blue-50 dark:bg-[#0e2142] border border-blue-100 dark:border-blue-900/60 mt-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-600 dark:text-slate-300 font-medium">Doanh thu vé điện tử:</span>
-                <span className="font-bold text-institutional-900 dark:text-amber-300">
-                  {totalRevenue.toLocaleString('vi-VN')} đ
-                </span>
+                {data.pendingFeedbackCount !== null && (
+                  <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
+                    <div className="text-[11px] text-slate-400 uppercase font-semibold">Phản ánh chưa xử lý</div>
+                    <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                      {data.pendingFeedbackCount}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-          
+          )}
+
           {/* Institutional Indicators (Sprint 1) */}
           <div className="bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#1e2f57] p-5 shadow-sm space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
@@ -698,116 +683,134 @@ export const DashboardPage: React.FC = () => {
               <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
                 <div className="text-[11px] text-slate-400 uppercase font-semibold">Tuyến hoạt động</div>
                 <div className="text-xl font-bold text-institutional-800 dark:text-sky-400 mt-0.5">
-                  {routes.filter((r) => r.status === 'ACTIVE').length} / {routes.length}
+                  {data.routes.filter((r) => r.active).length} / {data.routes.length}
                 </div>
               </div>
 
               <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
                 <div className="text-[11px] text-slate-400 uppercase font-semibold">Tổng trạm dừng</div>
                 <div className="text-xl font-bold text-amber-600 dark:text-amber-400 mt-0.5">
-                  {stops.length}
+                  {data.stopCount}
                 </div>
               </div>
 
-              <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
-                <div className="text-[11px] text-slate-400 uppercase font-semibold">Biểu giá vé</div>
-                <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                  {fares.length}
+              {data.fareCount !== null && (
+                <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
+                  <div className="text-[11px] text-slate-400 uppercase font-semibold">Biểu giá vé</div>
+                  <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                    {data.fareCount}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
-                <div className="text-[11px] text-slate-400 uppercase font-semibold">Tài khoản</div>
-                <div className="text-xl font-bold text-purple-600 dark:text-purple-400 mt-0.5">
-                  {users.length}
+              {data.accountCount !== null && (
+                <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
+                  <div className="text-[11px] text-slate-400 uppercase font-semibold">Tài khoản</div>
+                  <div className="text-xl font-bold text-purple-600 dark:text-purple-400 mt-0.5">
+                    {data.accountCount}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
-          {/* Recent Audit Activities */}
-          <div className="bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#1e2f57] p-5 shadow-sm">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-institutional-800 dark:text-sky-400">
-                Nhật Ký Thao Tác Gần Đây
-              </h3>
-              {role === 'ADMIN' && (
+          {/* Nhật ký thao tác: chỉ Admin được đọc nhật ký nên các vai trò khác không có khối này */}
+          {role === 'ADMIN' && (
+            <div className="bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#1e2f57] p-5 shadow-sm">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-institutional-800 dark:text-sky-400">
+                  Nhật Ký Thao Tác Gần Đây
+                </h3>
                 <button
                   onClick={() => navigate('/admin/audit-logs')}
                   className="text-[11px] text-institutional-600 dark:text-sky-400 hover:underline"
                 >
                   Xem chi tiết
                 </button>
-              )}
-            </div>
+              </div>
 
-            <div className="space-y-3 mt-3">
-              {recentLogs.map((log) => (
-                <div
-                  key={log.id}
-                  className="text-xs p-2.5 rounded bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800 space-y-1"
-                >
-                  <div className="flex items-center justify-between gap-1 text-[11px]">
-                    <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
-                      {log.action}
-                    </span>
-                    <span className="text-[10px] text-slate-400 shrink-0">{log.dateTime.split(' ')[1]}</span>
+              <div className="space-y-3 mt-3">
+                {recentLogs.length === 0 ? (
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 text-center py-2">
+                    Chưa có thao tác nào được ghi nhận.
                   </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
-                    {log.description}
-                  </p>
-                  <div className="flex items-center justify-between pt-1 text-[10px] text-slate-400">
-                    <span className="font-mono">{log.user.split(' ')[0]}</span>
-                    <Badge variant="auditStatus" value={log.status} size="sm" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Recent Passenger Feedback */}
-          <div className="bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#1e2f57] p-5 shadow-sm">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-institutional-800 dark:text-sky-400">
-                Đánh Giá Chuyến Đi Mới
-              </h3>
-              <div className="flex items-center text-amber-400 gap-1 text-xs">
-                <Star className="w-3.5 h-3.5 fill-amber-400" />
-                <span className="font-bold text-slate-700 dark:text-slate-200">
-                  {(ratings.reduce((acc, r) => acc + r.rating, 0) / (ratings.length || 1)).toFixed(1)} / 5.0
-                </span>
+                ) : (
+                  recentLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className="text-xs p-2.5 rounded bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800 space-y-1"
+                    >
+                      <div className="flex items-center justify-between gap-1 text-[11px]">
+                        <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                          {log.action}
+                        </span>
+                        <span className="text-[10px] text-slate-400 shrink-0">{log.dateTime.split(' ')[1]}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                        {log.description}
+                      </p>
+                      <div className="flex items-center justify-between pt-1 text-[10px] text-slate-400">
+                        <span className="font-mono">{log.user.split(' ')[0]}</span>
+                        <Badge variant="auditStatus" value={log.status} size="sm" />
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
+          )}
 
-            <div className="space-y-2.5 mt-3">
-              {ratings.slice(0, 3).map((r) => (
-                <div
-                  key={r.id}
-                  className="p-2.5 rounded bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800 text-xs space-y-1"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800 dark:text-slate-200">
-                      {r.passengerName}
+          {/* Đánh giá chuyến đi: chỉ Admin/Quản lý đọc được danh sách phản ánh */}
+          {(role === 'ADMIN' || role === 'MANAGER') && (
+            <div className="bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#1e2f57] p-5 shadow-sm">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-institutional-800 dark:text-sky-400">
+                  Đánh Giá Chuyến Đi Mới
+                </h3>
+                {data.averageRating !== null && (
+                  <div className="flex items-center text-amber-400 gap-1 text-xs">
+                    <Star className="w-3.5 h-3.5 fill-amber-400" />
+                    <span className="font-bold text-slate-700 dark:text-slate-200">
+                      {data.averageRating.toFixed(1)} / 5.0
                     </span>
-                    <div className="flex text-amber-400">
-                      {[...Array(5)].map((_, i) => (
-                        <Star
-                          key={i}
-                          className={`w-3 h-3 ${
-                            i < r.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-600'
-                          }`}
-                        />
-                      ))}
-                    </div>
                   </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 italic line-clamp-2">
-                    "{r.review}"
-                  </p>
-                  <div className="text-[10px] text-slate-400 pt-0.5">{r.createdAt}</div>
-                </div>
-              ))}
+                )}
+              </div>
+
+              <div className="space-y-2.5 mt-3">
+                {data.recentReviews.length === 0 ? (
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 text-center py-2">
+                    Chưa có đánh giá chuyến đi nào.
+                  </div>
+                ) : (
+                  data.recentReviews.map((r) => (
+                    <div
+                      key={r.id}
+                      className="p-2.5 rounded bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800 text-xs space-y-1"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-800 dark:text-slate-200">{r.passengerName}</span>
+                        <div className="flex text-amber-400">
+                          {[...Array(5)].map((_, i) => (
+                            <Star
+                              key={i}
+                              className={`w-3 h-3 ${
+                                i < r.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-600'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 italic line-clamp-2">
+                        "{r.content}"
+                      </p>
+                      <div className="text-[10px] text-slate-400 pt-0.5">{formatDateTime(r.createdAt)}</div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
         </div>
       </div>
