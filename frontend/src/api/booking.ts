@@ -136,6 +136,38 @@ export const getTripSeats = (tripId: number, signal?: AbortSignal) =>
 export const confirmBooking = (body: ConfirmBookingRequest) =>
   api.post<ConfirmBookingResponse>('/api/bookings', body);
 
+export interface CancelTicketResult {
+  message: string;
+  ticketId: number;
+  seatCode: string;
+  changeRequestId: number;
+  /** Luôn 0 hiện tại: chưa có luồng thanh toán nên không có giao dịch nào để hoàn. */
+  refundAmount: number;
+  /** Lượt đặt đã bị đóng vì không còn vé nào còn hiệu lực. */
+  bookingCancelled: boolean;
+}
+
+export interface ExchangeTicketResult {
+  message: string;
+  oldTicketId: number;
+  newTicketId: number;
+  newSeatCode: string;
+  newTripId: number;
+  newDepartureDate: string;
+  newDepartureTime: string;
+  changeRequestId: number;
+  /** Luôn 0 hiện tại: chưa thu thêm hay hoàn phần chênh giá. */
+  priceDifference: number;
+}
+
+/** Hủy vé của chính mình; ghế được nhả ngay. Lý do là bắt buộc, 3–255 ký tự. */
+export const cancelTicket = (ticketId: number, reason: string) =>
+  api.post<CancelTicketResult>(`/api/tickets/${ticketId}/cancel`, { reason });
+
+/** Đổi vé sang chuyến và ghế khác. Vé cũ thành Exchanged, một vé mới được phát. */
+export const exchangeTicket = (ticketId: number, newTripId: number, newSeatId: number) =>
+  api.post<ExchangeTicketResult>(`/api/tickets/${ticketId}/exchange`, { newTripId, newSeatId });
+
 /**
  * Vé của chính tài khoản đang đăng nhập. Máy chủ đã lọc theo tài khoản nên không
  * có cách xem vé của người khác, kể cả vai trò quản trị: hệ thống chưa có endpoint
