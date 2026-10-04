@@ -111,6 +111,9 @@ export interface MyTicketDto {
   bookingFinalAmount: number;
   passengerName: string;
   passengerPhone: string | null;
+  /** Cancel | Exchange | null — yêu cầu đang chờ duyệt trên vé này. */
+  pendingRequestType: string | null;
+  pendingRequestId: number | null;
 }
 
 export interface TripSearchParams {
@@ -136,37 +139,32 @@ export const getTripSeats = (tripId: number, signal?: AbortSignal) =>
 export const confirmBooking = (body: ConfirmBookingRequest) =>
   api.post<ConfirmBookingResponse>('/api/bookings', body);
 
-export interface CancelTicketResult {
+/**
+ * Kết quả GỬI YÊU CẦU hủy hoặc đổi vé. Yêu cầu chưa có hiệu lực: vé và ghế không đổi
+ * gì cho tới khi Admin/Quản lý duyệt.
+ */
+export interface ChangeRequestCreated {
   message: string;
+  changeRequestId: number;
   ticketId: number;
   seatCode: string;
-  changeRequestId: number;
-  /** Luôn 0 hiện tại: chưa có luồng thanh toán nên không có giao dịch nào để hoàn. */
-  refundAmount: number;
-  /** Lượt đặt đã bị đóng vì không còn vé nào còn hiệu lực. */
-  bookingCancelled: boolean;
+  /** Cancel | Exchange */
+  requestType: string;
+  /** Pending ngay sau khi gửi */
+  status: string;
 }
 
-export interface ExchangeTicketResult {
-  message: string;
-  oldTicketId: number;
-  newTicketId: number;
-  newSeatCode: string;
-  newTripId: number;
-  newDepartureDate: string;
-  newDepartureTime: string;
-  changeRequestId: number;
-  /** Luôn 0 hiện tại: chưa thu thêm hay hoàn phần chênh giá. */
-  priceDifference: number;
-}
+/** Gửi yêu cầu hủy vé. Lý do là bắt buộc, 3–255 ký tự. */
+export const requestCancelTicket = (ticketId: number, reason: string) =>
+  api.post<ChangeRequestCreated>(`/api/tickets/${ticketId}/cancel`, { reason });
 
-/** Hủy vé của chính mình; ghế được nhả ngay. Lý do là bắt buộc, 3–255 ký tự. */
-export const cancelTicket = (ticketId: number, reason: string) =>
-  api.post<CancelTicketResult>(`/api/tickets/${ticketId}/cancel`, { reason });
-
-/** Đổi vé sang chuyến và ghế khác. Vé cũ thành Exchanged, một vé mới được phát. */
-export const exchangeTicket = (ticketId: number, newTripId: number, newSeatId: number) =>
-  api.post<ExchangeTicketResult>(`/api/tickets/${ticketId}/exchange`, { newTripId, newSeatId });
+/** Gửi yêu cầu đổi vé sang chuyến và ghế khác. Ghế mới chưa được giữ lúc này. */
+export const requestExchangeTicket = (
+  ticketId: number,
+  newTripId: number,
+  newSeatId: number,
+  reason?: string
+) => api.post<ChangeRequestCreated>(`/api/tickets/${ticketId}/exchange`, { newTripId, newSeatId, reason });
 
 /**
  * Vé của chính tài khoản đang đăng nhập. Máy chủ đã lọc theo tài khoản nên không
