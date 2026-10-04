@@ -1070,7 +1070,6 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
         var query = db.TripStaff
             .Include(ts => ts.Trip).ThenInclude(t => t.BusRoute)
             .Include(ts => ts.Trip).ThenInclude(t => t.Bus)
-            .Include(ts => ts.Trip).ThenInclude(t => t.TripStaff).ThenInclude(other => other.Account)
             .Where(ts => ts.AccountId == accountId)
             .AsNoTracking();
 
@@ -1087,6 +1086,19 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
             .ToListAsync(ct);
 
         var routeIds = staffTrips.Select(ts => ts.Trip.RouteId).Distinct().ToList();
+
+        // Người trực cùng chuyến phải lấy bằng truy vấn riêng. Không Include ngược
+        // TripStaff -> Trip -> TripStaff: EF coi đó là vòng và từ chối cả câu truy vấn
+        // ("The Include path 'Trip->TripStaff' results in a cycle"), làm endpoint luôn trả 500.
+        var tripIds = staffTrips.Select(ts => ts.TripId).Distinct().ToList();
+
+        var partnerLookup = (await db.TripStaff
+                .Include(ts => ts.Account)
+                .Where(ts => tripIds.Contains(ts.TripId) && ts.AccountId != accountId)
+                .AsNoTracking()
+                .ToListAsync(ct))
+            .GroupBy(ts => ts.TripId)
+            .ToDictionary(g => g.Key, g => g.First());
 
         var routeStops = await db.RouteStops
             .Include(rs => rs.Stop)
@@ -1112,7 +1124,7 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
         {
             var t = ts.Trip;
             var duration = routeDurationLookup.GetValueOrDefault(t.RouteId, 60);
-            var partner = t.TripStaff.FirstOrDefault(other => other.AccountId != accountId);
+            var partner = partnerLookup.GetValueOrDefault(t.Id);
 
             return new DriverScheduleDto
             {
