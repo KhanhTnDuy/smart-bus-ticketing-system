@@ -179,6 +179,25 @@ public static class DbSeeder
                 );
             }
 
+            // Hành khách mẫu để thử luồng đặt vé bằng đúng vai trò hành khách. Trước đây chỉ có
+            // Admin/Manager/Driver/Conductor nên không có tài khoản nào để đăng nhập thử góc nhìn
+            // khách hàng, trong khi trang đăng nhập lại gợi ý một tài khoản passenger không tồn tại.
+            if (!await db.Accounts.AnyAsync(a => a.Role == AccountRole.Passenger, ct))
+            {
+                db.Accounts.Add(new Account
+                {
+                    Username = "passenger1",
+                    PasswordHash = PasswordService.Hash(DevelopmentFallbackPassword),
+                    FullName = "Lê Thị Hành Khách",
+                    Email = "passenger1@example.com",
+                    Phone = "0912345678",
+                    Role = AccountRole.Passenger,
+                    Active = true,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+            }
+
             await db.SaveChangesAsync(ct);
 
             // 2. Tạo xe buýt mẫu nếu chưa có
