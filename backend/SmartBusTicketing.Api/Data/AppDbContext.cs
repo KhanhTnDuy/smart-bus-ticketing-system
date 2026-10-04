@@ -187,8 +187,10 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<TicketChangeRequest>(e =>
         {
             e.ToTable("ticket_change_requests");
+            e.Property(r => r.Reason).HasMaxLength(255);
             e.HasOne(r => r.Ticket).WithMany(t => t.ChangeRequests).HasForeignKey(r => r.TicketId);
             e.HasOne(r => r.NewTrip).WithMany().HasForeignKey(r => r.NewTripId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(r => r.NewSeat).WithMany().HasForeignKey(r => r.NewSeatId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(r => r.Processor).WithMany().HasForeignKey(r => r.ProcessedBy).OnDelete(DeleteBehavior.SetNull);
         });
 

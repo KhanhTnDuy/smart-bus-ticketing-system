@@ -46,9 +46,22 @@ public class TicketChangeRequest
     public ChangeRequestType RequestType { get; set; }
     public long? NewTripId { get; set; }
     public Trip? NewTrip { get; set; }
+
+    /// <summary>Ghế mới khi đổi vé. Null với yêu cầu hủy.</summary>
+    public long? NewSeatId { get; set; }
+    public Seat? NewSeat { get; set; }
+
+    /// <summary>Lý do hành khách nhập khi hủy vé.</summary>
+    public string? Reason { get; set; }
+
     public ChangeRequestStatus Status { get; set; } = ChangeRequestStatus.Pending;
     public long? ProcessedBy { get; set; }
     public Account? Processor { get; set; }
+
+    /// <summary>Thời điểm yêu cầu được xử lý. Hủy và đổi vé tự phục vụ có hiệu lực ngay nên bằng lúc tạo.</summary>
+    public DateTime? ProcessedAt { get; set; }
+
+    public DateTime CreatedAt { get; set; }
 
     public ICollection<Refund> Refunds { get; set; } = new List<Refund>();
 }

@@ -17,6 +17,7 @@ builder.Services.AddScoped<IBusManagementService, BusManagementService>();
 builder.Services.AddScoped<ITripService, TripService>();
 builder.Services.AddScoped<ITripAssignmentService, TripAssignmentService>();
 builder.Services.AddScoped<IScheduleManagementService, ScheduleManagementService>();
+builder.Services.AddScoped<ISeatHoldService, SeatHoldService>();
 builder.Services.AddScoped<AuditLogService>();
 builder.Services.AddSingleton<JwtTokenService>();
 

@@ -31,16 +31,28 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { EmptyState } from '../../components/common/EmptyState';
 import { Ticket, TicketStatus } from '../../types';
 import { ApiError } from '../../api/client';
-import { listMyTickets, toTicket } from '../../api/booking';
+import {
+  cancelTicket as cancelTicketApi,
+  exchangeTicket as exchangeTicketApi,
+  getTripSeats,
+  listMyTickets,
+  MyTicketDto,
+  searchTrips,
+  toTicket,
+  TripDto,
+  TripSeatDto,
+} from '../../api/booking';
 
 export const ElectronicTicketPage: React.FC = () => {
-  // trips/routes vẫn lấy từ context cho ô đổi vé (backend chưa có API đổi/hủy vé).
-  const { trips, routes, cancelTicket, changeTicket } = useData();
+  const { routes } = useData();
   const { role } = useAuth();
   const { success, error, info } = useToast();
 
   // Vé lấy từ máy chủ: GET /api/bookings/my đã lọc theo tài khoản đang đăng nhập.
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  // DTO gốc giữ lại song song: giao diện dùng mã vé dạng chuỗi để hiển thị, còn API
+  // hủy/đổi cần TicketId dạng số, và đổi vé còn cần tên điểm lên/xuống để tra chuyến.
+  const [ticketDtos, setTicketDtos] = useState<Map<string, MyTicketDto>>(new Map());
   const [isLoadingTickets, setIsLoadingTickets] = useState(true);
   const [loadError, setLoadError] = useState('');
 
@@ -54,11 +66,14 @@ export const ElectronicTicketPage: React.FC = () => {
       try {
         const rows = await listMyTickets(controller.signal);
         if (controller.signal.aborted) return;
-        setTickets(rows.map(toTicket));
+        const mapped = rows.map(toTicket);
+        setTickets(mapped);
+        setTicketDtos(new Map(rows.map((dto, i) => [mapped[i].id, dto])));
         setLoadError('');
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         setTickets([]);
+        setTicketDtos(new Map());
         setLoadError(err instanceof ApiError ? err.message : 'Không tải được danh sách vé của bạn.');
       } finally {
         if (!controller.signal.aborted) setIsLoadingTickets(false);
@@ -95,6 +110,12 @@ export const ElectronicTicketPage: React.FC = () => {
   const [selectedNewTripId, setSelectedNewTripId] = useState('');
   const [selectedNewSeat, setSelectedNewSeat] = useState('');
   const [isSubmittingChange, setIsSubmittingChange] = useState(false);
+  // Chuyến và ghế để đổi sang, tra từ API theo ngày khách chọn.
+  const [changeDate, setChangeDate] = useState('');
+  const [changeTrips, setChangeTrips] = useState<TripDto[]>([]);
+  const [isSearchingTrips, setIsSearchingTrips] = useState(false);
+  const [changeSeats, setChangeSeats] = useState<TripSeatDto[]>([]);
+  const [isLoadingChangeSeats, setIsLoadingChangeSeats] = useState(false);
 
   // Helper to get Route Name
   const getRouteName = (routeId: string) => {
@@ -162,18 +183,28 @@ export const ElectronicTicketPage: React.FC = () => {
       return;
     }
 
+    const dto = ticketDtos.get(cancelTicketTarget.id);
+    if (!dto) {
+      showError('Không xác định được vé cần hủy. Hãy tải lại trang.');
+      return;
+    }
+
     setIsSubmittingCancel(true);
     try {
-      const ok = await cancelTicket(cancelTicketTarget.id, cancelReason);
-      if (ok) {
-        showSuccess(
-          `Đã hủy thành công vé ${cancelTicketTarget.id}. Yêu cầu hoàn tiền tự động được khởi tạo.`
-        );
-        setIsCancelModalOpen(false);
-        setCancelTicketTarget(null);
-      }
-    } catch {
-      showError('Không thể hủy vé vào lúc này');
+      const result = await cancelTicketApi(dto.ticketId, cancelReason.trim());
+      // Không hứa hoàn tiền: vé đang ở trạng thái giữ chỗ chưa thanh toán nên hủy vé
+      // chỉ là nhả ghế. Khi có luồng thanh toán thì refundAmount sẽ khác 0.
+      showSuccess(
+        result.refundAmount > 0
+          ? `Đã hủy vé ghế ${result.seatCode}. Số tiền hoàn: ${result.refundAmount.toLocaleString('vi-VN')} VNĐ.`
+          : `Đã hủy vé ghế ${result.seatCode} và nhả chỗ cho khách khác. Vé chưa thanh toán nên không phát sinh hoàn tiền.`
+      );
+      setIsCancelModalOpen(false);
+      setCancelTicketTarget(null);
+      setCancelReason('');
+      setReloadToken((n) => n + 1);
+    } catch (err) {
+      showError(err instanceof ApiError ? err.message : 'Không thể hủy vé vào lúc này');
     } finally {
       setIsSubmittingCancel(false);
     }
@@ -184,23 +215,85 @@ export const ElectronicTicketPage: React.FC = () => {
     setChangeTicketTarget(ticket);
     setSelectedNewTripId('');
     setSelectedNewSeat('');
+    setChangeTrips([]);
+    setChangeSeats([]);
+    // Mặc định tra chuyến đúng ngày của vé hiện tại, là lựa chọn hay dùng nhất.
+    setChangeDate(ticket.departureDate);
     setIsChangeModalOpen(true);
   };
 
-  // Trips available for changing
-  const availableTripsForChange = useMemo(() => {
-    if (!changeTicketTarget) return [];
-    return trips.filter(
-      (trip) =>
-        trip.id !== changeTicketTarget.tripId &&
-        (trip.status === 'SCHEDULED' || trip.status === 'BOARDING') &&
-        trip.totalSeats - trip.bookedSeats.length > 0
-    );
-  }, [trips, changeTicketTarget]);
+  /**
+   * Tra chuyến để đổi sang, dùng đúng điểm lên và điểm xuống của vé hiện tại:
+   * backend chỉ cho đổi sang chuyến có đi qua cả hai điểm đó theo đúng chiều.
+   */
+  const handleSearchTripsForChange = async () => {
+    if (!changeTicketTarget) return;
+    const dto = ticketDtos.get(changeTicketTarget.id);
+    if (!dto) {
+      showError('Không xác định được vé cần đổi. Hãy tải lại trang.');
+      return;
+    }
+    if (!changeDate) {
+      showError('Vui lòng chọn ngày khởi hành để tra chuyến');
+      return;
+    }
 
-  const selectedTripDetails = useMemo(() => {
-    return trips.find((t) => t.id === selectedNewTripId);
-  }, [trips, selectedNewTripId]);
+    setIsSearchingTrips(true);
+    setSelectedNewTripId('');
+    setSelectedNewSeat('');
+    setChangeSeats([]);
+    try {
+      const found = await searchTrips({
+        from: dto.boardStopName,
+        to: dto.alightStopName,
+        date: changeDate,
+      });
+      // Bỏ chính chuyến của vé: backend chặn đổi sang cùng chuyến cùng ghế, và đổi
+      // sang cùng chuyến khác ghế thì nên dùng chức năng chọn lại ghế.
+      const others = found.filter((t) => t.id !== dto.tripId);
+      setChangeTrips(others);
+      if (others.length === 0) {
+        showInfo('Không có chuyến nào khác phù hợp trong ngày đã chọn.');
+      }
+    } catch (err) {
+      setChangeTrips([]);
+      showError(err instanceof ApiError ? err.message : 'Không tra cứu được chuyến xe để đổi.');
+    } finally {
+      setIsSearchingTrips(false);
+    }
+  };
+
+  /** Nạp sơ đồ ghế của chuyến mới để chỉ cho chọn ghế thật và còn trống. */
+  const handlePickTripForChange = async (tripId: string) => {
+    setSelectedNewTripId(tripId);
+    setSelectedNewSeat('');
+    setChangeSeats([]);
+    if (!tripId) return;
+
+    setIsLoadingChangeSeats(true);
+    try {
+      const seatMap = await getTripSeats(Number(tripId));
+      setChangeSeats(seatMap);
+      if (seatMap.every((s) => !s.isAvailable)) {
+        showInfo('Chuyến này đã hết ghế trống.');
+      }
+    } catch (err) {
+      setChangeSeats([]);
+      showError(err instanceof ApiError ? err.message : 'Không tải được sơ đồ ghế của chuyến mới.');
+    } finally {
+      setIsLoadingChangeSeats(false);
+    }
+  };
+
+  const selectedTripDetails = useMemo(
+    () => changeTrips.find((t) => String(t.id) === selectedNewTripId),
+    [changeTrips, selectedNewTripId]
+  );
+
+  const availableSeatsForChange = useMemo(
+    () => changeSeats.filter((s) => s.isAvailable),
+    [changeSeats]
+  );
 
   const handleConfirmChange = async () => {
     if (!changeTicketTarget) return;
@@ -213,16 +306,27 @@ export const ElectronicTicketPage: React.FC = () => {
       return;
     }
 
+    const dto = ticketDtos.get(changeTicketTarget.id);
+    if (!dto) {
+      showError('Không xác định được vé cần đổi. Hãy tải lại trang.');
+      return;
+    }
+
     setIsSubmittingChange(true);
     try {
-      const ok = await changeTicket(changeTicketTarget.id, selectedNewTripId, selectedNewSeat);
-      if (ok) {
-        showSuccess(`Đã đổi vé ${changeTicketTarget.id} sang chuyến mới thành công!`);
-        setIsChangeModalOpen(false);
-        setChangeTicketTarget(null);
+      const result = await exchangeTicketApi(dto.ticketId, Number(selectedNewTripId), Number(selectedNewSeat));
+      showSuccess(
+        `Đã đổi sang ghế ${result.newSeatCode}, khởi hành ${result.newDepartureTime} ngày ${result.newDepartureDate}.`
+      );
+      setIsChangeModalOpen(false);
+      setChangeTicketTarget(null);
+      setReloadToken((n) => n + 1);
+    } catch (err) {
+      showError(err instanceof ApiError ? err.message : 'Không thể đổi vé lúc này');
+      // 409 nghĩa là ghế vừa bị người khác giữ: nạp lại sơ đồ để khách chọn ghế khác.
+      if (err instanceof ApiError && err.status === 409) {
+        await handlePickTripForChange(selectedNewTripId);
       }
-    } catch {
-      showError('Không thể đổi vé lúc này');
     } finally {
       setIsSubmittingChange(false);
     }
@@ -847,9 +951,9 @@ export const ElectronicTicketPage: React.FC = () => {
             <div className="p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-lg text-xs text-blue-800 dark:text-blue-300">
               <p className="font-semibold">Quy định đổi vé:</p>
               <ul className="list-disc pl-4 mt-1 space-y-0.5 text-[11px]">
-                <li>Mỗi vé được hỗ trợ đổi chuyến 01 lần trước giờ khởi hành tối thiểu 60 phút.</li>
-                <li>Chỉ áp dụng với vé đang ở trạng thái "Đã thanh toán".</li>
-                <li>Không phát sinh thêm phí đổi vé trên cùng giá cước.</li>
+                <li>Chỉ đổi được khi chuyến hiện tại chưa khởi hành.</li>
+                <li>Chuyến mới phải đi qua đúng điểm lên và điểm xuống của vé, theo đúng chiều.</li>
+                <li>Không phát sinh thêm phí: tổng tiền của lượt đặt giữ nguyên.</li>
               </ul>
             </div>
 
@@ -862,30 +966,59 @@ export const ElectronicTicketPage: React.FC = () => {
                 <div>Khởi hành: <strong>{changeTicketTarget.departureDate} ({changeTicketTarget.departureTime})</strong></div>
                 <div>Xe: <strong>{changeTicketTarget.busPlate}</strong></div>
               </div>
+              {ticketDtos.get(changeTicketTarget.id) && (
+                <div className="mt-1.5 pt-1.5 border-t border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400">
+                  Hành trình giữ nguyên:{' '}
+                  <strong>{ticketDtos.get(changeTicketTarget.id)!.boardStopName}</strong>
+                  {' den '}
+                  <strong>{ticketDtos.get(changeTicketTarget.id)!.alightStopName}</strong>
+                </div>
+              )}
+            </div>
+
+            {/* Chon ngay roi tra chuyen tu may chu */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                1. Chọn ngày khởi hành muốn đổi sang:
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={changeDate}
+                  onChange={(e) => setChangeDate(e.target.value)}
+                  className="flex-1 p-2.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:ring-2 focus:ring-institutional-500 font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={handleSearchTripsForChange}
+                  disabled={isSearchingTrips || !changeDate}
+                  className="px-4 py-2 bg-institutional-700 hover:bg-institutional-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  <span>{isSearchingTrips ? 'Đang tra…' : 'Tra chuyến'}</span>
+                </button>
+              </div>
             </div>
 
             {/* Select New Trip */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
-                1. Chọn chuyến xe mới muốn đổi sang:
+                2. Chọn chuyến xe mới muốn đổi sang:
               </label>
-              {availableTripsForChange.length === 0 ? (
-                <div className="text-xs text-red-500 p-3 bg-red-50 dark:bg-red-950/30 rounded border border-red-200">
-                  Hiện không có chuyến xe nào khác còn chỗ trống để đổi.
+              {changeTrips.length === 0 ? (
+                <div className="text-xs text-slate-500 dark:text-slate-400 p-3 bg-slate-50 dark:bg-[#0c162d] rounded border border-slate-200 dark:border-slate-800">
+                  Chọn ngày rồi bấm Tra chuyến để xem các chuyến có thể đổi sang.
                 </div>
               ) : (
                 <select
                   value={selectedNewTripId}
-                  onChange={(e) => {
-                    setSelectedNewTripId(e.target.value);
-                    setSelectedNewSeat('');
-                  }}
+                  onChange={(e) => void handlePickTripForChange(e.target.value)}
                   className="w-full p-2.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:ring-2 focus:ring-institutional-500"
                 >
-                  <option value="">-- Vui lòng chọn chuyến xe tiếp theo --</option>
-                  {availableTripsForChange.map((trip) => (
+                  <option value="">-- Vui lòng chọn chuyến xe --</option>
+                  {changeTrips.map((trip) => (
                     <option key={trip.id} value={trip.id}>
-                      {trip.id} | {getRouteName(trip.routeId)} | {trip.departureDate} {trip.departureTime} (Còn {trip.totalSeats - trip.bookedSeats.length} ghế trống)
+                      {trip.routeCode} | {trip.departureDate} {trip.departureTime} | xe {trip.busPlate} (còn {trip.availableSeats} ghế)
                     </option>
                   ))}
                 </select>
@@ -893,45 +1026,53 @@ export const ElectronicTicketPage: React.FC = () => {
             </div>
 
             {/* Select New Seat */}
-            {selectedTripDetails && (
+            {selectedNewTripId && (
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
-                  2. Chọn số ghế mới trên chuyến {selectedTripDetails.id}:
+                  3. Chọn ghế mới{selectedTripDetails ? ` trên chuyến ${selectedTripDetails.departureTime}` : ''}:
                 </label>
-                <div className="grid grid-cols-6 gap-1.5 max-h-40 overflow-y-auto p-2 bg-slate-50 dark:bg-[#0c162d] rounded-lg border border-slate-200 dark:border-slate-800">
-                  {Array.from({ length: selectedTripDetails.totalSeats }, (_, i) => {
-                    const seatNum = `A${String(i + 1).padStart(2, '0')}`;
-                    const isOccupied = selectedTripDetails.bookedSeats.includes(seatNum);
-                    const isSelected = selectedNewSeat === seatNum;
+                {isLoadingChangeSeats ? (
+                  <div className="text-xs text-slate-500 dark:text-slate-400 p-3">Đang tải sơ đồ ghế…</div>
+                ) : availableSeatsForChange.length === 0 ? (
+                  <div className="text-xs text-rose-600 dark:text-rose-400 p-3 bg-rose-50 dark:bg-rose-950/30 rounded border border-rose-200 dark:border-rose-900">
+                    Chuyến này không còn ghế trống nào.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-6 gap-1.5 max-h-40 overflow-y-auto p-2 bg-slate-50 dark:bg-[#0c162d] rounded-lg border border-slate-200 dark:border-slate-800">
+                    {changeSeats.map((seat) => {
+                      const isOccupied = !seat.isAvailable;
+                      const isSelected = selectedNewSeat === String(seat.seatId);
 
-                    return (
-                      <button
-                        key={seatNum}
-                        type="button"
-                        disabled={isOccupied}
-                        onClick={() => setSelectedNewSeat(seatNum)}
-                        className={`p-2 rounded text-xs font-bold text-center transition-all ${
-                          isOccupied
-                            ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed line-through'
-                            : isSelected
-                            ? 'bg-institutional-600 text-white ring-2 ring-amber-400 shadow'
-                            : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white border border-slate-300 dark:border-slate-600 hover:border-institutional-500'
-                        }`}
-                      >
-                        {seatNum}
-                      </button>
-                    );
-                  })}
-                </div>
+                      return (
+                        <button
+                          key={seat.seatId}
+                          type="button"
+                          disabled={isOccupied}
+                          onClick={() => setSelectedNewSeat(String(seat.seatId))}
+                          className={`p-2 rounded text-xs font-bold text-center transition-all ${
+                            isOccupied
+                              ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed line-through'
+                              : isSelected
+                              ? 'bg-institutional-600 text-white ring-2 ring-amber-400 shadow'
+                              : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white border border-slate-300 dark:border-slate-600 hover:border-institutional-500'
+                          }`}
+                          title={isOccupied ? `Ghế ${seat.seatCode} đã có người` : `Chọn ghế ${seat.seatCode}`}
+                        >
+                          {seat.seatCode}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {selectedNewSeat && (
                   <div className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1.5">
                     <CheckCircle className="w-4 h-4" />
-                    Đã chọn vị trí ghế mới: <strong>{selectedNewSeat}</strong>
+                    Đã chọn ghế mới:{' '}
+                    <strong>{changeSeats.find((s) => String(s.seatId) === selectedNewSeat)?.seatCode}</strong>
                   </div>
                 )}
               </div>
             )}
-
             {/* Modal Actions */}
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
               <button
