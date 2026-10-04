@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Compass,
@@ -13,18 +13,32 @@ import {
   Armchair,
   RefreshCw,
 } from 'lucide-react';
-import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { BusTrip, PaymentMethod } from '../../types';
+import { PaymentMethod } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Badge } from '../../components/common/Badge';
+import { ApiError } from '../../api/client';
+import { listRouteStops, listRoutes, RouteDto, RouteStopDto } from '../../api/routeManagement';
+import { confirmBooking, getTripSeats, searchTrips, TripDto, TripSeatDto } from '../../api/booking';
 
 export const RouteBookingPage: React.FC = () => {
-  const { routes, trips, stops, fares, bookTicket, processPayment } = useData();
   const { currentUser } = useAuth();
   const { success, error, warning, info } = useToast();
   const navigate = useNavigate();
+
+  // Dữ liệu tuyến và trạm lấy từ API thật (SCRUM-54): cần StopId để gửi điểm lên/xuống
+  // khi xác nhận đặt vé, mà dữ liệu mẫu cũ chỉ có tên trạm.
+  const [routes, setRoutes] = useState<RouteDto[]>([]);
+  const [routeStops, setRouteStops] = useState<Map<number, RouteStopDto[]>>(new Map());
+  const [isLoadingRoutes, setIsLoadingRoutes] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  // Kết quả tra cứu chuyến, chỉ có sau khi bấm "Tra cứu": backend bắt buộc đủ
+  // from + to + date nên không thể lọc trực tiếp như bản dùng dữ liệu mẫu.
+  const [trips, setTrips] = useState<TripDto[]>([]);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
 
   // Maximum seats allowed per booking
   const MAX_SEATS_PER_BOOKING = 4;
@@ -40,8 +54,11 @@ export const RouteBookingPage: React.FC = () => {
   const [selectedRouteFilter, setSelectedRouteFilter] = useState<string>('ALL');
 
   // Selected Trip & Seats (hỗ trợ chọn và bỏ chọn nhiều ghế, tối đa 4 ghế)
-  const [selectedTrip, setSelectedTrip] = useState<BusTrip | null>(null);
-  const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
+  const [selectedTrip, setSelectedTrip] = useState<TripDto | null>(null);
+  // Sơ đồ ghế thật của chuyến; ghế gửi lên backend là SeatId nên phải giữ số, không giữ mã ghế.
+  const [seats, setSeats] = useState<TripSeatDto[]>([]);
+  const [isLoadingSeats, setIsLoadingSeats] = useState(false);
+  const [selectedSeatIds, setSelectedSeatIds] = useState<number[]>([]);
 
   // Passenger Type & Fare Calculation (Requirement 10)
   const [passengerType, setPassengerType] = useState<'REGULAR' | 'STUDENT' | 'ELDERLY_DISABLED'>('REGULAR');
@@ -51,42 +68,77 @@ export const RouteBookingPage: React.FC = () => {
   const [passengerEmail, setPassengerEmail] = useState(currentUser?.email || '');
   const [passengerPhone, setPassengerPhone] = useState(currentUser?.phone || '');
 
-  // Computed unit price based on route and passenger type (Requirement 10)
+  /** Mã đối tượng hành khách của backend tương ứng lựa chọn trên giao diện. */
+  const passengerTypeCode =
+    passengerType === 'STUDENT' ? 'STUDENT' : passengerType === 'ELDERLY_DISABLED' ? 'ELDERLY' : 'STANDARD';
+
+  // Mã ghế để hiển thị, suy ra từ SeatId đang chọn.
+  const selectedSeatCodes = useMemo(
+    () => selectedSeatIds.map((id) => seats.find((s) => s.seatId === id)?.seatCode ?? String(id)),
+    [selectedSeatIds, seats]
+  );
+
+  // Giá đơn vị do backend tính sẵn cho từng đối tượng (SCRUM-55), không tự nhân giảm giá ở client.
   const currentUnitPrice = useMemo(() => {
     if (!selectedTrip) return 0;
-    const matchedFare = fares.find(
-      (f) => f.routeId === selectedTrip.routeId && f.passengerType === passengerType && f.status === 'ACTIVE'
-    );
-    if (matchedFare) return matchedFare.price;
-    if (passengerType === 'STUDENT') return Math.round(selectedTrip.price * 0.5);
-    if (passengerType === 'ELDERLY_DISABLED') return 0;
-    return selectedTrip.price;
-  }, [selectedTrip, fares, passengerType]);
+    const matched = selectedTrip.prices.find((p) => p.passengerTypeCode === passengerTypeCode);
+    return matched ? matched.price : selectedTrip.price;
+  }, [selectedTrip, passengerTypeCode]);
 
   const totalCalculatedAmount = useMemo(() => {
-    return currentUnitPrice * selectedSeats.length;
-  }, [currentUnitPrice, selectedSeats]);
+    return currentUnitPrice * selectedSeatIds.length;
+  }, [currentUnitPrice, selectedSeatIds]);
 
 
   // Payment Selection
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('MOMO');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [createdTicketId, setCreatedTicketId] = useState<string>('');
+  /** Số tiền do máy chủ chốt khi đặt vé, có thể khác số hiển thị lúc chọn ghế. */
+  const [serverFinalAmount, setServerFinalAmount] = useState<number | null>(null);
 
-  // Danh sách tên trạm của từng tuyến theo thứ tự chạy (đảm bảo có đủ bến đầu và bến cuối)
+  // Nạp tuyến và trạm của từng tuyến một lần khi vào trang.
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const load = async () => {
+      try {
+        const routeList = await listRoutes(controller.signal);
+        const stopLists = await Promise.all(
+          routeList.map(async (route) => [route.id, await listRouteStops(route.id, controller.signal)] as const)
+        );
+        if (controller.signal.aborted) return;
+        setRoutes(routeList);
+        setRouteStops(new Map(stopLists));
+        setLoadError('');
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setLoadError(err instanceof ApiError ? err.message : 'Không tải được danh sách tuyến và trạm dừng.');
+      } finally {
+        if (!controller.signal.aborted) setIsLoadingRoutes(false);
+      }
+    };
+
+    void load();
+    return () => controller.abort();
+  }, []);
+
+  // Danh sách tên trạm của từng tuyến theo thứ tự chạy, lấy từ API nên khớp StopOrder thật.
   const routeStopNames = useMemo(() => {
-    const map = new Map<string, string[]>();
+    const map = new Map<number, string[]>();
     routes.forEach((route) => {
-      // Bến đầu/cuối dùng tên của tuyến (khớp bộ lọc cũ); chỉ lấy trạm ở giữa từ danh sách trạm
-      const middle = stops
-        .filter((s) => s.routeId === route.id)
-        .sort((a, b) => a.order - b.order)
-        .slice(1, -1)
-        .map((s) => s.name);
-      map.set(route.id, [route.startPoint, ...middle, route.endPoint]);
+      const stopsOfRoute = [...(routeStops.get(route.id) ?? [])].sort((a, b) => a.stopOrder - b.stopOrder);
+      map.set(route.id, stopsOfRoute.map((s) => s.stopName));
     });
     return map;
-  }, [routes, stops]);
+  }, [routes, routeStops]);
+
+  /** Tra StopId theo tên trạm trong một tuyến; cần cho boardStopId/alightStopId khi đặt vé. */
+  const findStopId = useCallback(
+    (routeId: number, stopName: string): number | undefined =>
+      (routeStops.get(routeId) ?? []).find((s) => s.stopName === stopName)?.stopId,
+    [routeStops]
+  );
 
   // Mọi trạm có trên các tuyến, dùng cho cả ô điểm đi và điểm đến
   const allStopNames = useMemo(() => {
@@ -137,60 +189,95 @@ export const RouteBookingPage: React.FC = () => {
     setTravelDate(newDate);
   };
 
-  // Filtered trips
-  const availableTrips = useMemo(() => {
-    if (!stopOrderValidation.isValid) return [];
+  // Backend tự lọc theo tuyến, điểm đi/đến và ngày nên không lọc lại ở client.
+  const availableTrips = trips;
 
-    return trips.filter((trip) => {
-      const route = routes.find((r) => r.id === trip.routeId);
-      if (!route) return false;
+  /** Backend bắt buộc đủ from + to + date, nên phải chọn đủ mới tra cứu được. */
+  const canSearch =
+    stopOrderValidation.isValid && departurePoint !== 'ALL' && destinationPoint !== 'ALL' && !!travelDate;
 
-      const matchRoute =
-        selectedRouteFilter === 'ALL' || trip.routeId === selectedRouteFilter;
-      const names = routeStopNames.get(route.id) ?? [];
-      const fromIdx = departurePoint === 'ALL' ? -1 : names.indexOf(departurePoint);
-      const toIdx = destinationPoint === 'ALL' ? -1 : names.indexOf(destinationPoint);
-      const matchDeparture = departurePoint === 'ALL' || fromIdx !== -1;
-      const matchDestination = destinationPoint === 'ALL' || toIdx !== -1;
-      const matchOrder = fromIdx === -1 || toIdx === -1 || fromIdx < toIdx;
-      const matchDate = !travelDate || trip.departureDate === travelDate;
-
-      return matchRoute && matchDeparture && matchDestination && matchOrder && matchDate;
-    });
-  }, [trips, routes, routeStopNames, selectedRouteFilter, departurePoint, destinationPoint, travelDate, stopOrderValidation]);
-
-  // Step 1: Handle trip selection ("Đặt vé")
-  const handleSelectTrip = (trip: BusTrip) => {
-    setSelectedTrip(trip);
-    setSelectedSeats([]);
-    setCurrentStep(2);
-  };
-
-  // Step 2: Handle seat selection & deselection (Toggle + Limit)
-  const handleSeatClick = (seatId: string) => {
-    if (!selectedTrip) return;
-    if (selectedTrip.bookedSeats.includes(seatId)) {
-      warning(`Ghế ${seatId} đã được đặt trước bởi hành khách khác.`);
+  // Step 1: Tra cứu chuyến bằng API thật (SCRUM-54/55)
+  const handleSearch = async () => {
+    if (!canSearch) {
+      warning('Vui lòng chọn điểm đi, điểm đến và ngày khởi hành trước khi tra cứu.');
       return;
     }
 
-    if (selectedSeats.includes(seatId)) {
+    setIsSearching(true);
+    try {
+      const result = await searchTrips({
+        from: departurePoint,
+        to: destinationPoint,
+        date: travelDate,
+        routeId: selectedRouteFilter === 'ALL' ? undefined : Number(selectedRouteFilter),
+      });
+      setTrips(result);
+      setHasSearched(true);
+      if (result.length === 0) {
+        info('Không tìm thấy chuyến xe nào khớp điều kiện tra cứu.');
+      }
+    } catch (err) {
+      setTrips([]);
+      setHasSearched(true);
+      error(err instanceof ApiError ? err.message : 'Không tra cứu được chuyến xe.');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  /** Nạp sơ đồ ghế thật của chuyến; gọi lại được để làm mới sau khi ghế bị người khác giữ. */
+  const loadSeats = useCallback(
+    async (tripId: number) => {
+      setIsLoadingSeats(true);
+      try {
+        const seatMap = await getTripSeats(tripId);
+        setSeats(seatMap);
+        if (seatMap.length === 0) {
+          warning('Chuyến xe này chưa được gán xe nên chưa có sơ đồ ghế.');
+        }
+      } catch (err) {
+        setSeats([]);
+        error(err instanceof ApiError ? err.message : 'Không tải được sơ đồ ghế của chuyến.');
+      } finally {
+        setIsLoadingSeats(false);
+      }
+    },
+    [error, warning]
+  );
+
+  // Step 1: Handle trip selection ("Đặt vé")
+  const handleSelectTrip = (trip: TripDto) => {
+    setSelectedTrip(trip);
+    setSelectedSeatIds([]);
+    setCurrentStep(2);
+    void loadSeats(trip.id);
+  };
+
+  // Step 2: Handle seat selection & deselection (Toggle + Limit)
+  const handleSeatClick = (seat: TripSeatDto) => {
+    if (!selectedTrip) return;
+    if (!seat.isAvailable) {
+      warning(`Ghế ${seat.seatCode} đã được đặt trước bởi hành khách khác.`);
+      return;
+    }
+
+    if (selectedSeatIds.includes(seat.seatId)) {
       // BỎ CHỌN GHẾ
-      setSelectedSeats((prev) => prev.filter((s) => s !== seatId));
-      info(`Đã hủy chọn ghế ${seatId}`);
+      setSelectedSeatIds((prev) => prev.filter((id) => id !== seat.seatId));
+      info(`Đã hủy chọn ghế ${seat.seatCode}`);
     } else {
       // GIỚI HẠN SỐ GHẾ MỖI LẦN ĐẶT (Tối đa 4 ghế)
-      if (selectedSeats.length >= MAX_SEATS_PER_BOOKING) {
+      if (selectedSeatIds.length >= MAX_SEATS_PER_BOOKING) {
         warning(`Mỗi lần đặt vé chỉ được chọn tối đa ${MAX_SEATS_PER_BOOKING} ghế theo quy định.`);
         return;
       }
       // CHỌN THÊM GHẾ
-      setSelectedSeats((prev) => [...prev, seatId]);
+      setSelectedSeatIds((prev) => [...prev, seat.seatId]);
     }
   };
 
   const handleProceedToPayment = () => {
-    if (selectedSeats.length === 0) {
+    if (selectedSeatIds.length === 0) {
       error('Vui lòng chọn ít nhất 1 vị trí ghế ngồi trước khi tiếp tục.');
       return;
     }
@@ -201,50 +288,53 @@ export const RouteBookingPage: React.FC = () => {
     setCurrentStep(3);
   };
 
-  // Step 3: Handle simulated payment
+  // Step 3: Xác nhận đặt vé thật (SCRUM-62), sau đó mô phỏng thanh toán.
+  //
+  // Backend chỉ GIỮ CHỖ trong 10 phút và để booking ở trạng thái Pending: hệ thống
+  // chưa có endpoint thanh toán, nên bước trả tiền vẫn là mô phỏng như trước.
   const handlePayNow = async () => {
-    if (!selectedTrip || selectedSeats.length === 0) return;
+    if (!selectedTrip || selectedSeatIds.length === 0) return;
+
+    const boardStopId = findStopId(selectedTrip.routeId, departurePoint);
+    const alightStopId = findStopId(selectedTrip.routeId, destinationPoint);
+
+    if (!boardStopId || !alightStopId) {
+      error('Không xác định được điểm lên hoặc điểm xuống trên tuyến của chuyến này.');
+      return;
+    }
 
     setIsProcessingPayment(true);
-    const totalAmount = totalCalculatedAmount;
 
     try {
-      // 1. Create booking ticket for all selected seats
-      const bookRes = bookTicket({
+      const booking = await confirmBooking({
         tripId: selectedTrip.id,
-        routeId: selectedTrip.routeId,
-        seatNumber: selectedSeats.join(', '),
-        passengerName: `${passengerName.trim()} (${passengerType === 'REGULAR' ? 'Phổ thông' : passengerType === 'STUDENT' ? 'HSSV' : 'Người cao tuổi'})`,
-        passengerEmail: passengerEmail.trim(),
-        passengerPhone: passengerPhone.trim(),
-        price: totalAmount,
-        busPlate: selectedTrip.busPlate,
-        departureDate: selectedTrip.departureDate,
-        departureTime: selectedTrip.departureTime,
+        seatIds: selectedSeatIds,
+        boardStopId,
+        alightStopId,
       });
 
-
-      if (!bookRes.success || !bookRes.data) {
-        error(bookRes.message || 'Không thể tạo vé xe.');
-        setIsProcessingPayment(false);
-        return;
-      }
-
-      const newTicket = bookRes.data;
-
-      // 2. Process simulated payment
-      const payRes = await processPayment(newTicket.id, paymentMethod);
-      if (payRes.success) {
-        success(
-          `Thanh toán ${totalAmount.toLocaleString('vi-VN')} VNĐ (${selectedSeats.length} ghế) qua ${paymentMethod} thành công!`
+      // Số tiền hiển thị lấy theo máy chủ: backend tính theo hồ sơ đối tượng ưu đãi đã
+      // được duyệt của tài khoản, không theo đối tượng chọn trên giao diện.
+      setServerFinalAmount(booking.finalAmount);
+      setCreatedTicketId(booking.bookingCode);
+      success(
+        `Đã giữ ${booking.totalSeats} ghế (${booking.bookedSeats.join(', ')}) — ${booking.finalAmount.toLocaleString('vi-VN')} VNĐ. Mã đặt chỗ ${booking.bookingCode}.`
+      );
+      if (booking.finalAmount !== totalCalculatedAmount) {
+        info(
+          `Máy chủ chốt ${booking.finalAmount.toLocaleString('vi-VN')} VNĐ theo đối tượng ưu đãi đã được duyệt của tài khoản, khác số ${totalCalculatedAmount.toLocaleString('vi-VN')} VNĐ hiển thị lúc chọn ghế.`
         );
-        setCreatedTicketId(newTicket.id);
-        setCurrentStep(4);
-      } else {
-        error(payRes.message || 'Thanh toán thất bại.');
       }
-    } catch {
-      error('Có lỗi trong quá trình xử lý giao dịch thanh toán.');
+      setCurrentStep(4);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Không xác nhận được đặt vé.';
+      error(message);
+      // 409 nghĩa là ghế vừa bị người khác giữ: tải lại sơ đồ để khách thấy trạng thái mới.
+      if (err instanceof ApiError && err.status === 409) {
+        setSelectedSeatIds([]);
+        setCurrentStep(2);
+        await loadSeats(selectedTrip.id);
+      }
     } finally {
       setIsProcessingPayment(false);
     }
@@ -252,9 +342,11 @@ export const RouteBookingPage: React.FC = () => {
 
   const resetFlow = () => {
     setSelectedTrip(null);
-    setSelectedSeats([]);
+    setSeats([]);
+    setSelectedSeatIds([]);
     setCurrentStep(1);
     setCreatedTicketId('');
+    setServerFinalAmount(null);
   };
 
   const handleResetSearch = () => {
@@ -262,10 +354,23 @@ export const RouteBookingPage: React.FC = () => {
     setDestinationPoint('ALL');
     setTravelDate(todayString);
     setSelectedRouteFilter('ALL');
+    setTrips([]);
+    setHasSearched(false);
   };
 
-  // Bus seat rows generator (A1-A4, B1-B4, C1-C4, D1-D4, E1-E4, F1-F4)
-  const seatRows = ['A', 'B', 'C', 'D', 'E', 'F'];
+  // Sơ đồ ghế dựng theo Row/Column thật của xe, không cố định A-F x 1-4 như bản dữ liệu mẫu:
+  // số ghế mỗi xe lấy từ Capacity nên hàng cuối có thể không đủ ghế.
+  const seatRows = useMemo(() => {
+    const grouped = new Map<number, TripSeatDto[]>();
+    seats.forEach((seat) => {
+      const row = grouped.get(seat.row) ?? [];
+      row.push(seat);
+      grouped.set(seat.row, row);
+    });
+    return Array.from(grouped.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([row, list]) => ({ row, seats: [...list].sort((a, b) => a.column - b.column) }));
+  }, [seats]);
 
   const selectedRouteObj = routes.find((r) => r.id === selectedTrip?.routeId);
 
@@ -283,6 +388,14 @@ export const RouteBookingPage: React.FC = () => {
         ]}
         icon={<Compass className="w-5 h-5 text-sky-500" />}
       />
+
+      {/* Không tải được tuyến/trạm thì mọi bước sau đều không dùng được, nên báo ngay */}
+      {loadError && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{loadError}</span>
+        </div>
+      )}
 
       {/* 2. Step Progress Bar */}
       <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm">
@@ -454,11 +567,12 @@ export const RouteBookingPage: React.FC = () => {
 
               <button
                 type="button"
-                disabled={!stopOrderValidation.isValid}
+                onClick={handleSearch}
+                disabled={!canSearch || isSearching || isLoadingRoutes}
                 className="flex items-center gap-2 px-5 py-2 rounded bg-institutional-700 hover:bg-institutional-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold uppercase tracking-wider shadow-sm transition-colors"
               >
                 <Search className="w-4 h-4" />
-                <span>Tra Cứu Chuyến Xe</span>
+                <span>{isSearching ? 'Đang tra cứu…' : 'Tra Cứu Chuyến Xe'}</span>
               </button>
             </div>
           </div>
@@ -482,16 +596,16 @@ export const RouteBookingPage: React.FC = () => {
                 <div className="text-sm font-bold text-slate-700 dark:text-slate-300">
                   {!stopOrderValidation.isValid
                     ? stopOrderValidation.message
+                    : !hasSearched
+                    ? 'Chọn điểm đi, điểm đến và ngày rồi nhấn "Tra cứu chuyến xe"'
                     : 'Không tìm thấy chuyến xe nào phù hợp'}
                 </div>
                 <p className="text-xs text-slate-400 max-w-md mx-auto">
                   {!stopOrderValidation.isValid
                     ? 'Vui lòng chọn lại điểm đi và điểm đến hợp lệ để hệ thống hiển thị danh sách các chuyến xe.'
-                    : `Không có chuyến xe nào chạy từ ${
-                        departurePoint === 'ALL' ? 'mọi điểm' : `bến "${departurePoint}"`
-                      } đến ${
-                        destinationPoint === 'ALL' ? 'mọi điểm' : `bến "${destinationPoint}"`
-                      } vào ngày ${travelDate}. Hãy thử đổi ngày khởi hành hoặc chọn tuyến khác.`}
+                    : !hasSearched
+                    ? 'Hệ thống tra cứu chuyến trực tiếp từ máy chủ, nên cần đủ cả điểm đi, điểm đến và ngày khởi hành.'
+                    : `Không có chuyến xe nào chạy từ bến "${departurePoint}" đến bến "${destinationPoint}" vào ngày ${travelDate}. Hãy thử đổi ngày khởi hành hoặc chọn tuyến khác.`}
                 </p>
                 <div className="pt-2">
                   <button
@@ -615,7 +729,7 @@ export const RouteBookingPage: React.FC = () => {
               <div className="flex items-center gap-1.5">
                 <div className="w-4 h-4 rounded bg-amber-400 border-2 border-amber-600" />
                 <span className="text-slate-900 dark:text-white font-bold">
-                  Đang chọn ({selectedSeats.length}/{MAX_SEATS_PER_BOOKING})
+                  Đang chọn ({selectedSeatIds.length}/{MAX_SEATS_PER_BOOKING})
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
@@ -640,87 +754,73 @@ export const RouteBookingPage: React.FC = () => {
                 <span className="uppercase tracking-wider">Cửa lên xe →</span>
               </div>
 
-              {/* Rows of seats: 2 on left, aisle, 2 on right */}
-              <div className="space-y-3">
-                {seatRows.map((row) => (
-                  <div key={row} className="flex items-center justify-between gap-4">
-                    {/* Left 2 seats (1, 2) */}
-                    <div className="flex items-center gap-2">
-                      {[1, 2].map((col) => {
-                        const seatId = `${row}${col}`;
-                        const isBooked = selectedTrip.bookedSeats.includes(seatId);
-                        const isSelected = selectedSeats.includes(seatId);
+              {/* Sơ đồ ghế thật của xe: mỗi hàng chia đôi, chèn lối đi ở giữa */}
+              {isLoadingSeats ? (
+                <div className="py-10 text-center text-xs text-slate-500 dark:text-slate-400">
+                  Đang tải sơ đồ ghế…
+                </div>
+              ) : seatRows.length === 0 ? (
+                <div className="py-10 text-center text-xs text-slate-500 dark:text-slate-400">
+                  Chuyến xe này chưa được gán xe nên chưa có sơ đồ ghế.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {seatRows.map(({ row, seats: rowSeats }) => {
+                    // Chia đôi theo số ghế thật của hàng để lối đi luôn nằm giữa,
+                    // kể cả xe có 3 hoặc 5 ghế một hàng.
+                    const half = Math.ceil(rowSeats.length / 2);
+                    const sides = [rowSeats.slice(0, half), rowSeats.slice(half)];
 
-                        return (
-                          <button
-                            key={seatId}
-                            type="button"
-                            disabled={isBooked}
-                            onClick={() => handleSeatClick(seatId)}
-                            className={`w-12 h-12 rounded-lg font-bold text-xs flex flex-col items-center justify-center transition-all ${
-                              isSelected
-                                ? 'bg-amber-400 text-institutional-950 font-black ring-4 ring-amber-300 shadow-md transform scale-105'
-                                : isBooked
-                                ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-900 cursor-not-allowed opacity-70'
-                                : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-2 border-slate-300 dark:border-slate-700 hover:border-institutional-500 hover:bg-blue-50 dark:hover:bg-slate-700'
-                            }`}
-                            title={
-                              isSelected
-                                ? `Nhấp để hủy chọn ghế ${seatId}`
-                                : isBooked
-                                ? `Ghế ${seatId} đã đặt`
-                                : `Chọn ghế ${seatId} (${selectedTrip.price.toLocaleString('vi-VN')} đ)`
-                            }
-                          >
-                            <Armchair className="w-3.5 h-3.5" />
-                            <span>{seatId}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    return (
+                      <div key={row} className="flex items-center justify-between gap-4">
+                        {sides.map((side, sideIndex) => (
+                          <React.Fragment key={sideIndex}>
+                            <div className="flex items-center gap-2">
+                              {side.map((seat) => {
+                                const isBooked = !seat.isAvailable;
+                                const isSelected = selectedSeatIds.includes(seat.seatId);
 
-                    {/* Aisle (Lối đi) */}
-                    <div className="text-[10px] text-slate-400 font-mono tracking-widest uppercase">
-                      Lối đi
-                    </div>
+                                return (
+                                  <button
+                                    key={seat.seatId}
+                                    type="button"
+                                    disabled={isBooked}
+                                    onClick={() => handleSeatClick(seat)}
+                                    className={`w-12 h-12 rounded-lg font-bold text-xs flex flex-col items-center justify-center transition-all ${
+                                      isSelected
+                                        ? 'bg-amber-400 text-institutional-950 font-black ring-4 ring-amber-300 shadow-md transform scale-105'
+                                        : isBooked
+                                        ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-900 cursor-not-allowed opacity-70'
+                                        : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-2 border-slate-300 dark:border-slate-700 hover:border-institutional-500 hover:bg-blue-50 dark:hover:bg-slate-700'
+                                    }`}
+                                    title={
+                                      isSelected
+                                        ? `Nhấp để hủy chọn ghế ${seat.seatCode}`
+                                        : isBooked
+                                        ? `Ghế ${seat.seatCode} đã đặt`
+                                        : `Chọn ghế ${seat.seatCode} (${currentUnitPrice.toLocaleString('vi-VN')} đ)`
+                                    }
+                                  >
+                                    <Armchair className="w-3.5 h-3.5" />
+                                    <span>{seat.seatCode}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
 
-                    {/* Right 2 seats (3, 4) */}
-                    <div className="flex items-center gap-2">
-                      {[3, 4].map((col) => {
-                        const seatId = `${row}${col}`;
-                        const isBooked = selectedTrip.bookedSeats.includes(seatId);
-                        const isSelected = selectedSeats.includes(seatId);
-
-                        return (
-                          <button
-                            key={seatId}
-                            type="button"
-                            disabled={isBooked}
-                            onClick={() => handleSeatClick(seatId)}
-                            className={`w-12 h-12 rounded-lg font-bold text-xs flex flex-col items-center justify-center transition-all ${
-                              isSelected
-                                ? 'bg-amber-400 text-institutional-950 font-black ring-4 ring-amber-300 shadow-md transform scale-105'
-                                : isBooked
-                                ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-900 cursor-not-allowed opacity-70'
-                                : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-2 border-slate-300 dark:border-slate-700 hover:border-institutional-500 hover:bg-blue-50 dark:hover:bg-slate-700'
-                            }`}
-                            title={
-                              isSelected
-                                ? `Nhấp để hủy chọn ghế ${seatId}`
-                                : isBooked
-                                ? `Ghế ${seatId} đã đặt`
-                                : `Chọn ghế ${seatId} (${selectedTrip.price.toLocaleString('vi-VN')} đ)`
-                            }
-                          >
-                            <Armchair className="w-3.5 h-3.5" />
-                            <span>{seatId}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                            {/* Lối đi, chỉ chèn một lần giữa hai bên */}
+                            {sideIndex === 0 && (
+                              <div className="text-[10px] text-slate-400 font-mono tracking-widest uppercase">
+                                Lối đi
+                              </div>
+                            )}
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Rear of Bus */}
               <div className="text-center pt-2 border-t-2 border-dashed border-slate-300 dark:border-slate-700 text-[10px] uppercase font-bold text-slate-400">
@@ -775,28 +875,33 @@ export const RouteBookingPage: React.FC = () => {
                   <div className="flex justify-between items-center">
                     <span className="text-slate-700 dark:text-slate-300 font-bold">Ghế đã chọn:</span>
                     <span className="text-[11px] font-semibold text-slate-500">
-                      {selectedSeats.length} / {MAX_SEATS_PER_BOOKING} ghế tối đa
+                      {selectedSeatIds.length} / {MAX_SEATS_PER_BOOKING} ghế tối đa
                     </span>
                   </div>
 
-                  {selectedSeats.length > 0 ? (
+                  {selectedSeatIds.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
-                      {selectedSeats.map((seat) => (
-                        <span
-                          key={seat}
-                          className="inline-flex items-center gap-1 text-xs font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-950/80 px-2.5 py-1 rounded-md border border-amber-300 dark:border-amber-700"
-                        >
-                          {seat}
-                          <button
-                            type="button"
-                            onClick={() => handleSeatClick(seat)}
-                            className="text-amber-700 hover:text-rose-600 font-bold ml-1 text-sm leading-none"
-                            title={`Bỏ chọn ghế ${seat}`}
+                      {selectedSeatIds.map((seatId) => {
+                        const seat = seats.find((s) => s.seatId === seatId);
+                        if (!seat) return null;
+
+                        return (
+                          <span
+                            key={seat.seatId}
+                            className="inline-flex items-center gap-1 text-xs font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-950/80 px-2.5 py-1 rounded-md border border-amber-300 dark:border-amber-700"
                           >
-                            ×
-                          </button>
-                        </span>
-                      ))}
+                            {seat.seatCode}
+                            <button
+                              type="button"
+                              onClick={() => handleSeatClick(seat)}
+                              className="text-amber-700 hover:text-rose-600 font-bold ml-1 text-sm leading-none"
+                              title={`Bỏ chọn ghế ${seat.seatCode}`}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="text-[11px] text-slate-400 italic">
@@ -845,9 +950,9 @@ export const RouteBookingPage: React.FC = () => {
                     <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-base">
                       {totalCalculatedAmount === 0 ? '0 VNĐ (Miễn phí)' : `${totalCalculatedAmount.toLocaleString('vi-VN')} VNĐ`}
                     </span>
-                    {selectedSeats.length > 0 && (
+                    {selectedSeatIds.length > 0 && (
                       <div className="text-[10px] text-slate-400 font-normal">
-                        ({currentUnitPrice.toLocaleString('vi-VN')} đ × {selectedSeats.length} ghế)
+                        ({currentUnitPrice.toLocaleString('vi-VN')} đ × {selectedSeatIds.length} ghế)
                       </div>
                     )}
                   </div>
@@ -906,10 +1011,10 @@ export const RouteBookingPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleProceedToPayment}
-                  disabled={selectedSeats.length === 0}
+                  disabled={selectedSeatIds.length === 0}
                   className="flex items-center gap-1.5 px-4 py-2 rounded bg-institutional-700 hover:bg-institutional-800 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold uppercase tracking-wider shadow-sm transition-colors"
                 >
-                  <span>Tiếp tục thanh toán ({selectedSeats.length} ghế)</span>
+                  <span>Tiếp tục thanh toán ({selectedSeatIds.length} ghế)</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -922,7 +1027,7 @@ export const RouteBookingPage: React.FC = () => {
       {/* ==============================================================
           STEP 3: PAYMENT METHOD & CONFIRMATION
       ============================================================== */}
-      {currentStep === 3 && selectedTrip && selectedSeats.length > 0 && (
+      {currentStep === 3 && selectedTrip && selectedSeatIds.length > 0 && (
         <div className="max-w-2xl mx-auto bg-white dark:bg-[#131e3a] p-6 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm space-y-6 text-xs">
           
           <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -957,7 +1062,7 @@ export const RouteBookingPage: React.FC = () => {
             <div className="flex justify-between text-slate-700 dark:text-slate-300">
               <span>Vị trí ghế đã chọn:</span>
               <span className="font-bold text-amber-600 dark:text-amber-400">
-                {selectedSeats.join(', ')} ({selectedSeats.length} ghế)
+                {selectedSeatCodes.join(', ')} ({selectedSeatIds.length} ghế)
               </span>
             </div>
             <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center text-sm font-bold text-emerald-600 dark:text-emerald-400">
@@ -1126,11 +1231,19 @@ export const RouteBookingPage: React.FC = () => {
               GIAO DỊCH THÀNH CÔNG
             </span>
             <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-2">
-              Đặt Chỗ & Thanh Toán Hoàn Tất!
+              Đã Giữ Chỗ Thành Công!
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Mã vé điện tử của bạn: <strong className="font-mono text-slate-900 dark:text-white">{createdTicketId}</strong>
+              Mã đặt chỗ của bạn: <strong className="font-mono text-slate-900 dark:text-white">{createdTicketId}</strong>
             </p>
+            {serverFinalAmount !== null && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Số tiền máy chủ chốt:{' '}
+                <strong className="font-mono text-emerald-600 dark:text-emerald-400">
+                  {serverFinalAmount.toLocaleString('vi-VN')} VNĐ
+                </strong>
+              </p>
+            )}
           </div>
 
           <div className="p-4 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800 text-xs space-y-2 text-left">
@@ -1143,8 +1256,8 @@ export const RouteBookingPage: React.FC = () => {
               <span className="font-bold text-slate-900 dark:text-white">{selectedRouteObj?.name}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-500">Ghế ngồi ({selectedSeats.length} vé):</span>
-              <span className="font-extrabold text-amber-600 dark:text-amber-400 font-mono text-sm">{selectedSeats.join(', ')}</span>
+              <span className="text-slate-500">Ghế ngồi ({selectedSeatIds.length} vé):</span>
+              <span className="font-extrabold text-amber-600 dark:text-amber-400 font-mono text-sm">{selectedSeatCodes.join(', ')}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Thời gian:</span>
