@@ -11,7 +11,7 @@ namespace SmartBusTicketing.Api.Controllers;
 [ApiController]
 [Route("api/bookings")]
 [Authorize]
-public class BookingsController(AppDbContext db, AuditLogService audit) : ControllerBase
+public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHoldService seatHolds) : ControllerBase
 {
     private long? GetActorId() => User.AccountId();
     private string GetActorName() => User.Username() ?? "Customer";
@@ -181,18 +181,9 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
                 return BadRequest(new { message = "Một số ghế được chọn không thuộc xe của chuyến này hoặc không tồn tại!" });
             }
 
-            // Ghế coi là đã chiếm khi vé còn hiệu lực, đã dùng, hoặc đang được giữ bởi một
-            // booking chưa quá hạn. Hai điều kiện của nhánh giữ chỗ phải cùng đúng, nếu dùng
-            // OR thì vé hết hạn vẫn bị tính là chiếm và ghế không bao giờ được nhả.
-            var takenSeatIds = await db.Tickets
-                .Where(t => t.TripId == dto.TripId && dto.SeatIds.Contains(t.SeatId))
-                .Where(t => t.Status == TicketStatus.Valid ||
-                            t.Status == TicketStatus.Used ||
-                            (t.Status == TicketStatus.Held && t.Booking != null &&
-                             t.Booking.Status == BookingStatus.Pending && t.Booking.HoldExpiresAt > DateTime.UtcNow))
-                .Select(t => t.SeatId)
-                .Distinct()
-                .ToListAsync(ct);
+            // Quy tắc ghế trống và việc nhả lượt giữ chỗ đã chết nằm ở SeatHoldService,
+            // dùng chung với đổi vé để hai bên không bao giờ lệch nhau.
+            var takenSeatIds = await seatHolds.GetTakenSeatIdsAsync(dto.TripId, dto.SeatIds, ct);
 
             if (takenSeatIds.Any())
             {
@@ -205,42 +196,7 @@ public class BookingsController(AppDbContext db, AuditLogService audit) : Contro
                 return Conflict(new { message = $"Ghế '{string.Join(", ", takenSeatCodes)}' vừa bị người khác chọn! Vui lòng chọn ghế khác." });
             }
 
-            // Vé của một lượt giữ chỗ đã hết hạn vẫn nằm lại với Status='Held', nên cột tính
-            // toán ActiveSeatKey (xem AppDbContext) vẫn sinh khóa 'TripId-SeatId' và unique
-            // index chặn mọi lần đặt về sau. Truy vấn phía trên đã kết luận ghế còn trống, nên
-            // nếu không nhả ở đây thì INSERT chết vì trùng khóa, bị catch quy thành "ghế vừa bị
-            // người khác đặt" và ghế mất hẳn không bán lại được. Phải nhả trong cùng transaction.
-            //
-            // Chỉ nhả đúng những lượt giữ chỗ đã chết: không có booking, booking đã huỷ/hết hạn,
-            // hoặc còn Pending nhưng quá hạn giữ. Booking đã Confirmed thì không đụng tới, dù
-            // hiện chưa có luồng thanh toán nào đặt trạng thái đó.
-            var now = DateTime.UtcNow;
-            var staleHeldTickets = await db.Tickets
-                .Include(t => t.Booking)
-                .Where(t => t.TripId == dto.TripId && dto.SeatIds.Contains(t.SeatId))
-                .Where(t => t.Status == TicketStatus.Held)
-                .Where(t => t.Booking == null ||
-                            t.Booking.Status == BookingStatus.Cancelled ||
-                            t.Booking.Status == BookingStatus.Expired ||
-                            (t.Booking.Status == BookingStatus.Pending && t.Booking.HoldExpiresAt <= now))
-                .ToListAsync(ct);
-
-            if (staleHeldTickets.Count > 0)
-            {
-                foreach (var stale in staleHeldTickets)
-                {
-                    stale.Status = TicketStatus.Expired;
-
-                    if (stale.Booking is { Status: BookingStatus.Pending })
-                    {
-                        stale.Booking.Status = BookingStatus.Expired;
-                    }
-                }
-
-                // Lưu ngay để ActiveSeatKey của các vé này về NULL trước khi thêm vé mới,
-                // nếu không cả hai thao tác vào cùng một lệnh SaveChanges và vẫn trùng khóa.
-                await db.SaveChangesAsync(ct);
-            }
+            await seatHolds.ReleaseStaleHoldsAsync(dto.TripId, dto.SeatIds, ct);
 
             // Booking phải có đủ các cột NOT NULL theo schema, nếu không SaveChanges sẽ ném
             // DbUpdateException và bị catch bên dưới quy nhầm thành lỗi tranh chấp ghế.

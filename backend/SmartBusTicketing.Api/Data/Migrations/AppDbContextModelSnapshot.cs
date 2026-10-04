@@ -903,11 +903,24 @@ namespace SmartBusTicketing.Api.Data.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
 
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<long?>("NewSeatId")
+                        .HasColumnType("bigint");
+
                     b.Property<long?>("NewTripId")
                         .HasColumnType("bigint");
 
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<long?>("ProcessedBy")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<string>("RequestType")
                         .IsRequired()
@@ -921,6 +934,8 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .HasColumnType("bigint");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("NewSeatId");
 
                     b.HasIndex("NewTripId");
 
@@ -1423,6 +1438,11 @@ namespace SmartBusTicketing.Api.Data.Migrations
 
             modelBuilder.Entity("SmartBusTicketing.Api.Models.TicketChangeRequest", b =>
                 {
+                    b.HasOne("SmartBusTicketing.Api.Models.Seat", "NewSeat")
+                        .WithMany()
+                        .HasForeignKey("NewSeatId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("SmartBusTicketing.Api.Models.Trip", "NewTrip")
                         .WithMany()
                         .HasForeignKey("NewTripId")
@@ -1438,6 +1458,8 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .HasForeignKey("TicketId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("NewSeat");
 
                     b.Navigation("NewTrip");
 
