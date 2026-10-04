@@ -7,6 +7,9 @@ namespace SmartBusTicketing.Api.Services;
 
 public sealed class TripService(AppDbContext db) : ITripService
 {
+    // trips.DepartureAt lưu UTC (xem backend/README.md); ngày lọc và giờ hiển thị cho người dùng là giờ Việt Nam (UTC+7).
+    private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
+
     /// <summary>
     /// TASK 1 + TASK 2: Tìm kiếm chuyến xe trực tiếp từ Database.
     /// Kiểm tra cùng tuyến, kiểm tra điểm đi đứng trước điểm đến theo thứ tự dừng.
@@ -98,8 +101,9 @@ public sealed class TripService(AppDbContext db) : ITripService
         var matchingRouteIds = validRouteOrders.Select(v => v.Route.Id).ToList();
 
         // 4. Lấy chuyến xe từ Database theo các tuyến hợp lệ và ngày đi
-        var startOfDay = travelDate.ToDateTime(TimeOnly.MinValue);
-        var endOfDay = travelDate.ToDateTime(TimeOnly.MaxValue);
+        // Ngày đi là ngày Việt Nam: đổi mốc đầu/cuối ngày sang UTC để so với DepartureAt.
+        var startOfDay = DateTime.SpecifyKind(travelDate.ToDateTime(TimeOnly.MinValue) - VietnamOffset, DateTimeKind.Utc);
+        var endOfDay = DateTime.SpecifyKind(travelDate.ToDateTime(TimeOnly.MaxValue) - VietnamOffset, DateTimeKind.Utc);
 
         var trips = await db.Trips
             .AsNoTracking()
@@ -190,10 +194,11 @@ public sealed class TripService(AppDbContext db) : ITripService
                              ?? "Tài xế công ty";
             var assistantName = trip.TripStaff.FirstOrDefault(ts => ts.Duty == StaffDuty.Conductor)?.Account?.FullName;
 
-            var departureTimeStr = trip.DepartureAt.ToString("HH:mm");
+            var localDeparture = trip.DepartureAt + VietnamOffset;
+            var departureTimeStr = localDeparture.ToString("HH:mm");
             var arrivalTime = routeOrder.TravelMinutes.HasValue
-                ? trip.DepartureAt.AddMinutes(routeOrder.TravelMinutes.Value)
-                : trip.DepartureAt.AddMinutes(45);
+                ? localDeparture.AddMinutes(routeOrder.TravelMinutes.Value)
+                : localDeparture.AddMinutes(45);
 
             var tripDto = new TripDto
             {
@@ -206,7 +211,7 @@ public sealed class TripService(AppDbContext db) : ITripService
                 EndPoint = trip.BusRoute.EndPoint,
                 DeparturePoint = fromMatch.DisplayName,
                 ArrivalPoint = toMatch.DisplayName,
-                DepartureDate = trip.DepartureAt.ToString("yyyy-MM-dd"),
+                DepartureDate = localDeparture.ToString("yyyy-MM-dd"),
                 DepartureTime = departureTimeStr,
                 ArrivalTime = arrivalTime.ToString("HH:mm"),
                 EstimatedArrivalTime = arrivalTime.ToString("HH:mm"),
