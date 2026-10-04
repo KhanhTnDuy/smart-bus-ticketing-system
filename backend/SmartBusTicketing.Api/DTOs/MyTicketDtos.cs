@@ -47,4 +47,12 @@ public sealed class MyTicketDto
 
     public string PassengerName { get; init; } = string.Empty;
     public string? PassengerPhone { get; init; }
+
+    /// <summary>
+    /// Loại yêu cầu đang chờ duyệt trên vé này: Cancel, Exchange, hoặc null nếu không có.
+    /// Giao diện dùng để báo "đang chờ duyệt" và chặn gửi yêu cầu thứ hai.
+    /// </summary>
+    public string? PendingRequestType { get; init; }
+
+    public long? PendingRequestId { get; init; }
 }
