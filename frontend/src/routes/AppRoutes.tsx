@@ -45,6 +45,7 @@ import { IncidentPage } from '../pages/incident/IncidentPage';
 // Common Pages
 import { AccessDeniedPage } from '../pages/common/AccessDeniedPage';
 import { NotFoundPage } from '../pages/common/NotFoundPage';
+import { TicketChangeRequestPage } from '../pages/manager/TicketChangeRequestPage';
 
 export const AppRoutes: React.FC = () => {
   return (
@@ -85,6 +86,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/manager/schedules" element={<ScheduleManagementPage />} />
           <Route path="/manager/assignments" element={<AssignmentManagementPage />} />
 
+          <Route path="/manager/ticket-requests" element={<TicketChangeRequestPage />} />
           <Route path="/manager/refunds" element={<RefundManagementPage />} />
           <Route path="/manager/incidents" element={<IncidentPage />} />
           <Route path="/manager/revenue" element={<RevenueReportPage />} />

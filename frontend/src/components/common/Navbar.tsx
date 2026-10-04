@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
+  TicketCheck,
   Home,
   Users,
   ShieldCheck,
@@ -72,6 +73,7 @@ export const Navbar: React.FC = () => {
 
 
   const isManagerOpsActive =
+    location.pathname.startsWith('/manager/ticket-requests') ||
     location.pathname.startsWith('/manager/refunds') ||
     location.pathname.startsWith('/manager/incidents') ||
     location.pathname.startsWith('/manager/complaints');
@@ -187,6 +189,14 @@ export const Navbar: React.FC = () => {
                       >
                         <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
                         <span>Theo dõi xe GPS</span>
+                      </NavLink>
+                      <NavLink
+                        to="/manager/ticket-requests"
+                        onClick={() => setActiveDropdown(null)}
+                        className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-blue-800/50 hover:text-white"
+                      >
+                        <TicketCheck className="w-4 h-4 text-sky-400" />
+                        <span>Duyệt yêu cầu hủy / đổi vé</span>
                       </NavLink>
                       <NavLink
                         to="/manager/refunds"
@@ -401,6 +411,20 @@ export const Navbar: React.FC = () => {
 
                   {activeDropdown === 'mgrOps' && (
                     <div className="absolute left-0 mt-1 w-56 bg-[#09254d] dark:bg-[#061530] text-white rounded-md shadow-2xl border border-blue-900/60 py-1.5 z-50 animate-fadeIn">
+                      <NavLink
+                        to="/manager/ticket-requests"
+                        onClick={() => setActiveDropdown(null)}
+                        className={({ isActive }) =>
+                          `flex items-center gap-2.5 px-4 py-2 text-xs font-medium transition-colors ${
+                            isActive
+                              ? 'bg-blue-800/80 text-amber-300 font-semibold'
+                              : 'text-slate-200 hover:bg-blue-800/50 hover:text-white'
+                          }`
+                        }
+                      >
+                        <TicketCheck className="w-4 h-4 text-sky-400" />
+                        <span>Duyệt yêu cầu hủy / đổi vé</span>
+                      </NavLink>
                       <NavLink
                         to="/manager/refunds"
                         onClick={() => setActiveDropdown(null)}
@@ -812,6 +836,13 @@ export const Navbar: React.FC = () => {
                 <span>Theo dõi xe GPS</span>
               </NavLink>
               <NavLink
+                to="/manager/ticket-requests"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <TicketCheck className="w-4 h-4 text-sky-400" />
+                <span>Duyệt yêu cầu hủy / đổi vé</span>
+              </NavLink>
+              <NavLink
                 to="/manager/refunds"
                 className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
               >
@@ -898,6 +929,13 @@ export const Navbar: React.FC = () => {
               >
                 <TrendingUp className="w-4 h-4 text-amber-400" />
                 <span>Báo cáo doanh thu bán vé</span>
+              </NavLink>
+              <NavLink
+                to="/manager/ticket-requests"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <TicketCheck className="w-4 h-4 text-sky-400" />
+                <span>Duyệt yêu cầu hủy / đổi vé</span>
               </NavLink>
               <NavLink
                 to="/manager/refunds"

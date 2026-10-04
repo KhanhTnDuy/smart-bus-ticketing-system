@@ -32,8 +32,8 @@ import { EmptyState } from '../../components/common/EmptyState';
 import { Ticket, TicketStatus } from '../../types';
 import { ApiError } from '../../api/client';
 import {
-  cancelTicket as cancelTicketApi,
-  exchangeTicket as exchangeTicketApi,
+  requestCancelTicket,
+  requestExchangeTicket,
   getTripSeats,
   listMyTickets,
   MyTicketDto,
@@ -131,13 +131,20 @@ export const ElectronicTicketPage: React.FC = () => {
   // chưa có endpoint liệt kê toàn bộ vé.
   const userTickets = tickets;
 
+  /** Loại yêu cầu đang chờ duyệt trên một vé, nếu có. */
+  const pendingRequestOf = (ticket: Ticket) => ticketDtos.get(ticket.id)?.pendingRequestType ?? null;
+
   /**
-   * Vé còn hủy/đổi được. Phải khớp với backend: TicketsController cho phép cả vé đang
-   * giữ chỗ (Held, hiện ra đây là PENDING) và vé đã thanh toán (Valid -> PAID). Bản cũ
-   * chỉ cho PAID, nên với dữ liệu thật — vé luôn dừng ở Held vì chưa có luồng thanh
-   * toán — hai nút này không bao giờ hiện và tính năng thành ra không bấm được.
+   * Vé còn gửi yêu cầu hủy/đổi được. Phải khớp với backend: TicketsController cho phép cả
+   * vé đang giữ chỗ (Held, hiện ra đây là PENDING) và vé đã thanh toán (Valid -> PAID).
+   * Bản cũ chỉ cho PAID, nên với dữ liệu thật — vé luôn dừng ở Held vì chưa có luồng
+   * thanh toán — hai nút này không bao giờ hiện và tính năng thành ra không bấm được.
+   *
+   * Vé đã có một yêu cầu đang chờ thì không gửi thêm được: backend trả 409, nên khóa luôn
+   * ở giao diện thay vì để khách bấm rồi nhận lỗi.
    */
-  const canModify = (ticketStatus: string) => ticketStatus === 'PAID' || ticketStatus === 'PENDING';
+  const canModify = (ticket: Ticket, ticketStatus: string) =>
+    (ticketStatus === 'PAID' || ticketStatus === 'PENDING') && pendingRequestOf(ticket) === null;
 
   const filteredTickets = useMemo(() => {
     return userTickets.filter((ticket) => {
@@ -199,13 +206,10 @@ export const ElectronicTicketPage: React.FC = () => {
 
     setIsSubmittingCancel(true);
     try {
-      const result = await cancelTicketApi(dto.ticketId, cancelReason.trim());
-      // Không hứa hoàn tiền: vé đang ở trạng thái giữ chỗ chưa thanh toán nên hủy vé
-      // chỉ là nhả ghế. Khi có luồng thanh toán thì refundAmount sẽ khác 0.
+      const result = await requestCancelTicket(dto.ticketId, cancelReason.trim());
+      // Yêu cầu chưa có hiệu lực: vé vẫn còn và ghế chưa bị nhả tới khi quản lý duyệt.
       showSuccess(
-        result.refundAmount > 0
-          ? `Đã hủy vé ghế ${result.seatCode}. Số tiền hoàn: ${result.refundAmount.toLocaleString('vi-VN')} VNĐ.`
-          : `Đã hủy vé ghế ${result.seatCode} và nhả chỗ cho khách khác. Vé chưa thanh toán nên không phát sinh hoàn tiền.`
+        `Đã gửi yêu cầu hủy vé ghế ${result.seatCode}. Vé vẫn còn hiệu lực tới khi quản lý duyệt.`
       );
       setIsCancelModalOpen(false);
       setCancelTicketTarget(null);
@@ -322,9 +326,10 @@ export const ElectronicTicketPage: React.FC = () => {
 
     setIsSubmittingChange(true);
     try {
-      const result = await exchangeTicketApi(dto.ticketId, Number(selectedNewTripId), Number(selectedNewSeat));
+      await requestExchangeTicket(dto.ticketId, Number(selectedNewTripId), Number(selectedNewSeat));
+      const chosenSeat = changeSeats.find((x) => String(x.seatId) === selectedNewSeat)?.seatCode ?? '';
       showSuccess(
-        `Đã đổi sang ghế ${result.newSeatCode}, khởi hành ${result.newDepartureTime} ngày ${result.newDepartureDate}.`
+        `Đã gửi yêu cầu đổi sang ghế ${chosenSeat}. Ghế chưa được giữ, quản lý sẽ kiểm tra khi duyệt.`
       );
       setIsChangeModalOpen(false);
       setChangeTicketTarget(null);
@@ -469,8 +474,9 @@ export const ElectronicTicketPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredTickets.map((ticket) => {
             const ticketStatus = ticket.ticketStatus || ticket.status || 'PAID';
-            const canCancel = canModify(ticketStatus);
-            const canChange = canModify(ticketStatus);
+            const canCancel = canModify(ticket, ticketStatus);
+            const canChange = canModify(ticket, ticketStatus);
+            const pendingRequest = pendingRequestOf(ticket);
             const routeName = ticket.routeName || getRouteName(ticket.routeId);
 
             return (
@@ -591,7 +597,7 @@ export const ElectronicTicketPage: React.FC = () => {
                       type="button"
                       onClick={() => openChangeModal(ticket)}
                       className="px-2.5 py-1.5 rounded text-xs font-semibold bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 flex items-center gap-1 transition-colors"
-                      title="Đổi sang chuyến xe hoặc ghế khác"
+                      title="Gửi yêu cầu đổi chuyến hoặc ghế"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
                       <span>Đổi vé</span>
@@ -604,11 +610,21 @@ export const ElectronicTicketPage: React.FC = () => {
                       type="button"
                       onClick={() => openCancelModal(ticket)}
                       className="px-2.5 py-1.5 rounded text-xs font-semibold bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/20 flex items-center gap-1 transition-colors"
-                      title="Hủy vé và yêu cầu hoàn tiền"
+                      title="Gửi yêu cầu hủy vé"
                     >
                       <XCircle className="w-3.5 h-3.5" />
                       <span>Hủy vé</span>
                     </button>
+                  )}
+
+                  {/* Vé đang có yêu cầu chờ duyệt: nói rõ thay vì chỉ ẩn hai nút đi */}
+                  {pendingRequest && (
+                    <span className="px-2.5 py-1.5 rounded text-xs font-semibold bg-sky-500/10 border border-sky-500/30 text-sky-700 dark:text-sky-300 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>
+                        {pendingRequest === 'Cancel' ? 'Chờ duyệt hủy vé' : 'Chờ duyệt đổi vé'}
+                      </span>
+                    </span>
                   )}
                 </div>
               </div>
@@ -635,8 +651,8 @@ export const ElectronicTicketPage: React.FC = () => {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredTickets.map((ticket) => {
                   const ticketStatus = ticket.ticketStatus || ticket.status || 'PAID';
-                  const canCancel = canModify(ticketStatus);
-                  const canChange = canModify(ticketStatus);
+                  const canCancel = canModify(ticket, ticketStatus);
+                  const canChange = canModify(ticket, ticketStatus);
                   const routeName = ticket.routeName || getRouteName(ticket.routeId);
 
                   return (
@@ -952,15 +968,19 @@ export const ElectronicTicketPage: React.FC = () => {
         <Modal
           isOpen={isChangeModalOpen}
           onClose={() => setIsChangeModalOpen(false)}
-          title={`ĐỔI VÉ XE — ${changeTicketTarget.id}`}
+          title={`GỬI YÊU CẦU ĐỔI VÉ — ${changeTicketTarget.id}`}
           maxWidth="xl"
         >
           <div className="space-y-4">
             <div className="p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-lg text-xs text-blue-800 dark:text-blue-300">
               <p className="font-semibold">Quy định đổi vé:</p>
               <ul className="list-disc pl-4 mt-1 space-y-0.5 text-[11px]">
-                <li>Chỉ đổi được khi chuyến hiện tại chưa khởi hành.</li>
+                <li>Chỉ gửi được khi chuyến hiện tại chưa khởi hành.</li>
                 <li>Chuyến mới phải đi qua đúng điểm lên và điểm xuống của vé, theo đúng chiều.</li>
+                <li>
+                  Đây là <strong>yêu cầu</strong>: ghế mới chưa được giữ, quản lý sẽ kiểm tra lại
+                  khi duyệt. Nếu lúc đó ghế đã có người, yêu cầu sẽ không duyệt được.
+                </li>
                 <li>Không phát sinh thêm phí: tổng tiền của lượt đặt giữ nguyên.</li>
               </ul>
             </div>
@@ -1097,7 +1117,7 @@ export const ElectronicTicketPage: React.FC = () => {
                 disabled={isSubmittingChange || !selectedNewTripId || !selectedNewSeat}
                 className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-institutional-950 font-bold text-xs rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
               >
-                {isSubmittingChange ? 'Đang thực hiện đổi vé...' : 'Xác nhận đổi vé'}
+                {isSubmittingChange ? 'Đang gửi yêu cầu...' : 'Gửi yêu cầu đổi vé'}
               </button>
             </div>
           </div>
@@ -1109,25 +1129,28 @@ export const ElectronicTicketPage: React.FC = () => {
         <Modal
           isOpen={isCancelModalOpen}
           onClose={() => setIsCancelModalOpen(false)}
-          title={`XÁC NHẬN HỦY VÉ XE — ${cancelTicketTarget.id}`}
+          title={`GỬI YÊU CẦU HỦY VÉ — ${cancelTicketTarget.id}`}
           maxWidth="md"
         >
           <div className="space-y-4">
             <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg text-xs text-red-800 dark:text-red-300">
               <div className="font-bold flex items-center gap-1.5 mb-1">
                 <AlertCircle className="w-4 h-4" />
-                Lưu ý khi hủy vé:
+                Lưu ý khi gửi yêu cầu hủy vé:
               </div>
               {/* Không nêu tỷ lệ hoàn tiền: hệ thống chưa có luồng thanh toán nên vé mới
                   chỉ ở trạng thái giữ chỗ, hủy vé không phát sinh giao dịch hoàn tiền nào. */}
               <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
-                <li>Chỉ hủy được khi chuyến xe chưa khởi hành.</li>
-                <li>Sau khi xác nhận hủy, ghế {cancelTicketTarget.seatNumber} được trả lại hệ thống ngay cho khách khác.</li>
+                <li>Chỉ gửi được khi chuyến xe chưa khởi hành.</li>
+                <li>
+                  Đây là <strong>yêu cầu</strong>: vé {cancelTicketTarget.seatNumber} vẫn còn hiệu
+                  lực và ghế chưa bị nhả cho tới khi quản lý duyệt.
+                </li>
+                <li>Mỗi vé chỉ có một yêu cầu chờ duyệt tại một thời điểm.</li>
                 <li>
                   Vé này đang ở trạng thái giữ chỗ và chưa thanh toán, nên hủy vé không phát sinh
                   hoàn tiền.
                 </li>
-                <li>Thao tác này không thể hoàn tác.</li>
               </ul>
             </div>
 
@@ -1159,7 +1182,7 @@ export const ElectronicTicketPage: React.FC = () => {
                 disabled={isSubmittingCancel || !cancelReason.trim()}
                 className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
               >
-                {isSubmittingCancel ? 'Đang gửi yêu cầu hủy...' : 'Đồng ý hủy vé'}
+                {isSubmittingCancel ? 'Đang gửi yêu cầu...' : 'Gửi yêu cầu hủy vé'}
               </button>
             </div>
           </div>

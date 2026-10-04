@@ -70,7 +70,12 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
                 BoardStopName = t.BoardStop.Name,
                 AlightStopName = t.AlightStop.Name,
                 PassengerName = t.Booking.Passenger.FullName,
-                PassengerPhone = t.Booking.Passenger.Phone
+                PassengerPhone = t.Booking.Passenger.Phone,
+                // Yêu cầu hủy/đổi đang chờ duyệt trên vé này, nếu có.
+                PendingRequest = t.ChangeRequests
+                    .Where(r => r.Status == ChangeRequestStatus.Pending)
+                    .Select(r => new { r.Id, r.RequestType })
+                    .FirstOrDefault()
             })
             .ToListAsync(ct);
 
@@ -102,7 +107,9 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
                 Price = r.SeatCount > 0 ? r.FinalAmount / r.SeatCount : r.FinalAmount,
                 BookingFinalAmount = r.FinalAmount,
                 PassengerName = r.PassengerName,
-                PassengerPhone = r.PassengerPhone
+                PassengerPhone = r.PassengerPhone,
+                PendingRequestType = r.PendingRequest?.RequestType.ToString(),
+                PendingRequestId = r.PendingRequest?.Id
             };
         }).ToList());
     }
