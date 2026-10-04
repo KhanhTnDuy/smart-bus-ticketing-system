@@ -131,6 +131,14 @@ export const ElectronicTicketPage: React.FC = () => {
   // chưa có endpoint liệt kê toàn bộ vé.
   const userTickets = tickets;
 
+  /**
+   * Vé còn hủy/đổi được. Phải khớp với backend: TicketsController cho phép cả vé đang
+   * giữ chỗ (Held, hiện ra đây là PENDING) và vé đã thanh toán (Valid -> PAID). Bản cũ
+   * chỉ cho PAID, nên với dữ liệu thật — vé luôn dừng ở Held vì chưa có luồng thanh
+   * toán — hai nút này không bao giờ hiện và tính năng thành ra không bấm được.
+   */
+  const canModify = (ticketStatus: string) => ticketStatus === 'PAID' || ticketStatus === 'PENDING';
+
   const filteredTickets = useMemo(() => {
     return userTickets.filter((ticket) => {
       const ticketCode = ticket.id;
@@ -461,8 +469,8 @@ export const ElectronicTicketPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredTickets.map((ticket) => {
             const ticketStatus = ticket.ticketStatus || ticket.status || 'PAID';
-            const canCancel = ticketStatus === 'PAID';
-            const canChange = ticketStatus === 'PAID';
+            const canCancel = canModify(ticketStatus);
+            const canChange = canModify(ticketStatus);
             const routeName = ticket.routeName || getRouteName(ticket.routeId);
 
             return (
@@ -627,8 +635,8 @@ export const ElectronicTicketPage: React.FC = () => {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredTickets.map((ticket) => {
                   const ticketStatus = ticket.ticketStatus || ticket.status || 'PAID';
-                  const canCancel = ticketStatus === 'PAID';
-                  const canChange = ticketStatus === 'PAID';
+                  const canCancel = canModify(ticketStatus);
+                  const canChange = canModify(ticketStatus);
                   const routeName = ticket.routeName || getRouteName(ticket.routeId);
 
                   return (
@@ -1108,12 +1116,18 @@ export const ElectronicTicketPage: React.FC = () => {
             <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg text-xs text-red-800 dark:text-red-300">
               <div className="font-bold flex items-center gap-1.5 mb-1">
                 <AlertCircle className="w-4 h-4" />
-                Chính sách hoàn tiền khi hủy vé:
+                Lưu ý khi hủy vé:
               </div>
+              {/* Không nêu tỷ lệ hoàn tiền: hệ thống chưa có luồng thanh toán nên vé mới
+                  chỉ ở trạng thái giữ chỗ, hủy vé không phát sinh giao dịch hoàn tiền nào. */}
               <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
-                <li>Hủy trước 2 tiếng: Hoàn 90% cước phí ({Math.round(cancelTicketTarget.price * 0.9).toLocaleString('vi-VN')} đ).</li>
-                <li>Sau khi xác nhận hủy, ghế {cancelTicketTarget.seatNumber} sẽ được trả lại hệ thống đặt vé.</li>
-                <li>Yêu cầu hoàn tiền sẽ được chuyển sang bộ phận Kế toán / Quản lý xử lý.</li>
+                <li>Chỉ hủy được khi chuyến xe chưa khởi hành.</li>
+                <li>Sau khi xác nhận hủy, ghế {cancelTicketTarget.seatNumber} được trả lại hệ thống ngay cho khách khác.</li>
+                <li>
+                  Vé này đang ở trạng thái giữ chỗ và chưa thanh toán, nên hủy vé không phát sinh
+                  hoàn tiền.
+                </li>
+                <li>Thao tác này không thể hoàn tác.</li>
               </ul>
             </div>
 
