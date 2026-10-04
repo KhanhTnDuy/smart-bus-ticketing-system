@@ -1,45 +1,82 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
-  Users,
   Search,
   Filter,
   Plus,
   Eye,
   Edit2,
   Trash2,
-  Bus,
-  Calendar,
-  Clock,
   UserCheck,
-  Phone,
-  Shield,
-  FileText,
-  CheckCircle,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
-import { useData } from '../../context/DataContext';
+import { useAssignmentManagement } from '../../hooks/useAssignmentManagement';
 import { useToast } from '../../context/ToastContext';
 import { Badge } from '../../components/common/Badge';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Modal } from '../../components/common/Modal';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { EmptyState } from '../../components/common/EmptyState';
+import { listBuses, BackendBusStatus } from '../../api/busManagement';
 import { BusAssignment, ShiftType, AssignmentStatus } from '../../types';
+import { parseNumericId, listAvailableStaff, AvailableStaffDto } from '../../api/assignments';
+import { listRoutes, RouteDto } from '../../api/routeManagement';
 
 export const AssignmentManagementPage: React.FC = () => {
   const {
     assignments,
-    routes,
-    users,
-    buses,
-    checkAssignmentConflict,
+    loading: isLoading,
+    error: loadError,
+    reload,
     addAssignment,
     updateAssignment,
     deleteAssignment,
-  } = useData();
+  } = useAssignmentManagement();
   const { success, error } = useToast();
   const showSuccess = success;
   const showError = error;
+
+  // Tuyến thật từ API (không dùng dữ liệu mẫu của DataContext)
+  const [routes, setRoutes] = useState<RouteDto[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    listRoutes()
+      .then((res) => {
+        if (active) setRoutes(res);
+      })
+      .catch(() => {
+        if (active) error('Không tải được danh sách tuyến đường từ máy chủ.');
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const [availableBuses, setAvailableBuses] = useState<Array<{ id: number; plateNumber: string; status?: string }>>([]);
+
+  useEffect(() => {
+    let active = true;
+    listBuses({ pageSize: 100 })
+      .then((res) => {
+        if (active && res?.data?.length > 0) {
+          setAvailableBuses(
+            res.data.map((b) => ({
+              id: b.id,
+              plateNumber: b.plateNumber,
+              status: b.status === BackendBusStatus.Active ? 'ACTIVE' : 'INACTIVE',
+            }))
+          );
+        }
+      })
+      .catch(() => {
+        /* ignore */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [shiftFilter, setShiftFilter] = useState('ALL');
@@ -65,17 +102,58 @@ export const AssignmentManagementPage: React.FC = () => {
   const [formShiftHours, setFormShiftHours] = useState('05:30 — 13:30');
   const [formStatus, setFormStatus] = useState<AssignmentStatus>('ASSIGNED');
   const [formNotes, setFormNotes] = useState('');
+  const [formConflictWarning, setFormConflictWarning] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Available drivers from user list
-  const driverUsers = useMemo(() => {
-    return users.filter((u) => u.role === 'DRIVER');
-  }, [users]);
+  const findRoute = (routeKey: string) =>
+    routes.find((r) => r.code === routeKey || String(r.id) === routeKey);
+
+  // Tài xế / phụ xe thật từ API, kèm trạng thái rảnh theo tuyến + ngày + ca đang chọn
+  const [drivers, setDrivers] = useState<AvailableStaffDto[]>([]);
+  const [conductors, setConductors] = useState<AvailableStaffDto[]>([]);
+  const isFormOpen = isAddModalOpen || isEditModalOpen;
+  const formRouteNumericId = routes.find(
+    (r) => r.code === formRouteId || String(r.id) === formRouteId,
+  )?.id;
+  const formDepartureAt = useMemo(() => {
+    const start = formShiftHours.match(/\d{2}:\d{2}/)?.[0];
+    if (!formDate || !start) return undefined;
+    // Giờ nhập là giờ Việt Nam (UTC+7), còn chuyến chạy lưu UTC; gửi dạng UTC không kèm "Z"
+    // để máy chủ không tự đổi sang múi giờ của nó.
+    const at = new Date(`${formDate}T${start}:00+07:00`);
+    return Number.isNaN(at.getTime()) ? undefined : at.toISOString().slice(0, 19);
+  }, [formDate, formShiftHours]);
+  const editingTripId =
+    isEditModalOpen && selectedAssignment ? parseNumericId(selectedAssignment.id) : undefined;
+
+  useEffect(() => {
+    if (!isFormOpen || formRouteNumericId === undefined || !formDepartureAt) return;
+    let active = true;
+    Promise.all([
+      listAvailableStaff(0, formDepartureAt, formRouteNumericId, editingTripId),
+      listAvailableStaff(1, formDepartureAt, formRouteNumericId, editingTripId),
+    ])
+      .then(([driverList, conductorList]) => {
+        if (!active) return;
+        setDrivers(driverList);
+        setConductors(conductorList);
+      })
+      .catch(() => {
+        if (!active) return;
+        setDrivers([]);
+        setConductors([]);
+        error('Không tải được danh sách tài xế / phụ xe từ máy chủ.');
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFormOpen, formRouteNumericId, formDepartureAt, editingTripId]);
 
   const filteredAssignments = useMemo(() => {
     return assignments.filter((a) => {
-      const route = routes.find((r) => r.id === a.routeId);
-      const routeStr = route ? `${route.code || route.routeCode} ${route.name}` : a.routeId;
+      const route = routes.find((r) => r.code === a.routeId || String(r.id) === a.routeId);
+      const routeStr = route ? `${route.code} ${route.name}` : a.routeId;
 
       const matchesSearch =
         a.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -93,14 +171,14 @@ export const AssignmentManagementPage: React.FC = () => {
 
   // Open Add Modal
   const handleOpenAdd = () => {
-    const defaultDriver = driverUsers[0];
-    const defaultBus = buses.find((b) => b.status === 'ACTIVE') || buses[0];
-    setFormRouteId(routes[0]?.id || 'r1');
-    setFormBusPlate(defaultBus ? defaultBus.plateNumber : '51B-201.55');
-    setFormDriverId(defaultDriver?.id || 'u3');
-    setFormDriverName(defaultDriver?.fullName || 'Nguyễn Văn Tuấn');
-    setFormAssistantId('u_as_1');
-    setFormAssistantName('Lê Hoàng Nam');
+    setFormConflictWarning(null);
+    const defaultBus = availableBuses.find((b) => b.status === 'ACTIVE') || availableBuses[0];
+    setFormRouteId(routes[0]?.code ?? '');
+    setFormBusPlate(defaultBus ? defaultBus.plateNumber : '');
+    setFormDriverId('');
+    setFormDriverName('');
+    setFormAssistantId('');
+    setFormAssistantName('');
     setFormDate(new Date().toISOString().split('T')[0]);
     setFormShift('CA_SANG');
     setFormShiftHours('05:30 — 13:30');
@@ -109,65 +187,60 @@ export const AssignmentManagementPage: React.FC = () => {
     setIsAddModalOpen(true);
   };
 
-  // Conflict Detection Checker (Requirement 7) - Sử dụng hàm kiểm tra thống nhất từ DataContext
-  const conflictWarning = useMemo(() => {
-    if (!isAddModalOpen && !isEditModalOpen) return null;
-    return checkAssignmentConflict(
-      {
-        busPlate: formBusPlate,
-        driverName: formDriverName,
-        driverId: formDriverId,
-        date: formDate,
-        shift: formShift,
-      },
-      isEditModalOpen && selectedAssignment ? selectedAssignment.id : undefined
-    );
-  }, [
-    isAddModalOpen,
-    isEditModalOpen,
-    selectedAssignment,
-    formBusPlate,
-    formDriverName,
-    formDriverId,
-    formDate,
-    formShift,
-    checkAssignmentConflict,
-  ]);
-
   // Submit Add
   const handleConfirmAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formBusPlate.trim() || !formDriverName.trim()) {
-      showError('Vui lòng nhập biển số xe và tên tài xế');
+    if (!formBusPlate.trim() || !formDriverId) {
+      showError('Vui lòng nhập biển số xe và chọn tài xế');
+      return;
+    }
+    if (formRouteNumericId === undefined) {
+      showError('Vui lòng chọn tuyến đường');
       return;
     }
 
-    if (conflictWarning) {
-      showError(conflictWarning.message);
-      return;
-    }
-
+    setFormConflictWarning(null);
     setIsSubmitting(true);
     try {
-      const res = addAssignment({
-        routeId: formRouteId,
-        busPlate: formBusPlate.trim().toUpperCase(),
-        driverId: formDriverId || 'u_drv_new',
-        driverName: formDriverName.trim(),
-        assistantId: formAssistantId || undefined,
-        assistantName: formAssistantName.trim() || undefined,
-        date: formDate,
-        shift: formShift,
-        shiftHours: formShiftHours,
-        status: formStatus,
-        notes: formNotes.trim() || undefined,
-      });
+      const matchedBus = availableBuses.find(
+        (b) => b.plateNumber.trim().toUpperCase() === formBusPlate.trim().toUpperCase(),
+      );
+      const busId = matchedBus?.id;
+
+      const driverNumericId = parseNumericId(formDriverId);
+      const routeNumericId = formRouteNumericId;
+      const assistantNumericId = parseNumericId(formAssistantId);
+
+      const res = await addAssignment(
+        {
+          routeId: formRouteId,
+          busPlate: formBusPlate.trim().toUpperCase(),
+          driverId: formDriverId,
+          driverName: formDriverName.trim(),
+          assistantId: formAssistantId || undefined,
+          assistantName: formAssistantName.trim() || undefined,
+          date: formDate,
+          shift: formShift,
+          shiftHours: formShiftHours,
+          status: formStatus,
+          notes: formNotes.trim() || undefined,
+        },
+        {
+          busId,
+          driverId: driverNumericId,
+          conductorId: assistantNumericId,
+          routeId: routeNumericId,
+        },
+      );
 
       if (res.success) {
         showSuccess(`Phân công mới [${res.assignment?.id}] đã được lưu thành công!`);
         setIsAddModalOpen(false);
+      } else if (res.conflict) {
+        setFormConflictWarning(res.message || 'Phát hiện trùng lịch phân công phương tiện hoặc nhân sự!');
+        showError(res.message || 'Trùng lịch điều xe hoặc tài xế!');
       } else {
-        showError(res.message || 'Không thể tạo phân công (Xung đột trùng lịch)');
+        showError(res.message || 'Không thể tạo phân công');
       }
     } catch {
       showError('Không thể tạo phân công vào lúc này');
@@ -179,6 +252,7 @@ export const AssignmentManagementPage: React.FC = () => {
 
   // Open Edit Modal
   const handleOpenEdit = (asn: BusAssignment) => {
+    setFormConflictWarning(null);
     setSelectedAssignment(asn);
     setFormRouteId(asn.routeId);
     setFormBusPlate(asn.busPlate);
@@ -199,32 +273,47 @@ export const AssignmentManagementPage: React.FC = () => {
     e.preventDefault();
     if (!selectedAssignment) return;
 
-    if (conflictWarning) {
-      showError(conflictWarning.message);
-      return;
-    }
-
+    setFormConflictWarning(null);
     setIsSubmitting(true);
     try {
-      const res = updateAssignment(selectedAssignment.id, {
-        routeId: formRouteId,
-        busPlate: formBusPlate.trim().toUpperCase(),
-        driverId: formDriverId,
-        driverName: formDriverName.trim(),
-        assistantId: formAssistantId || undefined,
-        assistantName: formAssistantName.trim() || undefined,
-        date: formDate,
-        shift: formShift,
-        shiftHours: formShiftHours,
-        status: formStatus,
-        notes: formNotes.trim() || undefined,
-      });
+      const matchedBus = availableBuses.find(
+        (b) => b.plateNumber.trim().toUpperCase() === formBusPlate.trim().toUpperCase(),
+      );
+      const busId = matchedBus?.id;
+
+      const driverNumericId = parseNumericId(formDriverId);
+      const assistantNumericId = parseNumericId(formAssistantId);
+
+      const res = await updateAssignment(
+        selectedAssignment.id,
+        {
+          routeId: formRouteId,
+          busPlate: formBusPlate.trim().toUpperCase(),
+          driverId: formDriverId,
+          driverName: formDriverName.trim(),
+          assistantId: formAssistantId || undefined,
+          assistantName: formAssistantName.trim() || undefined,
+          date: formDate,
+          shift: formShift,
+          shiftHours: formShiftHours,
+          status: formStatus,
+          notes: formNotes.trim() || undefined,
+        },
+        {
+          busId,
+          driverId: driverNumericId,
+          conductorId: assistantNumericId,
+        },
+      );
 
       if (res.success) {
         showSuccess(`Đã cập nhật phân công [${selectedAssignment.id}] thành công!`);
         setIsEditModalOpen(false);
+      } else if (res.conflict) {
+        setFormConflictWarning(res.message || 'Phát hiện trùng lịch phân công phương tiện hoặc nhân sự!');
+        showError(res.message || 'Trùng lịch điều xe hoặc tài xế!');
       } else {
-        showError(res.message || 'Không thể cập nhật phân công (Xung đột trùng lịch)');
+        showError(res.message || 'Không thể cập nhật phân công');
       }
     } catch {
       showError('Không thể cập nhật phân công');
@@ -247,14 +336,20 @@ export const AssignmentManagementPage: React.FC = () => {
   };
 
   // Confirm Delete
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!selectedAssignment) return;
 
-    const res = deleteAssignment(selectedAssignment.id);
-    if (res.success) {
-      showSuccess(`Đã xóa phân công ca trực [${selectedAssignment.id}] thành công.`);
-      setIsDeleteConfirmOpen(false);
-      setSelectedAssignment(null);
+    try {
+      const res = await deleteAssignment(selectedAssignment.id);
+      if (res.success) {
+        showSuccess(`Đã xóa phân công ca trực [${selectedAssignment.id}] thành công.`);
+        setIsDeleteConfirmOpen(false);
+        setSelectedAssignment(null);
+      } else {
+        showError(res.message || 'Không thể xóa phân công ca trực');
+      }
+    } catch {
+      showError('Không thể xóa phân công ca trực');
     }
   };
 
@@ -299,16 +394,43 @@ export const AssignmentManagementPage: React.FC = () => {
           { label: 'Phân công nhân sự' },
         ]}
         action={
-          <button
-            type="button"
-            onClick={handleOpenAdd}
-            className="px-4 py-2 bg-institutional-600 hover:bg-institutional-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Phân Công Ca Trực Mới</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void reload()}
+              disabled={isLoading}
+              className="px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#131e3a] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+              title="Làm mới dữ liệu từ máy chủ"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>Làm mới</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenAdd}
+              className="px-4 py-2 bg-institutional-600 hover:bg-institutional-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Phân Công Ca Trực Mới</span>
+            </button>
+          </div>
         }
       />
+
+      {loadError && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-4 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50">
+          <span className="text-xs font-semibold text-rose-800 dark:text-rose-300">
+            Không thể tải dữ liệu phân công từ máy chủ: {loadError}
+          </span>
+          <button
+            type="button"
+            onClick={() => void reload()}
+            className="px-3 py-1.5 text-xs font-bold rounded-md border border-rose-400 text-rose-800 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/40"
+          >
+            Thử lại
+          </button>
+        </div>
+      )}
 
       {/* KPI Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
@@ -418,8 +540,8 @@ export const AssignmentManagementPage: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredAssignments.map((asn) => {
-                  const route = routes.find((r) => r.id === asn.routeId);
-                  const routeDisplay = route ? `${route.code || route.routeCode} - ${route.name}` : asn.routeId;
+                  const route = findRoute(asn.routeId);
+                  const routeDisplay = route ? `${route.code} - ${route.name}` : asn.routeId;
 
                   return (
                     <tr
@@ -512,6 +634,20 @@ export const AssignmentManagementPage: React.FC = () => {
             onSubmit={isAddModalOpen ? handleConfirmAdd : handleConfirmEdit}
             className="space-y-4 text-xs"
           >
+            {formConflictWarning && (
+              <div className="p-3.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 flex items-start gap-2.5">
+                <AlertCircle className="w-5 h-5 shrink-0 text-red-600 dark:text-red-400 mt-0.5" />
+                <div className="text-xs">
+                  <div className="font-bold text-red-800 dark:text-red-200">
+                    Phát hiện xung đột trùng lịch!
+                  </div>
+                  <div className="mt-0.5 leading-relaxed text-red-700 dark:text-red-300">
+                    {formConflictWarning}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 dark:text-slate-300 block">
@@ -523,8 +659,8 @@ export const AssignmentManagementPage: React.FC = () => {
                   className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:ring-2 focus:ring-institutional-500"
                 >
                   {routes.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.code || r.routeCode} - {r.name}
+                    <option key={r.id} value={r.code}>
+                      {r.code} - {r.name}
                     </option>
                   ))}
                 </select>
@@ -536,12 +672,20 @@ export const AssignmentManagementPage: React.FC = () => {
                 </label>
                 <input
                   type="text"
+                  list="bus-plates-list"
                   value={formBusPlate}
                   onChange={(e) => setFormBusPlate(e.target.value)}
                   placeholder="VD: 51B-201.55"
                   className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] font-mono text-slate-900 dark:text-white uppercase focus:ring-2 focus:ring-institutional-500"
                   required
                 />
+                <datalist id="bus-plates-list">
+                  {availableBuses.map((b) => (
+                    <option key={b.plateNumber} value={b.plateNumber}>
+                      {b.plateNumber} {b.status === 'ACTIVE' ? '(Đang hoạt động)' : ''}
+                    </option>
+                  ))}
+                </datalist>
               </div>
             </div>
 
@@ -553,15 +697,25 @@ export const AssignmentManagementPage: React.FC = () => {
                 <select
                   value={formDriverId}
                   onChange={(e) => {
-                    const drv = driverUsers.find((d) => d.id === e.target.value);
+                    const drv = drivers.find((d) => String(d.accountId) === e.target.value);
                     setFormDriverId(e.target.value);
-                    if (drv) setFormDriverName(drv.fullName);
+                    setFormDriverName(drv?.fullName ?? '');
                   }}
                   className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:ring-2 focus:ring-institutional-500 font-medium"
                 >
-                  {driverUsers.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.fullName} ({d.phone})
+                  <option value="">-- Chọn tài xế --</option>
+                  {formDriverId && !drivers.some((d) => String(d.accountId) === formDriverId) && (
+                    <option value={formDriverId}>{formDriverName || formDriverId}</option>
+                  )}
+                  {drivers.map((d) => (
+                    <option
+                      key={d.accountId}
+                      value={String(d.accountId)}
+                      disabled={!d.isAvailable && String(d.accountId) !== formDriverId}
+                    >
+                      {d.fullName}
+                      {d.phone ? ` (${d.phone})` : ''}
+                      {d.isAvailable ? '' : ` — ${d.unavailableReason ?? 'Không rảnh'}`}
                     </option>
                   ))}
                 </select>
@@ -571,13 +725,31 @@ export const AssignmentManagementPage: React.FC = () => {
                 <label className="font-bold text-slate-700 dark:text-slate-300 block">
                   Nhân viên phụ xe / soát vé:
                 </label>
-                <input
-                  type="text"
-                  value={formAssistantName}
-                  onChange={(e) => setFormAssistantName(e.target.value)}
-                  placeholder="Tên nhân viên phụ xe"
+                <select
+                  value={formAssistantId}
+                  onChange={(e) => {
+                    const con = conductors.find((c) => String(c.accountId) === e.target.value);
+                    setFormAssistantId(e.target.value);
+                    setFormAssistantName(con?.fullName ?? '');
+                  }}
                   className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:ring-2 focus:ring-institutional-500"
-                />
+                >
+                  <option value="">-- Không có phụ xe --</option>
+                  {formAssistantId && !conductors.some((c) => String(c.accountId) === formAssistantId) && (
+                    <option value={formAssistantId}>{formAssistantName || formAssistantId}</option>
+                  )}
+                  {conductors.map((c) => (
+                    <option
+                      key={c.accountId}
+                      value={String(c.accountId)}
+                      disabled={!c.isAvailable && String(c.accountId) !== formAssistantId}
+                    >
+                      {c.fullName}
+                      {c.phone ? ` (${c.phone})` : ''}
+                      {c.isAvailable ? '' : ` — ${c.unavailableReason ?? 'Không rảnh'}`}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -663,19 +835,6 @@ export const AssignmentManagementPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Conflict Warning Alert Banner */}
-            {conflictWarning && (
-              <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-lg flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-300 animate-fadeIn">
-                <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 mt-0.5 shrink-0" />
-                <div>
-                  <strong className="block font-semibold">Cảnh báo xung đột trùng lịch xe / nhân sự:</strong>
-                  <span>{conflictWarning.message}</span>
-                  <span className="block text-[11px] text-rose-600 dark:text-rose-400 mt-0.5">
-                    Quy tắc hệ thống: Một xe buýt hoặc tài xế không thể phục vụ 2 ca chạy chồng chéo thời gian trong cùng một ngày. Lệnh phân công này sẽ bị chặn lưu.
-                  </span>
-                </div>
-              </div>
-            )}
 
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
 

@@ -165,9 +165,13 @@ const auditModuleOf = (dto: AuditLogDto): AuditModule => {
   if (target.startsWith('ROUTE-')) return 'ROUTE';
   if (target.startsWith('STOP-')) return 'STOP';
   if (target.startsWith('FARE-')) return 'FARE';
-  if (target.startsWith('BUS-')) return 'BUS';
   // Phân công điều xe ghi target theo chuyến hoặc theo bản phân công.
-  if (target.startsWith('ASSIGNMENT-') || target.startsWith('ASN-') || target.startsWith('TRIP-')) {
+  if (
+    target.startsWith('ASSIGNMENT-') ||
+    target.startsWith('ASSIGN-') ||
+    target.startsWith('ASN-') ||
+    target.startsWith('TRIP-')
+  ) {
     return 'ASSIGNMENT';
   }
   if (dto.actionType === AuditActionTypeCode.Payment) return 'PAYMENT';

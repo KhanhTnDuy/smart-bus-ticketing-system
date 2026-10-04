@@ -208,8 +208,9 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
         if (filter.Date.HasValue)
         {
             var date = filter.Date.Value;
-            var startUtc = date.ToDateTime(TimeOnly.MinValue);
-            var endUtc = date.ToDateTime(TimeOnly.MaxValue);
+            // Ngày lọc là ngày Việt Nam (UTC+7), còn trips.DepartureAt lưu UTC nên phải đổi mốc đầu/cuối ngày sang UTC.
+            var startUtc = DateTime.SpecifyKind(date.ToDateTime(TimeOnly.MinValue) - VietnamOffset, DateTimeKind.Utc);
+            var endUtc = DateTime.SpecifyKind(date.ToDateTime(TimeOnly.MaxValue) - VietnamOffset, DateTimeKind.Utc);
             query = query.Where(t => t.DepartureAt >= startUtc && t.DepartureAt <= endUtc);
         }
 
@@ -1072,8 +1073,9 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
 
         if (date.HasValue)
         {
-            var startUtc = date.Value.ToDateTime(TimeOnly.MinValue);
-            var endUtc = date.Value.ToDateTime(TimeOnly.MaxValue);
+            // Ngày lọc là ngày Việt Nam (UTC+7), còn trips.DepartureAt lưu UTC nên phải đổi mốc đầu/cuối ngày sang UTC.
+            var startUtc = DateTime.SpecifyKind(date.Value.ToDateTime(TimeOnly.MinValue) - VietnamOffset, DateTimeKind.Utc);
+            var endUtc = DateTime.SpecifyKind(date.Value.ToDateTime(TimeOnly.MaxValue) - VietnamOffset, DateTimeKind.Utc);
             query = query.Where(ts => ts.Trip.DepartureAt >= startUtc && ts.Trip.DepartureAt <= endUtc);
         }
 

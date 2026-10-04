@@ -49,4 +49,5 @@ giả cho những trang chưa nối xong, nên khi sửa một trang hãy kiểm
 dữ liệu từ `useData()` hay từ hook trong `hooks/`.
 
 Đã nối API thật: đăng nhập, quản lý tuyến / trạm / giá vé, nhật ký hệ thống,
-tiếp nhận và xử lý phản ánh, quản lý xe buýt và sơ đồ ghế (/manager/buses).
+tiếp nhận và xử lý phản ánh, quản lý xe buýt và sơ đồ ghế (/manager/buses),
+phân công điều xe (chặn trùng lịch xe/tài xế).
