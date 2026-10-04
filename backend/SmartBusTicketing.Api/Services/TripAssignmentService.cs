@@ -32,6 +32,9 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
     /// <summary>Việt Nam không dùng giờ mùa hè nên dùng độ lệch cố định, không phụ thuộc tzdata máy chủ.</summary>
     private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
 
+    // DepartureAt lưu UTC; thông báo cho người dùng phải hiển thị giờ Việt Nam.
+    private static string FormatVietnamTime(DateTime utc) => (utc + VietnamOffset).ToString("HH:mm dd/MM/yyyy");
+
     private static (int Page, int PageSize) Normalize(int page, int pageSize) =>
         (Math.Max(1, page), Math.Clamp(pageSize, 1, 100));
 
@@ -484,7 +487,7 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                 if (busConflict != null)
                 {
                     return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Conflict,
-                        $"Xe buýt '{bus.PlateNumber}' đã được gán cho chuyến #{busConflict.Id} (Tuyến {busConflict.BusRoute.Code}) lúc {busConflict.DepartureAt:HH:mm dd/MM/yyyy}.");
+                        $"Xe buýt '{bus.PlateNumber}' đã được gán cho chuyến #{busConflict.Id} (Tuyến {busConflict.BusRoute.Code}) lúc {FormatVietnamTime(busConflict.DepartureAt)}.");
                 }
 
                 trip.BusId = targetBusId.Value;
@@ -524,7 +527,7 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                 if (driverConflict != null)
                 {
                     return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Conflict,
-                        $"Tài xế '{driver.FullName}' đã được phân công cho chuyến #{driverConflict.Id} (Tuyến {driverConflict.BusRoute.Code}) lúc {driverConflict.DepartureAt:HH:mm dd/MM/yyyy}.");
+                        $"Tài xế '{driver.FullName}' đã được phân công cho chuyến #{driverConflict.Id} (Tuyến {driverConflict.BusRoute.Code}) lúc {FormatVietnamTime(driverConflict.DepartureAt)}.");
                 }
             }
 
@@ -551,7 +554,7 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                 if (conductorConflict != null)
                 {
                     return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Conflict,
-                        $"Phụ xe '{conductor.FullName}' đã được phân công cho chuyến #{conductorConflict.Id} (Tuyến {conductorConflict.BusRoute.Code}) lúc {conductorConflict.DepartureAt:HH:mm dd/MM/yyyy}.");
+                        $"Phụ xe '{conductor.FullName}' đã được phân công cho chuyến #{conductorConflict.Id} (Tuyến {conductorConflict.BusRoute.Code}) lúc {FormatVietnamTime(conductorConflict.DepartureAt)}.");
                 }
             }
 
@@ -825,7 +828,7 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                     Capacity = b.Capacity,
                     Status = b.Status,
                     IsAvailable = false,
-                    UnavailableReason = $"Xe đã được gán cho chuyến #{conflict.Id} ({conflict.BusRoute.Code}) lúc {conflict.DepartureAt:HH:mm dd/MM/yyyy}"
+                    UnavailableReason = $"Xe đã được gán cho chuyến #{conflict.Id} ({conflict.BusRoute.Code}) lúc {FormatVietnamTime(conflict.DepartureAt)}"
                 });
                 continue;
             }
@@ -884,7 +887,7 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                     Phone = a.Phone,
                     Role = a.Role,
                     IsAvailable = false,
-                    UnavailableReason = $"Đã được phân công cho chuyến #{conflict.Id} ({conflict.BusRoute.Code}) lúc {conflict.DepartureAt:HH:mm dd/MM/yyyy}"
+                    UnavailableReason = $"Đã được phân công cho chuyến #{conflict.Id} ({conflict.BusRoute.Code}) lúc {FormatVietnamTime(conflict.DepartureAt)}"
                 });
                 continue;
             }
@@ -995,7 +998,7 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                 if (conflict != null)
                 {
                     conflictingCode = $"ASN-{conflict.Id}";
-                    conflicts.Add($"Xe '{bus.PlateNumber}' đã được gán cho chuyến #{conflict.Id} (Tuyến {conflict.BusRoute.Code}) lúc {conflict.DepartureAt:HH:mm dd/MM/yyyy}.");
+                    conflicts.Add($"Xe '{bus.PlateNumber}' đã được gán cho chuyến #{conflict.Id} (Tuyến {conflict.BusRoute.Code}) lúc {FormatVietnamTime(conflict.DepartureAt)}.");
                 }
             }
         }
@@ -1023,7 +1026,7 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                 if (conflict != null)
                 {
                     conflictingCode ??= $"ASN-{conflict.Id}";
-                    conflicts.Add($"Tài xế '{driver.FullName}' đã được phân công cho chuyến #{conflict.Id} (Tuyến {conflict.BusRoute.Code}) lúc {conflict.DepartureAt:HH:mm dd/MM/yyyy}.");
+                    conflicts.Add($"Tài xế '{driver.FullName}' đã được phân công cho chuyến #{conflict.Id} (Tuyến {conflict.BusRoute.Code}) lúc {FormatVietnamTime(conflict.DepartureAt)}.");
                 }
             }
         }
@@ -1045,7 +1048,7 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                 if (conflict != null)
                 {
                     conflictingCode ??= $"ASN-{conflict.Id}";
-                    conflicts.Add($"Phụ xe '{conductor.FullName}' đã được phân công cho chuyến #{conflict.Id} (Tuyến {conflict.BusRoute.Code}) lúc {conflict.DepartureAt:HH:mm dd/MM/yyyy}.");
+                    conflicts.Add($"Phụ xe '{conductor.FullName}' đã được phân công cho chuyến #{conflict.Id} (Tuyến {conflict.BusRoute.Code}) lúc {FormatVietnamTime(conflict.DepartureAt)}.");
                 }
             }
         }
