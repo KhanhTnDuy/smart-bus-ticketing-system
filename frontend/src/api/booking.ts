@@ -8,6 +8,7 @@
  */
 
 import { api } from './client';
+import { Ticket, TicketStatus } from '../types';
 
 // ---------- Kiểu dữ liệu theo DTO backend ----------
 
@@ -84,6 +85,34 @@ export interface ConfirmBookingResponse {
   holdExpiresAt: string;
 }
 
+/** Một vé của hành khách đang đăng nhập; mỗi ghế là một vé riêng. */
+export interface MyTicketDto {
+  ticketId: number;
+  bookingId: number;
+  bookingCode: string;
+  qrCode: string;
+  seatCode: string;
+  /** Held | Valid | Used | Cancelled | Exchanged | Expired */
+  status: string;
+  /** Pending | Confirmed | Cancelled | Expired */
+  bookingStatus: string;
+  holdExpiresAt: string;
+  tripId: number;
+  routeId: number;
+  routeCode: string;
+  routeName: string;
+  departureDate: string;
+  departureTime: string;
+  busPlate: string;
+  boardStopName: string;
+  alightStopName: string;
+  /** Giá của riêng vé này (tổng tiền lượt đặt chia số vé). */
+  price: number;
+  bookingFinalAmount: number;
+  passengerName: string;
+  passengerPhone: string | null;
+}
+
 export interface TripSearchParams {
   /** Tên trạm, ID trạm, hoặc điểm đầu/cuối tuyến. */
   from?: string;
@@ -106,3 +135,63 @@ export const getTripSeats = (tripId: number, signal?: AbortSignal) =>
 /** SCRUM-62: xác nhận đặt vé, giữ chỗ trong 10 phút. Bắt buộc đăng nhập. */
 export const confirmBooking = (body: ConfirmBookingRequest) =>
   api.post<ConfirmBookingResponse>('/api/bookings', body);
+
+/**
+ * Vé của chính tài khoản đang đăng nhập. Máy chủ đã lọc theo tài khoản nên không
+ * có cách xem vé của người khác, kể cả vai trò quản trị: hệ thống chưa có endpoint
+ * liệt kê toàn bộ vé.
+ */
+export const listMyTickets = (signal?: AbortSignal) =>
+  api.get<MyTicketDto[]>('/api/bookings/my', undefined, signal);
+
+/** Trạng thái vé của backend quy về tập trạng thái mà giao diện đang dùng. */
+const mapTicketStatus = (status: string): TicketStatus => {
+  switch (status) {
+    case 'Valid':
+      return 'PAID';
+    case 'Used':
+      return 'USED';
+    case 'Exchanged':
+      return 'CHANGED';
+    case 'Cancelled':
+      // Vé quá hạn giữ chỗ cũng về đây: giao diện chưa có trạng thái "hết hạn" riêng.
+      return 'CANCELLED';
+    case 'Expired':
+      return 'CANCELLED';
+    default:
+      // Held: đã giữ chỗ nhưng chưa thanh toán.
+      return 'PENDING';
+  }
+};
+
+/**
+ * Đưa vé từ máy chủ về đúng kiểu `Ticket` mà các trang hiện có đang dùng,
+ * để không phải viết lại giao diện.
+ *
+ * Hai trường giao diện cần mà backend chưa lưu:
+ * - `createdAt`: bảng bookings không có cột thời điểm tạo, nên để trống thay vì bịa.
+ * - `passengerEmail`: endpoint không trả email, cũng để trống.
+ */
+export const toTicket = (dto: MyTicketDto): Ticket => ({
+  // Mã vé ghép từ mã đặt chỗ và mã ghế: vừa duy nhất, vừa tra lại được lượt đặt.
+  id: `${dto.bookingCode}-${dto.seatCode}`,
+  passengerId: undefined,
+  passengerName: dto.passengerName,
+  passengerEmail: '',
+  passengerPhone: dto.passengerPhone ?? '',
+  tripId: String(dto.tripId),
+  routeId: String(dto.routeId),
+  routeName: `${dto.routeCode} - ${dto.routeName}`,
+  departureDate: dto.departureDate,
+  departureTime: dto.departureTime,
+  seatNumber: dto.seatCode,
+  busPlate: dto.busPlate,
+  price: dto.price,
+  paymentStatus: dto.status === 'Valid' || dto.status === 'Used' ? 'PAID' : 'PENDING',
+  ticketStatus: mapTicketStatus(dto.status),
+  status: mapTicketStatus(dto.status),
+  qrCodeData: dto.qrCode,
+  qrCodeValue: dto.qrCode,
+  ticketCode: dto.bookingCode,
+  createdAt: '',
+});

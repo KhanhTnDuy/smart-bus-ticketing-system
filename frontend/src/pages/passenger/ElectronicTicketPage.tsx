@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Ticket as TicketIcon,
   Search,
@@ -30,11 +30,44 @@ import { Modal } from '../../components/common/Modal';
 import { PageHeader } from '../../components/common/PageHeader';
 import { EmptyState } from '../../components/common/EmptyState';
 import { Ticket, TicketStatus } from '../../types';
+import { ApiError } from '../../api/client';
+import { listMyTickets, toTicket } from '../../api/booking';
 
 export const ElectronicTicketPage: React.FC = () => {
-  const { tickets, trips, routes, cancelTicket, changeTicket } = useData();
-  const { currentUser, role } = useAuth();
+  // trips/routes vẫn lấy từ context cho ô đổi vé (backend chưa có API đổi/hủy vé).
+  const { trips, routes, cancelTicket, changeTicket } = useData();
+  const { role } = useAuth();
   const { success, error, info } = useToast();
+
+  // Vé lấy từ máy chủ: GET /api/bookings/my đã lọc theo tài khoản đang đăng nhập.
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [isLoadingTickets, setIsLoadingTickets] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  // Số lần bấm "Thử lại"; đổi giá trị này là cách yêu cầu effect tải lại.
+  const [reloadToken, setReloadToken] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const load = async () => {
+      try {
+        const rows = await listMyTickets(controller.signal);
+        if (controller.signal.aborted) return;
+        setTickets(rows.map(toTicket));
+        setLoadError('');
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setTickets([]);
+        setLoadError(err instanceof ApiError ? err.message : 'Không tải được danh sách vé của bạn.');
+      } finally {
+        if (!controller.signal.aborted) setIsLoadingTickets(false);
+      }
+    };
+
+    void load();
+    return () => controller.abort();
+  }, [reloadToken]);
 
   const showSuccess = success;
   const showError = error;
@@ -69,19 +102,13 @@ export const ElectronicTicketPage: React.FC = () => {
     return r ? `${r.code || r.routeCode || ''} - ${r.name}` : routeId;
   };
 
-  // Filtered tickets (if passenger, show user tickets, if manager/admin show all)
-  const userTickets = useMemo(() => {
-    let list = tickets;
-    if (role === 'PASSENGER' && currentUser) {
-      list = list.filter(
-        (t) =>
-          t.passengerId === currentUser.id ||
-          t.passengerName.toLowerCase() === currentUser.fullName.toLowerCase() ||
-          t.passengerPhone === currentUser.phone
-      );
-    }
-    return list;
-  }, [tickets, currentUser, role]);
+  // Máy chủ đã lọc theo tài khoản đang đăng nhập nên không lọc lại ở client: lọc
+  // thêm theo tên hoặc số điện thoại như bản dữ liệu mẫu sẽ làm mất vé của chính
+  // mình khi hồ sơ chưa điền số điện thoại.
+  //
+  // Lưu ý: vai trò Quản trị/Điều hành cũng chỉ thấy vé của chính mình, vì hệ thống
+  // chưa có endpoint liệt kê toàn bộ vé.
+  const userTickets = tickets;
 
   const filteredTickets = useMemo(() => {
     return userTickets.filter((ticket) => {
@@ -215,6 +242,27 @@ export const ElectronicTicketPage: React.FC = () => {
         ]}
       />
 
+      {/* Không tải được vé thì phải nói rõ, nếu không trang trông y như "chưa có vé nào" */}
+      {loadError && (
+        <div className="flex items-start justify-between gap-3 p-3 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{loadError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setIsLoadingTickets(true);
+              setReloadToken((n) => n + 1);
+            }}
+            className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-rose-100 dark:bg-rose-900/60 hover:bg-rose-200 dark:hover:bg-rose-900 font-bold transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Thử lại</span>
+          </button>
+        </div>
+      )}
+
       {/* Filter and Control Bar */}
       <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm flex flex-col md:flex-row gap-4 justify-between items-stretch md:items-center">
         <div className="flex flex-col sm:flex-row gap-3 flex-1">
@@ -279,7 +327,11 @@ export const ElectronicTicketPage: React.FC = () => {
       </div>
 
       {/* Tickets List */}
-      {filteredTickets.length === 0 ? (
+      {isLoadingTickets ? (
+        <div className="bg-white dark:bg-[#131e3a] p-10 rounded-xl border border-slate-200 dark:border-[#1e2f57] text-center text-xs text-slate-500 dark:text-slate-400">
+          Đang tải danh sách vé của bạn…
+        </div>
+      ) : filteredTickets.length === 0 ? (
         <EmptyState
           title="Không tìm thấy vé xe nào"
           description={
