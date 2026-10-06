@@ -290,19 +290,18 @@ export const BusManagementPage: React.FC = () => {
       {/* Header */}
       <PageHeader
         title="Quản lý Đội xe Buýt"
-        subtitle="Quản lý thông tin phương tiện, sức chứa chỗ ngồi, trạng thái vận hành và cấu hình sơ đồ ghế theo hàng/cột"
+        description="Quản lý thông tin phương tiện, sức chứa chỗ ngồi, trạng thái vận hành và cấu hình sơ đồ ghế theo hàng/cột"
         action={
           <button
             type="button"
             onClick={handleOpenAdd}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-institutional-600 hover:bg-institutional-700 text-white rounded-lg shadow-sm text-sm font-semibold transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm text-sm font-semibold transition-colors"
           >
             <Plus className="w-4 h-4" />
             <span>Thêm xe buýt mới</span>
           </button>
         }
       />
-
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -357,27 +356,26 @@ export const BusManagementPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Filters & Search */}
+      {/* Filters */}
       <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col md:flex-row gap-4 items-center justify-between">
-        <div className="relative w-full md:w-96">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <div className="relative w-full md:w-80">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Tìm biển số xe, dòng xe, tuyến..."
+            placeholder="Tìm theo biển số, dòng xe, tuyến..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-institutional-500"
+            className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          {/* Status Filter */}
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-slate-400" />
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="py-2 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-institutional-500"
+              className="text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="ALL">Tất cả trạng thái</option>
               <option value="ACTIVE">Đang hoạt động</option>
@@ -386,13 +384,12 @@ export const BusManagementPage: React.FC = () => {
             </select>
           </div>
 
-          {/* Route Filter */}
           <select
             value={routeFilter}
             onChange={(e) => setRouteFilter(e.target.value)}
-            className="py-2 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-institutional-500"
+            className="text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="ALL">Tất cả tuyến xe</option>
+            <option value="ALL">Tất cả tuyến đường</option>
             {routes.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.code || r.routeCode} - {r.name}
@@ -408,18 +405,10 @@ export const BusManagementPage: React.FC = () => {
           <EmptyState
             title="Không tìm thấy xe buýt nào"
             description="Hãy thử thay đổi từ khóa tìm kiếm hoặc bộ lọc trạng thái xe."
-            action={
-              <button
-                type="button"
-                onClick={handleOpenAdd}
-                className="px-3.5 py-1.5 bg-institutional-600 hover:bg-institutional-700 text-white text-xs font-semibold rounded-lg shadow-sm"
-              >
-                Thêm xe buýt mới
-              </button>
-            }
+            actionLabel="Thêm xe buýt mới"
+            onAction={handleOpenAdd}
           />
         ) : (
-
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-sm">
               <thead>
@@ -444,55 +433,47 @@ export const BusManagementPage: React.FC = () => {
                       {/* Plate */}
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-3">
-                          <div className="p-2 bg-institutional-50 dark:bg-institutional-900/40 text-institutional-600 dark:text-institutional-400 rounded-lg">
+                          <div className="p-2 bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded-lg">
                             <Bus className="w-5 h-5" />
                           </div>
                           <div>
                             <span className="font-bold text-slate-900 dark:text-white font-mono text-base">
                               {bus.plateNumber}
                             </span>
-                            <p className="text-xs text-slate-400 font-mono">{bus.id}</p>
+                            <p className="text-xs text-slate-400 font-mono">ID: {bus.id}</p>
                           </div>
                         </div>
                       </td>
 
                       {/* Model */}
                       <td className="py-3.5 px-4">
-                        <p className="font-semibold text-slate-800 dark:text-slate-200">
-                          {bus.model}
-                        </p>
-                        {bus.notes && (
-                          <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 max-w-xs">
-                            {bus.notes}
-                          </p>
-                        )}
+                        <p className="font-medium text-slate-800 dark:text-slate-200">{bus.model}</p>
+                        <p className="text-xs text-slate-400">Tiêu chuẩn đô thị</p>
                       </td>
 
                       {/* Capacity & Layout */}
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-2">
-                          <span className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded font-semibold text-xs">
+                          <span className="font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/40 px-2 py-0.5 rounded text-xs border border-indigo-200 dark:border-indigo-800">
                             {bus.capacity} chỗ
                           </span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">
-                            ({bus.rows || 6} hàng × {bus.cols || 4} cột)
+                          <span className="text-xs text-slate-500">
+                            ({bus.rows} hàng × {bus.cols} cột)
                           </span>
                         </div>
                       </td>
 
-                      {/* Route */}
+                      {/* Assigned Route */}
                       <td className="py-3.5 px-4">
                         {assignedRoute ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-semibold text-institutional-600 dark:text-institutional-400">
+                          <div>
+                            <span className="font-semibold text-slate-900 dark:text-white">
                               {assignedRoute.code || assignedRoute.routeCode}
                             </span>
-                            <span className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
-                              - {assignedRoute.name}
-                            </span>
+                            <p className="text-xs text-slate-400 line-clamp-1 max-w-xs">{assignedRoute.name}</p>
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-400 italic">Chưa cố định tuyến</span>
+                          <span className="text-xs text-slate-400 italic">Dự phòng (Chưa gán tuyến)</span>
                         )}
                       </td>
 
@@ -554,7 +535,6 @@ export const BusManagementPage: React.FC = () => {
         title="Thêm Xe Buýt Mới & Cấu Hình Sơ Đồ Ghế"
         maxWidth="2xl"
       >
-
         <form onSubmit={handleConfirmAdd} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -567,7 +547,7 @@ export const BusManagementPage: React.FC = () => {
                 placeholder="VD: 51B-184.22"
                 value={formPlate}
                 onChange={(e) => setFormPlate(e.target.value.toUpperCase())}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -581,7 +561,7 @@ export const BusManagementPage: React.FC = () => {
                 placeholder="VD: Thaco City TB85S"
                 value={formModel}
                 onChange={(e) => setFormModel(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -592,12 +572,12 @@ export const BusManagementPage: React.FC = () => {
               <select
                 value={formRouteId}
                 onChange={(e) => setFormRouteId(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="">-- Xe chạy lưu động / Không cố định --</option>
+                <option value="">-- Xe dự phòng (Không cố định tuyến) --</option>
                 {routes.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.code || r.routeCode} - {r.name}
+                    [{r.code || r.routeCode}] {r.name}
                   </option>
                 ))}
               </select>
@@ -605,12 +585,12 @@ export const BusManagementPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Trạng thái xe
+                Trạng thái xe <span className="text-rose-500">*</span>
               </label>
               <select
                 value={formStatus}
                 onChange={(e) => setFormStatus(e.target.value as BusStatus)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="ACTIVE">Đang hoạt động</option>
                 <option value="MAINTENANCE">Đang bảo dưỡng</option>
@@ -622,7 +602,7 @@ export const BusManagementPage: React.FC = () => {
           {/* Seat Layout Configuration */}
           <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-institutional-600 dark:text-institutional-400 flex items-center gap-1.5">
+              <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
                 <LayoutGrid className="w-4 h-4" />
                 Cấu hình sơ đồ ghế (Hàng × Cột)
               </span>
@@ -642,7 +622,7 @@ export const BusManagementPage: React.FC = () => {
                   max={10}
                   value={formRows}
                   onChange={(e) => setFormRows(Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-semibold text-center focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                  className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-semibold text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
@@ -656,7 +636,7 @@ export const BusManagementPage: React.FC = () => {
                   max={6}
                   value={formCols}
                   onChange={(e) => setFormCols(Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-semibold text-center focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                  className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-semibold text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             </div>
@@ -681,7 +661,7 @@ export const BusManagementPage: React.FC = () => {
                 max={2030}
                 value={formManufactureYear}
                 onChange={(e) => setFormManufactureYear(Number(e.target.value))}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -693,7 +673,7 @@ export const BusManagementPage: React.FC = () => {
                 type="date"
                 value={formLastInspection}
                 onChange={(e) => setFormLastInspection(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
@@ -706,8 +686,7 @@ export const BusManagementPage: React.FC = () => {
               rows={2}
               value={formNotes}
               onChange={(e) => setFormNotes(e.target.value)}
-              placeholder="VD: Cổng sạc USB tại hàng ghế, hệ thống camera AI, cảm biến áp suất lốp..."
-              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-institutional-500"
+              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
@@ -722,9 +701,9 @@ export const BusManagementPage: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-4 py-2 bg-institutional-600 hover:bg-institutional-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors"
             >
-              {isSubmitting ? 'Đang lưu...' : 'Thêm xe buýt'}
+              {isSubmitting ? 'Đang thêm...' : 'Thêm xe buýt'}
             </button>
           </div>
         </form>
@@ -734,11 +713,10 @@ export const BusManagementPage: React.FC = () => {
       <Modal
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
-        title={`Chỉnh Sửa Xe Buýt [${selectedBus?.plateNumber}]`}
+        title={`Chỉnh Sửa Thông Tin Xe [${selectedBus?.plateNumber}]`}
         maxWidth="2xl"
       >
         <form onSubmit={handleConfirmEdit} className="space-y-4">
-
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -749,7 +727,7 @@ export const BusManagementPage: React.FC = () => {
                 required
                 value={formPlate}
                 onChange={(e) => setFormPlate(e.target.value.toUpperCase())}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -762,7 +740,7 @@ export const BusManagementPage: React.FC = () => {
                 required
                 value={formModel}
                 onChange={(e) => setFormModel(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -773,12 +751,12 @@ export const BusManagementPage: React.FC = () => {
               <select
                 value={formRouteId}
                 onChange={(e) => setFormRouteId(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="">-- Xe chạy lưu động / Không cố định --</option>
+                <option value="">-- Xe dự phòng (Không cố định tuyến) --</option>
                 {routes.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.code || r.routeCode} - {r.name}
+                    [{r.code || r.routeCode}] {r.name}
                   </option>
                 ))}
               </select>
@@ -786,12 +764,12 @@ export const BusManagementPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Trạng thái xe
+                Trạng thái xe <span className="text-rose-500">*</span>
               </label>
               <select
                 value={formStatus}
                 onChange={(e) => setFormStatus(e.target.value as BusStatus)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="ACTIVE">Đang hoạt động</option>
                 <option value="MAINTENANCE">Đang bảo dưỡng</option>
@@ -803,7 +781,7 @@ export const BusManagementPage: React.FC = () => {
           {/* Seat Layout Configuration */}
           <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-institutional-600 dark:text-institutional-400 flex items-center gap-1.5">
+              <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
                 <LayoutGrid className="w-4 h-4" />
                 Cấu hình sơ đồ ghế (Hàng × Cột)
               </span>
@@ -823,7 +801,7 @@ export const BusManagementPage: React.FC = () => {
                   max={10}
                   value={formRows}
                   onChange={(e) => setFormRows(Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-semibold text-center focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                  className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-semibold text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
@@ -837,7 +815,7 @@ export const BusManagementPage: React.FC = () => {
                   max={6}
                   value={formCols}
                   onChange={(e) => setFormCols(Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-semibold text-center focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                  className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-semibold text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             </div>
@@ -862,7 +840,7 @@ export const BusManagementPage: React.FC = () => {
                 max={2030}
                 value={formManufactureYear}
                 onChange={(e) => setFormManufactureYear(Number(e.target.value))}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -874,7 +852,7 @@ export const BusManagementPage: React.FC = () => {
                 type="date"
                 value={formLastInspection}
                 onChange={(e) => setFormLastInspection(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-institutional-500"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
@@ -887,7 +865,7 @@ export const BusManagementPage: React.FC = () => {
               rows={2}
               value={formNotes}
               onChange={(e) => setFormNotes(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-institutional-500"
+              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
@@ -902,7 +880,7 @@ export const BusManagementPage: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-4 py-2 bg-institutional-600 hover:bg-institutional-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors"
             >
               {isSubmitting ? 'Đang lưu...' : 'Lưu cập nhật'}
             </button>
@@ -936,7 +914,7 @@ export const BusManagementPage: React.FC = () => {
 
             <div>
               <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
-                <LayoutGrid className="w-4 h-4 text-institutional-600 dark:text-institutional-400" />
+                <LayoutGrid className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 Mặt bằng bố trí ghế ngồi thực tế:
               </p>
               {renderSeatGrid(selectedBus.rows || 6, selectedBus.cols || 4)}
@@ -974,4 +952,3 @@ export const BusManagementPage: React.FC = () => {
     </div>
   );
 };
-
