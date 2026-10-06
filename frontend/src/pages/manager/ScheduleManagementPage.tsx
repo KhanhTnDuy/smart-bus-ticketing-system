@@ -686,8 +686,9 @@ export const ScheduleManagementPage: React.FC = () => {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredTrips.map((trip) => {
                   const route = routes.find((r) => r.id === trip.routeId);
-                  const bookedCount = trip.bookedSeats.length;
-                  const occupancyPercent = Math.round((bookedCount / trip.totalSeats) * 100);
+                  const bookedCount = trip.bookedSeats ? trip.bookedSeats.length : 0;
+                  const hasBusAssigned = Boolean(trip.busPlate && trip.busPlate !== 'Chưa gán xe' && trip.totalSeats > 0);
+                  const occupancyPercent = hasBusAssigned ? Math.round((bookedCount / trip.totalSeats) * 100) : 0;
 
                   return (
                     <tr
@@ -723,24 +724,32 @@ export const ScheduleManagementPage: React.FC = () => {
                         {trip.estimatedArrivalTime}
                       </td>
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-800 dark:text-slate-200">
-                            {bookedCount}/{trip.totalSeats}
+                        {hasBusAssigned ? (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-800 dark:text-slate-200">
+                                {bookedCount}/{trip.totalSeats}
+                              </span>
+                              <span className="text-[10px] text-slate-400">({occupancyPercent}%)</span>
+                            </div>
+                            <div className="w-20 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden mt-1">
+                              <div
+                                className={`h-full rounded-full ${
+                                  occupancyPercent > 80
+                                    ? 'bg-red-500'
+                                    : occupancyPercent > 40
+                                    ? 'bg-amber-500'
+                                    : 'bg-emerald-500'
+                                }`}
+                                style={{ width: `${Math.min(occupancyPercent, 100)}%` }}
+                              />
+                            </div>
+                          </>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                            Chưa gán xe
                           </span>
-                          <span className="text-[10px] text-slate-400">({occupancyPercent}%)</span>
-                        </div>
-                        <div className="w-20 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden mt-1">
-                          <div
-                            className={`h-full rounded-full ${
-                              occupancyPercent > 80
-                                ? 'bg-red-500'
-                                : occupancyPercent > 40
-                                ? 'bg-amber-500'
-                                : 'bg-emerald-500'
-                            }`}
-                            style={{ width: `${occupancyPercent}%` }}
-                          />
-                        </div>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                         {trip.price.toLocaleString('vi-VN')} đ

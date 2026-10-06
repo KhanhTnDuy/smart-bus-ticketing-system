@@ -13,6 +13,9 @@ import {
   TripStatus,
   AssignmentStatus,
   BusStatus,
+  VerificationStatus,
+  DiscountBeneficiaryType,
+  OccupancyLoadStatus,
 } from '../../types';
 
 interface BadgeProps {
@@ -32,6 +35,10 @@ interface BadgeProps {
     | 'incidentStatus'
     | 'tripStatus'
     | 'assignmentStatus'
+    | 'verificationStatus'
+    | 'voucherStatus'
+    | 'beneficiaryType'
+    | 'occupancyStatus'
     | 'custom';
   value: string;
   className?: string;
@@ -277,10 +284,87 @@ export const Badge: React.FC<BadgeProps> = ({
           'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/60 dark:text-rose-400 dark:border-rose-800';
         break;
     }
+  } else if (variant === 'verificationStatus') {
+    switch (value as VerificationStatus) {
+      case 'PENDING':
+        badgeStyle =
+          'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-800';
+        break;
+      case 'APPROVED':
+        badgeStyle =
+          'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-800';
+        break;
+      case 'REJECTED':
+        badgeStyle =
+          'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/60 dark:text-rose-400 dark:border-rose-800';
+        break;
+    }
+  } else if (variant === 'beneficiaryType') {
+    switch (value as DiscountBeneficiaryType) {
+      case 'STUDENT':
+        badgeStyle =
+          'bg-sky-50 text-sky-700 border-sky-300 dark:bg-sky-950/60 dark:text-sky-400 dark:border-sky-800';
+        break;
+      case 'ELDERLY':
+        badgeStyle =
+          'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-800';
+        break;
+      case 'DISABILITY':
+        badgeStyle =
+          'bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950/60 dark:text-purple-400 dark:border-purple-800';
+        break;
+      case 'WORKER':
+        badgeStyle =
+          'bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950/60 dark:text-indigo-400 dark:border-indigo-800';
+        break;
+    }
+  } else if (variant === 'occupancyStatus') {
+    switch (value as OccupancyLoadStatus) {
+      case 'OVERLOAD':
+        badgeStyle =
+          'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/60 dark:text-rose-400 dark:border-rose-800';
+        break;
+      case 'OPTIMAL':
+        badgeStyle =
+          'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-800';
+        break;
+      case 'LOW':
+        badgeStyle =
+          'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-800';
+        break;
+      case 'NO_TICKETS':
+        badgeStyle =
+          'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700';
+        break;
+      case 'NO_BUS':
+        badgeStyle =
+          'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-300 dark:bg-fuchsia-950/60 dark:text-fuchsia-400 dark:border-fuchsia-800';
+        break;
+    }
+  } else if (variant === 'voucherStatus') {
+    if (value === 'ACTIVE' || value === 'true') {
+      badgeStyle =
+        'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-800';
+    } else if (value === 'EXPIRED') {
+      badgeStyle =
+        'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/60 dark:text-rose-400 dark:border-rose-800';
+    } else {
+      badgeStyle =
+        'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700';
+    }
   }
 
   // Label translations
   const getDisplayLabel = () => {
+    if (variant === 'verificationStatus' && value === 'PENDING') {
+      return 'Chờ duyệt';
+    }
+    if (variant === 'voucherStatus') {
+      if (value === 'ACTIVE' || value === 'true') return 'Đang kích hoạt';
+      if (value === 'EXPIRED') return 'Đã hết hạn';
+      return 'Tạm ngưng';
+    }
+
     switch (value) {
       case 'ADMIN':
         return 'Quản trị viên';
@@ -308,6 +392,26 @@ export const Badge: React.FC<BadgeProps> = ({
         return 'Đã xử lý';
       case 'REJECTED':
         return 'Từ chối';
+      case 'APPROVED':
+        return 'Đã duyệt';
+      case 'STUDENT':
+        return 'Học sinh / Sinh viên';
+      case 'ELDERLY':
+        return 'Người cao tuổi (≥60)';
+      case 'DISABILITY':
+        return 'Người khuyết tật';
+      case 'WORKER':
+        return 'Công nhân KCN';
+      case 'OVERLOAD':
+        return 'Quá tải (>85%)';
+      case 'OPTIMAL':
+        return 'Tối ưu (60-85%)';
+      case 'LOW':
+        return 'Thấp (<60%)';
+      case 'NO_TICKETS':
+        return 'Chưa có vé (0%)';
+      case 'NO_BUS':
+        return 'Chưa gán xe';
       case 'SUCCESS':
         return 'Thành công';
       case 'FAILURE':
