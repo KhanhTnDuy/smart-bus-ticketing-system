@@ -84,3 +84,21 @@ export const getFeedback = (id: number, signal?: AbortSignal) =>
 /** Đổi trạng thái xử lý. Backend ghi thêm một dòng vào lịch sử và nhật ký hệ thống. */
 export const updateFeedbackStatus = (id: number, status: FeedbackStatusCode) =>
   request<FeedbackDto>(`/api/feedback/${id}/status`, { method: 'PATCH', body: { status } });
+
+export interface CreateFeedbackRequest {
+  passengerId: number;
+  routeId?: number;
+  tripId?: number;
+  type: FeedbackTypeCode;
+  subject: string;
+  content?: string;
+  rating?: number;
+  imagePath?: string;
+}
+
+/** Hành khách gửi phản ánh hoặc đánh giá. Backend lấy người gửi từ JWT, bỏ qua passengerId trong body. */
+export const createFeedback = (body: CreateFeedbackRequest) => api.post<FeedbackDto>('/api/feedback', body);
+
+/** Phản ánh, đánh giá do chính người đăng nhập gửi. */
+export const listMyFeedback = (type?: FeedbackTypeCode, signal?: AbortSignal) =>
+  api.get<FeedbackDto[]>('/api/feedback/my', { type }, signal);
