@@ -27,6 +27,7 @@ import {
   Search,
   LifeBuoy,
   TrendingUp,
+  TicketPercent,
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
@@ -237,6 +238,14 @@ export const Navbar: React.FC = () => {
                       >
                         <TrendingUp className="w-4 h-4 text-amber-400" />
                         <span>Báo cáo doanh thu vé</span>
+                      </NavLink>
+                      <NavLink
+                        to="/manager/vouchers"
+                        onClick={() => setActiveDropdown(null)}
+                        className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-blue-800/50 hover:text-white"
+                      >
+                        <TicketPercent className="w-4 h-4 text-rose-400" />
+                        <span>Mã giảm giá (Vouchers)</span>
                       </NavLink>
                     </div>
                   )}
@@ -501,6 +510,21 @@ export const Navbar: React.FC = () => {
                 >
                   <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
                   <span>Báo cáo doanh thu</span>
+                </NavLink>
+
+                {/* 6. Quản lý mã giảm giá (SCRUM-66 & SCRUM-67) */}
+                <NavLink
+                  to="/manager/vouchers"
+                  className={({ isActive }) =>
+                    `flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold uppercase tracking-wider transition-colors ${
+                      isActive
+                        ? 'bg-institutional-800 text-amber-300 shadow-inner'
+                        : 'text-slate-100 hover:bg-white/10 hover:text-white'
+                    }`
+                  }
+                >
+                  <TicketPercent className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Mã giảm giá</span>
                 </NavLink>
               </>
             )}
@@ -863,6 +887,13 @@ export const Navbar: React.FC = () => {
                 <TrendingUp className="w-4 h-4 text-amber-400" />
                 <span>Báo cáo doanh thu vé</span>
               </NavLink>
+              <NavLink
+                to="/manager/vouchers"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <TicketPercent className="w-4 h-4 text-rose-400" />
+                <span>Quản lý mã giảm giá (Vouchers)</span>
+              </NavLink>
             </>
           )}
 
@@ -929,6 +960,13 @@ export const Navbar: React.FC = () => {
               >
                 <TrendingUp className="w-4 h-4 text-amber-400" />
                 <span>Báo cáo doanh thu bán vé</span>
+              </NavLink>
+              <NavLink
+                to="/manager/vouchers"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <TicketPercent className="w-4 h-4 text-rose-400" />
+                <span>Quản lý mã giảm giá (Vouchers)</span>
               </NavLink>
               <NavLink
                 to="/manager/ticket-requests"

@@ -34,6 +34,7 @@ export type AuditModule =
   | 'SCHEDULE'
   | 'ASSIGNMENT'
   | 'VEHICLE'
+  | 'VOUCHER'
   | 'SYSTEM';
 
 
@@ -394,3 +395,46 @@ export interface TimetableTemplate {
   notes?: string;
 }
 
+// ==============================================================
+// VOUCHER / PROMOTION TYPES (SCRUM-66 & SCRUM-67)
+// ==============================================================
+export type VoucherDiscountType = 'Percent' | 'Fixed';
+
+export type VoucherStatus = 'ACTIVE' | 'EXPIRED' | 'OUT_OF_STOCK' | 'UPCOMING';
+
+export interface Voucher {
+  id: number;
+  code: string;
+  discountType: VoucherDiscountType;
+  discountValue: number;
+  startAt: string; // ISO DateTime
+  endAt: string;
+  usageLimit: number;
+  usedCount: number;
+  remainingCount: number;
+  isActive: boolean;
+  status: VoucherStatus;
+}
+
+export interface VoucherRequest {
+  code: string;
+  discountType: VoucherDiscountType;
+  discountValue: number;
+  startAt: string;
+  endAt: string;
+  usageLimit: number;
+}
+
+export interface ValidateVoucherResult {
+  isValid: boolean;
+  message: string;
+  voucher?: Voucher | null;
+  discountAmount: number;
+  finalAmount: number;
+}
+
+export interface CheckVoucherCodeResult {
+  code: string;
+  isAvailable: boolean;
+  message: string;
+}

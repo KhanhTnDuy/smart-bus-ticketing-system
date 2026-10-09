@@ -205,6 +205,54 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
 
             await seatHolds.ReleaseStaleHoldsAsync(dto.TripId, dto.SeatIds, ct);
 
+            var baseAmount = await CalculateFinalAmountAsync(trip, passengerId.Value, seats.Count, ct);
+            Voucher? appliedVoucher = null;
+            decimal discountAmount = 0;
+
+            // SCRUM-67: Kiểm tra voucher khi đặt vé
+            if (!string.IsNullOrWhiteSpace(dto.VoucherCode))
+            {
+                var vCode = dto.VoucherCode.Trim().ToUpperInvariant();
+                var voucher = await db.Vouchers.Include(v => v.Bookings).FirstOrDefaultAsync(v => v.Code == vCode, ct);
+                if (voucher == null)
+                {
+                    await transaction.RollbackAsync(ct);
+                    return BadRequest(new { message = $"Mã giảm giá '{dto.VoucherCode}' không tồn tại trong hệ thống." });
+                }
+
+                var nowUtc = DateTime.UtcNow;
+                if (nowUtc < voucher.StartAt)
+                {
+                    await transaction.RollbackAsync(ct);
+                    return BadRequest(new { message = $"Mã giảm giá '{voucher.Code}' chưa đến thời gian áp dụng." });
+                }
+
+                if (nowUtc > voucher.EndAt)
+                {
+                    await transaction.RollbackAsync(ct);
+                    return BadRequest(new { message = $"Mã giảm giá '{voucher.Code}' đã hết hạn sử dụng." });
+                }
+
+                var usedCount = voucher.Bookings.Count(b => b.Status == BookingStatus.Confirmed || (b.Status == BookingStatus.Pending && b.HoldExpiresAt > nowUtc));
+                if (voucher.UsageLimit > 0 && usedCount >= voucher.UsageLimit)
+                {
+                    await transaction.RollbackAsync(ct);
+                    return BadRequest(new { message = $"Mã giảm giá '{voucher.Code}' đã hết số lượt sử dụng tối đa." });
+                }
+
+                appliedVoucher = voucher;
+                if (voucher.DiscountType == DiscountType.Percent)
+                {
+                    discountAmount = Math.Round(baseAmount * (voucher.DiscountValue / 100m));
+                }
+                else
+                {
+                    discountAmount = Math.Min(baseAmount, voucher.DiscountValue);
+                }
+            }
+
+            var finalAmount = Math.Max(0, baseAmount - discountAmount);
+
             // Booking phải có đủ các cột NOT NULL theo schema, nếu không SaveChanges sẽ ném
             // DbUpdateException và bị catch bên dưới quy nhầm thành lỗi tranh chấp ghế.
             var booking = new Booking
@@ -215,9 +263,10 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
                 BookingCode = "BK-" + Guid.NewGuid().ToString("N")[..16].ToUpper(),
                 PassengerId = passengerId.Value,
                 TripId = dto.TripId,
+                VoucherId = appliedVoucher?.Id,
                 Status = BookingStatus.Pending,
                 HoldExpiresAt = DateTime.UtcNow.AddMinutes(10),
-                FinalAmount = await CalculateFinalAmountAsync(trip, passengerId.Value, seats.Count, ct)
+                FinalAmount = finalAmount
             };
 
             db.Bookings.Add(booking);
@@ -252,7 +301,10 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
                 tripId = dto.TripId,
                 bookedSeats = seats.Select(s => s.SeatCode).ToList(),
                 totalSeats = seats.Count,
+                originalAmount = baseAmount,
+                discountAmount = discountAmount,
                 finalAmount = booking.FinalAmount,
+                voucherCode = appliedVoucher?.Code,
                 holdExpiresAt = booking.HoldExpiresAt
             });
         }
