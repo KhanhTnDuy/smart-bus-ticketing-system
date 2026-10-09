@@ -86,3 +86,25 @@ Chuyến xe (bảng `trips`) được quản lý qua `/api/assignments`:
 Tên tài xế, phụ xe, biển số gửi lên mà không tồn tại thì trả 404, không còn bị bỏ qua.
 
 `GET /api/feedback/my` trả phản ánh, đánh giá do chính người đăng nhập gửi (trang Khiếu nại của hành khách).
+
+## Báo sự cố và quét vé QR
+
+Cần chạy `dotnet ef database update` để áp migration `AddIncidentAndScanDetails` (thêm cột cho
+`incidents`, `ticket_scans`, `notifications`).
+
+**Sự cố** (`/api/incidents`):
+
+- `POST` tài xế, phụ xe báo sự cố cho chuyến mình được phân công (Admin, Quản lý báo thay được). Hành khách báo được
+  nếu đang có vé đặt trên chuyến; báo cáo của hành khách chỉ được ghi nhận, không đổi giờ chuyến và không gửi thông báo.
+- Sự cố có số phút trễ làm chuyến chuyển sang `Delayed` và tạo `notifications` cho hành khách đã đặt vé trên chuyến.
+- `GET` Admin, Quản lý xem tất cả; người khác chỉ thấy báo cáo của chính mình.
+- `PATCH /{id}/resolve` (Admin, Quản lý) đóng sự cố kèm ghi chú; đóng lần hai trả 409.
+
+**Quét vé** (`/api/ticket-scans`):
+
+- `POST { qrCode, tripId }` cho tài xế, phụ xe của chuyến đó (Admin, Quản lý quét thay được). Kết quả: `Valid`, `Invalid`,
+  `AlreadyUsed`, `WrongTrip`, `Expired`. Vé `Valid` chuyển sang `Used` bằng một câu UPDATE có điều kiện nên hai lần quét
+  đồng thời chỉ một lần thành công. Mọi lần quét, kể cả bị từ chối, đều ghi vào `ticket_scans`.
+- Vé còn `Held` (chưa thanh toán) bị từ chối. Hệ thống chưa có luồng thanh toán nên chưa vé nào sang `Valid`; khi thử phải
+  tự đổi trạng thái vé trong cơ sở dữ liệu.
+- `GET ?tripId=` lịch sử quét của chuyến.
