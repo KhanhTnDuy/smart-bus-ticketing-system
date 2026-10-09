@@ -19,6 +19,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
+import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { useToast } from '../../context/ToastContext';
 import { Badge } from '../../components/common/Badge';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -32,7 +33,6 @@ export const ScheduleManagementPage: React.FC = () => {
     trips,
     routes,
     buses,
-    users,
     addTrip,
     addTripsBatch,
     updateTrip,
@@ -45,6 +45,18 @@ export const ScheduleManagementPage: React.FC = () => {
   const { success, error } = useToast();
   const showSuccess = success;
   const showError = error;
+
+  // Tài xế và phụ xe lấy từ tài khoản thật trong CSDL. Cả hai đều mang vai trò DRIVER ở frontend,
+  // phụ xe phân biệt qua phòng ban "Đội Soát vé" (xem toUser trong api/accountManagement.ts).
+  const { users } = useAccountManagement();
+  const driverAccounts = useMemo(
+    () => users.filter((u) => u.role === 'DRIVER' && u.status === 'ACTIVE' && u.department !== 'Đội Soát vé'),
+    [users],
+  );
+  const conductorAccounts = useMemo(
+    () => users.filter((u) => u.role === 'DRIVER' && u.status === 'ACTIVE' && u.department === 'Đội Soát vé'),
+    [users],
+  );
 
   const [activeTab, setActiveTab] = useState<'TRIPS' | 'TIMETABLES'>('TRIPS');
 
@@ -250,11 +262,10 @@ export const ScheduleManagementPage: React.FC = () => {
     const fleetPlates = candidateBuses.map((b) => b.plateNumber);
     const platesToUse = fleetPlates.length > 0 ? fleetPlates : ['51B-184.22'];
 
-    // Lấy danh sách tài xế thật từ danh sách người dùng (vai trò DRIVER)
-    const activeDrivers = users.filter((u) => u.role === 'DRIVER' && u.status === 'ACTIVE');
-    const allDrivers = activeDrivers.length > 0 ? activeDrivers : users.filter((u) => u.role === 'DRIVER');
-    const driverNames = allDrivers.map((d) => d.fullName);
-    const driversToUse = driverNames.length > 0 ? driverNames : ['Nguyễn Văn Tuấn'];
+    // Chỉ dùng tài xế thật trong CSDL; chưa có tài xế nào thì không sinh chuyến để khỏi gán tên bịa.
+    const driversToUse = driverAccounts.map((d) => d.fullName);
+    if (driversToUse.length === 0) return [];
+    const conductorsToUse = conductorAccounts.map((c) => c.fullName);
 
     const items: Array<Omit<BusTrip, 'id' | 'bookedSeats'>> = [];
     let cur = startTotal;
@@ -275,7 +286,7 @@ export const ScheduleManagementPage: React.FC = () => {
         routeId: genRouteId,
         busPlate: assignedPlate,
         driverName: driversToUse[idx % driversToUse.length],
-        assistantName: 'Nhân viên soát vé',
+        assistantName: conductorsToUse.length > 0 ? conductorsToUse[idx % conductorsToUse.length] : undefined,
         departureDate: genDate,
         departureTime: depTime,
         estimatedArrivalTime: arrTime,
@@ -298,7 +309,8 @@ export const ScheduleManagementPage: React.FC = () => {
     genPrice,
     genTotalSeats,
     buses,
-    users,
+    driverAccounts,
+    conductorAccounts,
   ]);
 
   // Handle open generator modal
@@ -363,11 +375,10 @@ export const ScheduleManagementPage: React.FC = () => {
   // Open Add Modal
   const handleOpenAdd = () => {
     const defaultBus = buses.find((b) => b.status === 'ACTIVE') || buses[0];
-    const defaultDriver = users.find((u) => u.role === 'DRIVER' && u.status === 'ACTIVE') || users.find((u) => u.role === 'DRIVER');
     setFormRouteId(routes[0]?.id || 'r1');
     setFormBusPlate(defaultBus ? defaultBus.plateNumber : '51B-199.88');
-    setFormDriverName(defaultDriver ? defaultDriver.fullName : 'Nguyễn Văn Tuấn');
-    setFormAssistantName('Lê Văn Hùng');
+    setFormDriverName(driverAccounts[0]?.fullName ?? '');
+    setFormAssistantName('');
     setFormDepartureDate(new Date().toISOString().split('T')[0]);
     setFormDepartureTime('08:00');
     setFormEstimatedArrival('08:45');
@@ -377,11 +388,29 @@ export const ScheduleManagementPage: React.FC = () => {
     setIsAddModalOpen(true);
   };
 
+  // Tài xế và phụ xe phải là tài khoản thật có đúng vai trò, không cho gõ tên tự do.
+  const validateStaff = (): string | null => {
+    const driver = formDriverName.trim();
+    if (!driverAccounts.some((d) => d.fullName === driver)) {
+      return `'${driver}' không phải tài khoản có vai trò Tài xế. Vui lòng chọn tài xế trong danh sách.`;
+    }
+    const assistant = formAssistantName.trim();
+    if (assistant && !conductorAccounts.some((c) => c.fullName === assistant)) {
+      return `'${assistant}' không phải tài khoản có vai trò Phụ xe. Vui lòng chọn trong danh sách.`;
+    }
+    return null;
+  };
+
   // Submit Add
   const handleConfirmAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formBusPlate.trim() || !formDriverName.trim()) {
-      showError('Vui lòng điền đầy đủ biển số xe và tên tài xế');
+      showError('Vui lòng điền đầy đủ biển số xe và chọn tài xế');
+      return;
+    }
+    const staffError = validateStaff();
+    if (staffError) {
+      showError(staffError);
       return;
     }
 
@@ -431,6 +460,11 @@ export const ScheduleManagementPage: React.FC = () => {
   const handleConfirmEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTrip) return;
+    const staffError = validateStaff();
+    if (staffError) {
+      showError(staffError);
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -1025,27 +1059,49 @@ export const ScheduleManagementPage: React.FC = () => {
                 <label className="font-bold text-slate-700 dark:text-slate-300 block">
                   Tài xế chính phụ trách: <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
+                <select
                   value={formDriverName}
                   onChange={(e) => setFormDriverName(e.target.value)}
-                  placeholder="Họ và tên lái xe"
                   className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:ring-2 focus:ring-institutional-500"
                   required
-                />
+                >
+                  <option value="">-- Chọn tài xế --</option>
+                  {formDriverName && !driverAccounts.some((d) => d.fullName === formDriverName) && (
+                    <option value={formDriverName} disabled>
+                      {formDriverName} (không phải tài xế)
+                    </option>
+                  )}
+                  {driverAccounts.map((d) => (
+                    <option key={d.id} value={d.fullName}>
+                      {d.fullName}
+                      {d.phone ? ` (${d.phone})` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 dark:text-slate-300 block">
                   Nhân viên phụ xe / soát vé:
                 </label>
-                <input
-                  type="text"
+                <select
                   value={formAssistantName}
                   onChange={(e) => setFormAssistantName(e.target.value)}
-                  placeholder="Họ và tên nhân viên phục vụ"
                   className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:ring-2 focus:ring-institutional-500"
-                />
+                >
+                  <option value="">-- Không có phụ xe --</option>
+                  {formAssistantName && !conductorAccounts.some((c) => c.fullName === formAssistantName) && (
+                    <option value={formAssistantName} disabled>
+                      {formAssistantName} (không phải phụ xe)
+                    </option>
+                  )}
+                  {conductorAccounts.map((c) => (
+                    <option key={c.id} value={c.fullName}>
+                      {c.fullName}
+                      {c.phone ? ` (${c.phone})` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
