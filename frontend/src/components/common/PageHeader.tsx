@@ -9,6 +9,7 @@ interface BreadcrumbItem {
 interface PageHeaderProps {
   title: string;
   subtitle?: string;
+  description?: string;
   breadcrumbs?: BreadcrumbItem[];
   action?: React.ReactNode;
   icon?: React.ReactNode;
@@ -17,10 +18,12 @@ interface PageHeaderProps {
 export const PageHeader: React.FC<PageHeaderProps> = ({
   title,
   subtitle,
+  description,
   breadcrumbs = [],
   action,
   icon,
 }) => {
+  const displaySubtitle = subtitle || description;
   return (
     <div className="mb-6">
       {/* Breadcrumb if any */}
@@ -59,9 +62,9 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
           </div>
           {/* Institutional gold/yellow accent line */}
           <div className="h-0.5 bg-amber-500 dark:bg-yellow-400 w-24 my-2.5 rounded-full" />
-          {subtitle && (
+          {displaySubtitle && (
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 max-w-3xl">
-              {subtitle}
+              {displaySubtitle}
             </p>
           )}
         </div>
