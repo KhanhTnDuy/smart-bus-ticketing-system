@@ -738,7 +738,19 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.Property<long?>("ChangeRequestId")
                         .HasColumnType("bigint");
 
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("TEXT");
+
                     b.Property<long>("PaymentId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<long?>("ProcessedBy")
                         .HasColumnType("bigint");
 
                     b.Property<string>("Reason")
@@ -754,6 +766,8 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.HasIndex("ChangeRequestId");
 
                     b.HasIndex("PaymentId");
+
+                    b.HasIndex("ProcessedBy");
 
                     b.ToTable("refunds", (string)null);
                 });
@@ -1386,9 +1400,16 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("SmartBusTicketing.Api.Models.Account", "Processor")
+                        .WithMany()
+                        .HasForeignKey("ProcessedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("ChangeRequest");
 
                     b.Navigation("Payment");
+
+                    b.Navigation("Processor");
                 });
 
             modelBuilder.Entity("SmartBusTicketing.Api.Models.RouteStop", b =>
