@@ -438,7 +438,9 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
             {
                 var cleanPlate = request.BusPlate.Trim().ToUpperInvariant();
                 var foundBus = await db.Buses.FirstOrDefaultAsync(b => b.PlateNumber == cleanPlate, ct);
-                if (foundBus != null) targetBusId = foundBus.Id;
+                if (foundBus == null)
+                    return ServiceResult<TripAssignmentDto>.Fail(ServiceError.NotFound, $"Không tìm thấy xe buýt biển số {cleanPlate}. Vui lòng chọn xe có trong hệ thống.");
+                targetBusId = foundBus.Id;
             }
 
             // Tự động phân giải DriverId nếu truyền dạng DriverName
@@ -448,7 +450,9 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                 var cleanName = request.DriverName.Trim();
                 var foundDriver = await db.Accounts.FirstOrDefaultAsync(a => a.Role == AccountRole.Driver &&
                     (a.FullName == cleanName || a.Username == cleanName), ct);
-                if (foundDriver != null) targetDriverId = foundDriver.Id;
+                if (foundDriver == null)
+                    return ServiceResult<TripAssignmentDto>.Fail(ServiceError.NotFound, $"Không tìm thấy tài xế '{cleanName}'. Chỉ được chọn tài khoản có vai trò Tài xế.");
+                targetDriverId = foundDriver.Id;
             }
 
             // Tự động phân giải ConductorId nếu truyền dạng AssistantId hoặc AssistantName
@@ -464,7 +468,9 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                     var cleanAsst = request.AssistantName.Trim();
                     var foundConductor = await db.Accounts.FirstOrDefaultAsync(a => a.Role == AccountRole.Conductor &&
                         (a.FullName == cleanAsst || a.Username == cleanAsst), ct);
-                    if (foundConductor != null) targetConductorId = foundConductor.Id;
+                    if (foundConductor == null)
+                        return ServiceResult<TripAssignmentDto>.Fail(ServiceError.NotFound, $"Không tìm thấy phụ xe '{cleanAsst}'. Chỉ được chọn tài khoản có vai trò Phụ xe.");
+                    targetConductorId = foundConductor.Id;
                 }
             }
 

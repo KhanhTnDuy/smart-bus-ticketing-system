@@ -11,7 +11,7 @@ import {
   Car,
   User as UserIcon,
 } from 'lucide-react';
-import { useData } from '../../context/DataContext';
+import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { useToast } from '../../context/ToastContext';
 import { Role, User } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -19,7 +19,7 @@ import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 
 export const RoleAssignmentPage: React.FC = () => {
-  const { users, assignRole } = useData();
+  const { users, assignRole } = useAccountManagement();
   const { success, error } = useToast();
 
   const [searchTerm, setSearchTerm] = useState('');
