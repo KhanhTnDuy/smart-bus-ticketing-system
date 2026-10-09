@@ -31,6 +31,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { EmptyState } from '../../components/common/EmptyState';
 import { Ticket, TicketStatus } from '../../types';
 import { ApiError } from '../../api/client';
+import { UnpaidBookingsPanel } from '../../components/passenger/UnpaidBookingsPanel';
 import {
   requestCancelTicket,
   requestExchangeTicket,
@@ -358,6 +359,8 @@ export const ElectronicTicketPage: React.FC = () => {
           { label: 'Vé điện tử' },
         ]}
       />
+      <UnpaidBookingsPanel tickets={[...ticketDtos.values()]} onPaid={() => setReloadToken((n) => n + 1)} />
+
 
       {/* Không tải được vé thì phải nói rõ, nếu không trang trông y như "chưa có vé nào" */}
       {loadError && (

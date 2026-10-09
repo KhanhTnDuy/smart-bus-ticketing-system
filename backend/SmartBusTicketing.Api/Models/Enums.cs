@@ -28,7 +28,7 @@ public enum ScanResult { Valid, Invalid, AlreadyUsed, WrongTrip, Expired }
 
 public enum DiscountType { Percent, Fixed }
 
-public enum PaymentMethod { Momo, VnPay, ZaloPay, Card }
+public enum PaymentMethod { Momo, VnPay, ZaloPay, Card, BankTransfer }
 
 public enum PaymentStatus { Pending, Success, Failed, Refunded }
 
