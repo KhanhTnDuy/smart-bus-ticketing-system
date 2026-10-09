@@ -68,6 +68,20 @@ public class FeedbackController(AppDbContext db, AuditLogService audit) : Contro
         CreatedAt = f.CreatedAt,
     };
 
+    /// <summary>Phản ánh và đánh giá do chính người đăng nhập gửi, mới nhất trước.</summary>
+    [HttpGet("my")]
+    public async Task<IActionResult> GetMine([FromQuery] FeedbackType? type, CancellationToken ct)
+    {
+        var passengerId = User.AccountId();
+        if (passengerId is null) return Unauthorized();
+
+        var q = db.Feedbacks.AsNoTracking().Where(f => f.PassengerId == passengerId.Value);
+        if (type.HasValue) q = q.Where(f => f.Type == type.Value);
+
+        return Ok(await q.OrderByDescending(f => f.CreatedAt).ThenByDescending(f => f.Id)
+            .Select(ToDto).ToListAsync(ct));
+    }
+
     /// <summary>Hành khách chỉ xem được phản ánh của chính mình; Admin và Quản lý xem được tất cả.</summary>
     [HttpGet("{id:long}")]
     public async Task<IActionResult> Get(long id, CancellationToken ct)
