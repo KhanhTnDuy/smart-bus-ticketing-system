@@ -36,7 +36,7 @@ Cấu hình kết nối ở `appsettings.json`, mục `ConnectionStrings:Default
 
 ```text
 SmartBusTicketing.Api/
-├── Controllers/   Auth, Accounts, AuditLogs, RouteManagement, Feedback, Health
+├── Controllers/   Auth, Accounts, AuditLogs, RouteManagement, Feedback, Health, RevenueReports
 ├── DTOs/          Kiểu vào ra của API
 ├── Models/        Entity EF và các enum dùng chung
 ├── Data/          AppDbContext và Migrations/
@@ -108,3 +108,22 @@ Cần chạy `dotnet ef database update` để áp migration `AddIncidentAndScan
 - Vé còn `Held` (chưa thanh toán) bị từ chối. Hệ thống chưa có luồng thanh toán nên chưa vé nào sang `Valid`; khi thử phải
   tự đổi trạng thái vé trong cơ sở dữ liệu.
 - `GET ?tripId=` lịch sử quét của chuyến.
+## Báo cáo doanh thu (SCRUM-82, SCRUM-86)
+
+`GET /api/reports/revenue` (Admin, Quản lý) với các tham số tùy chọn `startDate`,
+`endDate` (yyyy-MM-dd), `routeId` (số, bỏ trống hoặc `ALL` là mọi tuyến) và
+`groupBy` (`DAILY` mặc định, hoặc `MONTHLY`). Trả về `summary`, `timeSeries`,
+`byRoute`, `byPaymentMethod` đúng với `frontend/src/api/revenueReport.ts`.
+
+Cách tính nằm trong `Services/RevenueReportCalculator.cs`:
+
+- Chỉ tính lượt đặt đã thanh toán (`Confirmed`, hoặc `Cancelled` nhưng từng có
+  giao dịch thành công). Vé `Held` chưa trả tiền không được tính.
+- Vé bán là vé `Valid` hoặc `Used`; vé `Cancelled` tính vào hoàn tiền nên bị loại
+  khỏi doanh thu thuần; vé `Exchanged` bị bỏ vì đã có vé mới thay.
+- Tiền mỗi vé là `Booking.FinalAmount` chia đều cho các vé còn hiệu lực của lượt
+  đặt, nên tổng luôn khớp với số tiền của lượt đặt.
+- Kỳ báo cáo theo ngày khởi hành của chuyến, giờ Việt Nam (UTC+7).
+
+Hiện hệ thống chưa có luồng thanh toán nên chưa có booking nào sang `Confirmed`;
+báo cáo sẽ trả về 0 cho đến khi luồng này được làm.
