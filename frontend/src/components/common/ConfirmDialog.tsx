@@ -10,8 +10,11 @@ interface ConfirmDialogProps {
   message: string;
   itemName?: string;
   confirmLabel?: string;
+  confirmText?: string;
   cancelLabel?: string;
+  cancelText?: string;
   isDangerous?: boolean;
+  type?: 'danger' | 'warning' | 'info';
 }
 
 export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
@@ -21,10 +24,16 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   title,
   message,
   itemName,
-  confirmLabel = 'Xác nhận xóa',
-  cancelLabel = 'Hủy',
-  isDangerous = true,
+  confirmLabel,
+  confirmText,
+  cancelLabel,
+  cancelText,
+  isDangerous,
+  type,
 }) => {
+  const resolvedConfirmLabel = confirmLabel || confirmText || 'Xác nhận';
+  const resolvedCancelLabel = cancelLabel || cancelText || 'Hủy';
+  const resolvedDangerous = isDangerous !== undefined ? isDangerous : type === 'danger';
   return (
     <Modal
       isOpen={isOpen}
@@ -76,7 +85,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             onClick={onClose}
             className="px-4 py-2 text-xs font-semibold rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
-            {cancelLabel}
+            {resolvedCancelLabel}
           </button>
           <button
             type="button"
@@ -85,12 +94,12 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
               onClose();
             }}
             className={`px-4 py-2 text-xs font-semibold rounded-md text-white shadow-sm transition-colors ${
-              isDangerous
+              resolvedDangerous
                 ? 'bg-rose-600 hover:bg-rose-700 dark:bg-rose-700 dark:hover:bg-rose-600'
                 : 'bg-amber-600 hover:bg-amber-700'
             }`}
           >
-            {confirmLabel}
+            {resolvedConfirmLabel}
           </button>
         </div>
       </div>

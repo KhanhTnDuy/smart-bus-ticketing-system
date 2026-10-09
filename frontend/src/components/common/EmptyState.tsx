@@ -5,6 +5,8 @@ interface EmptyStateProps {
   title?: string;
   description?: string;
   action?: React.ReactNode;
+  actionLabel?: string;
+  onAction?: () => void;
   icon?: React.ReactNode;
 }
 
@@ -12,6 +14,8 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   title = 'Chưa có dữ liệu',
   description = 'Không tìm thấy bản ghi nào phù hợp với điều kiện tìm kiếm hoặc dữ liệu hiện đang trống.',
   action,
+  actionLabel,
+  onAction,
   icon,
 }) => {
   return (
@@ -23,7 +27,17 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mt-1 mb-4 leading-relaxed">
         {description}
       </p>
-      {action && <div>{action}</div>}
+      {action ? (
+        <div>{action}</div>
+      ) : actionLabel && onAction ? (
+        <button
+          type="button"
+          onClick={onAction}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors"
+        >
+          {actionLabel}
+        </button>
+      ) : null}
     </div>
   );
 };
