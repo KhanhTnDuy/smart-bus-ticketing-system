@@ -271,6 +271,9 @@ public class AppDbContext : DbContext
             e.ToTable("incidents");
             e.HasOne(i => i.Trip).WithMany(t => t.Incidents).HasForeignKey(i => i.TripId);
             e.HasOne(i => i.Reporter).WithMany().HasForeignKey(i => i.ReportedBy).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(i => i.Resolver).WithMany().HasForeignKey(i => i.ResolvedBy).OnDelete(DeleteBehavior.Restrict);
+            e.Property(i => i.Description).HasColumnType("TEXT");
+            e.Property(i => i.ResolutionNote).HasColumnType("TEXT");
         });
 
         modelBuilder.Entity<Notification>(e =>
