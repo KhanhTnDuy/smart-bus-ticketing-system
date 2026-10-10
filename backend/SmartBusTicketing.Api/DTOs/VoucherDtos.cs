@@ -54,7 +54,35 @@ public sealed record VoucherDto(
     int UsedCount,
     int RemainingCount,
     bool IsActive,
-    string Status);
+    string Status)
+{
+    /// <summary>
+    /// Constructor hỗ trợ tương thích với các phân hệ gọi DTO với 8 tham số cơ bản (như PR #97 / SCRUM-69).
+    /// </summary>
+    public VoucherDto(
+        long id,
+        string code,
+        DiscountType discountType,
+        decimal discountValue,
+        DateTime startAt,
+        DateTime endAt,
+        int usageLimit,
+        int usedCount)
+        : this(
+            id,
+            code,
+            discountType,
+            discountValue,
+            startAt,
+            endAt,
+            usageLimit,
+            usedCount,
+            Math.Max(0, usageLimit - usedCount),
+            DateTime.UtcNow >= startAt && DateTime.UtcNow <= endAt && (usageLimit <= 0 || usedCount < usageLimit),
+            DateTime.UtcNow < startAt ? "UPCOMING" : (DateTime.UtcNow > endAt ? "EXPIRED" : (usageLimit > 0 && usedCount >= usageLimit ? "OUT_OF_STOCK" : "ACTIVE")))
+    {
+    }
+}
 
 /// <summary>
 /// SCRUM-67: Yêu cầu kiểm tra voucher.
