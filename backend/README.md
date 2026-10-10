@@ -72,6 +72,20 @@ trang Audit Logs của US2.
 - `RouteManagementControllers` chưa gọi `AuditLogService`, nên thao tác thêm,
   sửa, xóa tuyến, trạm và giá vé không để lại vết trong nhật ký hệ thống.
 
+## Quản lý chuyến xe
+
+Chuyến xe (bảng `trips`) được quản lý qua `/api/assignments`:
+
+- `GET /api/assignments` danh sách chuyến kèm xe, tài xế, phụ xe (Admin, Quản lý xem hết; tài xế, phụ xe chỉ thấy chuyến của mình).
+- `POST /api/assignments` tạo chuyến và gán người, `PUT /api/assignments/{id}` đổi xe, tài xế, phụ xe.
+- `PUT /api/assignments/{id}/trip` sửa giờ xuất bến, trạng thái, số phút trễ. Chuyến đã hoàn thành không sửa được;
+  chuyến đã có vé đặt không đổi giờ được; giờ mới không được làm trùng lịch với xe hoặc nhân sự đã gán.
+- `DELETE /api/assignments/{id}/trip` xóa chuyến chưa có vé đặt và chưa có sự cố. Chuyến đã có vé thì chuyển sang Đã hủy.
+- `GET /api/assignments/my-schedule` lịch trực của tài xế, phụ xe đang đăng nhập.
+
+Tên tài xế, phụ xe, biển số gửi lên mà không tồn tại thì trả 404, không còn bị bỏ qua.
+
+`GET /api/feedback/my` trả phản ánh, đánh giá do chính người đăng nhập gửi (trang Khiếu nại của hành khách).
 ## Báo cáo doanh thu (SCRUM-82, SCRUM-86)
 
 `GET /api/reports/revenue` (Admin, Quản lý) với các tham số tùy chọn `startDate`,
