@@ -4,7 +4,7 @@ import {
   Bus,
   Sun,
   Moon,
-  Bell,
+
   LogOut,
   UserCheck,
   ShieldAlert,
@@ -16,30 +16,25 @@ import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useData } from '../../context/DataContext';
 import { Badge } from './Badge';
+import { NotificationBell } from './NotificationBell';
 import { Role } from '../../types';
 
 export const Header: React.FC = () => {
   const { currentUser, logout } = useAuth();
   const { isDark, toggleTheme } = useTheme();
-  const { notifications, markNotificationAsRead, markAllNotificationsAsRead, users, addAuditLog } = useData();
+  const { users, addAuditLog } = useData();
   const navigate = useNavigate();
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isNotifOpen, setIsNotifOpen] = useState(false);
 
   const profileRef = useRef<HTMLDivElement>(null);
-  const notifRef = useRef<HTMLDivElement>(null);
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   // Close dropdowns on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
         setIsProfileOpen(false);
-      }
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
-        setIsNotifOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -117,69 +112,7 @@ export const Header: React.FC = () => {
               )}
             </button>
 
-            {/* Notification Bell */}
-            <div className="relative" ref={notifRef}>
-              <button
-                type="button"
-                onClick={() => setIsNotifOpen(!isNotifOpen)}
-                className="p-2 sm:p-2.5 rounded-lg text-slate-600 dark:text-slate-300 hover:text-institutional-700 dark:hover:text-sky-400 bg-slate-100 dark:bg-[#18284f] hover:bg-slate-200 dark:hover:bg-[#203668] border border-slate-200 dark:border-[#22396e] transition-colors relative"
-                title="Thông báo hệ thống"
-                aria-label="Thông báo hệ thống"
-              >
-                <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-600 text-[10px] font-bold text-white shadow">
-                    {unreadCount}
-                  </span>
-                )}
-              </button>
-
-              {/* Notification Popover */}
-              {isNotifOpen && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-[#131e3a] rounded-lg shadow-2xl border border-slate-200 dark:border-[#223561] py-2 z-50 animate-fadeIn">
-                  <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 dark:border-[#1e2f57]">
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
-                      Thông Báo Hệ Thống ({unreadCount})
-                    </span>
-                    {unreadCount > 0 && (
-                      <button
-                        onClick={markAllNotificationsAsRead}
-                        className="text-[11px] text-institutional-600 dark:text-sky-400 hover:underline"
-                      >
-                        Đánh dấu đã đọc tất cả
-                      </button>
-                    )}
-                  </div>
-                  <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-[#1e2f57]">
-                    {notifications.length === 0 ? (
-                      <div className="p-4 text-center text-xs text-slate-400">Không có thông báo mới</div>
-                    ) : (
-                      notifications.map((n) => (
-                        <div
-                          key={n.id}
-                          onClick={() => markNotificationAsRead(n.id)}
-                          className={`p-3 text-xs cursor-pointer transition-colors ${
-                            n.isRead
-                              ? 'opacity-65 hover:bg-slate-50 dark:hover:bg-slate-800/40'
-                              : 'bg-blue-50/50 dark:bg-[#19274c] hover:bg-blue-50 dark:hover:bg-[#1e305e]'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <span className="font-semibold text-slate-800 dark:text-slate-200">
-                              {n.title}
-                            </span>
-                            <span className="text-[10px] text-slate-400 shrink-0">{n.createdAt}</span>
-                          </div>
-                          <p className="text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                            {n.message}
-                          </p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            <NotificationBell />
 
             {/* User Profile / Menu */}
             {currentUser ? (

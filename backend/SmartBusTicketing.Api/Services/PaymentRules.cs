@@ -41,6 +41,8 @@ public static class PaymentRules
             CreatedAt = now,
         };
         db.Refunds.Add(refund);
+        await NotificationRules.NotifyManagementAsync(db, "Yêu cầu hoàn tiền mới",
+            $"Cần hoàn {amount:N0} đ cho lượt đặt vừa hủy vé.", "/manager/refunds", null, ct, ticket.TripId);
         return refund;
     }
 }
