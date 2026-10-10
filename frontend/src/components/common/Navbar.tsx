@@ -27,6 +27,7 @@ import {
   Search,
   LifeBuoy,
   TrendingUp,
+  BadgePercent,
   FileCheck2,
   TicketPercent,
   BarChart3,
@@ -92,6 +93,7 @@ export const Navbar: React.FC = () => {
 
   const isPassengerSupportActive =
     location.pathname.startsWith('/passenger/complaints') ||
+    location.pathname.startsWith('/passenger/discount') ||
     location.pathname.startsWith('/passenger/rating') ||
     location.pathname === '/incident/report';
 
@@ -790,6 +792,21 @@ export const Navbar: React.FC = () => {
                       </NavLink>
 
                       <NavLink
+                        to="/passenger/discount"
+                        onClick={() => setActiveDropdown(null)}
+                        className={({ isActive }) =>
+                          `flex items-center gap-2.5 px-4 py-2 text-xs font-medium transition-colors ${
+                            isActive
+                              ? 'bg-blue-800/80 text-amber-300 font-semibold'
+                              : 'text-slate-200 hover:bg-blue-800/50 hover:text-white'
+                          }`
+                        }
+                      >
+                        <BadgePercent className="w-4 h-4 text-emerald-400" />
+                        <span>Đăng ký ưu đãi giá vé</span>
+                      </NavLink>
+
+                      <NavLink
                         to="/passenger/complaints"
                         onClick={() => setActiveDropdown(null)}
                         className={({ isActive }) =>
@@ -1167,6 +1184,13 @@ export const Navbar: React.FC = () => {
               >
                 <AlertTriangle className="w-4 h-4 text-rose-400" />
                 <span>Báo cáo sự cố xe buýt</span>
+              </NavLink>
+              <NavLink
+                to="/passenger/discount"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <BadgePercent className="w-4 h-4 text-emerald-400" />
+                <span>Đăng ký ưu đãi giá vé</span>
               </NavLink>
               <NavLink
                 to="/passenger/complaints"
