@@ -19,7 +19,7 @@ import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 
 export const RoleAssignmentPage: React.FC = () => {
-  const { users, assignRole } = useAccountManagement();
+  const { users, error: loadError, assignRole } = useAccountManagement();
   const { success, error } = useToast();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -65,6 +65,12 @@ export const RoleAssignmentPage: React.FC = () => {
         ]}
         icon={<ShieldCheck className="w-5 h-5 text-purple-600" />}
       />
+
+      {loadError && (
+        <div className="p-3 rounded-lg border border-rose-300 bg-rose-50 dark:bg-rose-950/30 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300">
+          Không tải được danh sách tài khoản từ máy chủ: {loadError}
+        </div>
+      )}
 
       {/* 2. Institutional Role Scope Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
