@@ -240,6 +240,8 @@ public class AppDbContext : DbContext
             e.ToTable("refunds");
             e.Property(r => r.Amount).HasPrecision(12, 2);
             e.HasOne(r => r.Payment).WithMany(p => p.Refunds).HasForeignKey(r => r.PaymentId);
+            e.HasOne(r => r.Processor).WithMany().HasForeignKey(r => r.ProcessedBy).OnDelete(DeleteBehavior.Restrict);
+            e.Property(r => r.Note).HasColumnType("TEXT");
             e.HasOne(r => r.ChangeRequest).WithMany(c => c.Refunds)
                 .HasForeignKey(r => r.ChangeRequestId).OnDelete(DeleteBehavior.SetNull);
         });
