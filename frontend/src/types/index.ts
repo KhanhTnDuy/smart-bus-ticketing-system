@@ -13,6 +13,9 @@ export interface User {
   createdAt: string;
   avatarUrl?: string;
   department?: string;
+  isStudentVerified?: boolean;
+  beneficiaryType?: DiscountBeneficiaryType;
+  discountValidUntil?: string;
 }
 
 export type AuditModule =
@@ -34,7 +37,9 @@ export type AuditModule =
   | 'SCHEDULE'
   | 'ASSIGNMENT'
   | 'VEHICLE'
+  | 'VERIFICATION'
   | 'VOUCHER'
+  | 'REPORT'
   | 'SYSTEM';
 
 
@@ -396,6 +401,7 @@ export interface TimetableTemplate {
 }
 
 // ==============================================================
+// ==============================================================
 // VOUCHER / PROMOTION TYPES (SCRUM-66 & SCRUM-67)
 // ==============================================================
 export type VoucherDiscountType = 'Percent' | 'Fixed';
@@ -414,6 +420,12 @@ export interface Voucher {
   remainingCount: number;
   isActive: boolean;
   status: VoucherStatus;
+  description?: string;
+  maxDiscount?: number;
+  minOrder?: number;
+  active?: boolean;
+  createdBy?: string;
+  createdAt?: string;
 }
 
 export interface VoucherRequest {
@@ -437,4 +449,52 @@ export interface CheckVoucherCodeResult {
   code: string;
   isAvailable: boolean;
   message: string;
+}
+
+// ==============================================================
+// BENEFICIARY VERIFICATION TYPES (Hồ sơ xét duyệt đối tượng ưu đãi)
+// ==============================================================
+export type VerificationStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export type DiscountBeneficiaryType = 'STUDENT' | 'ELDERLY' | 'DISABILITY' | 'WORKER';
+
+export interface PassengerVerification {
+  id: string; // e.g. "VER-2026-001"
+  accountId: string;
+  passengerName: string;
+  passengerEmail: string;
+  passengerPhone: string;
+  beneficiaryType: DiscountBeneficiaryType;
+  discountPercent: number; // e.g. 50% or 100%
+  documentUrl: string; // Minh chứng: ảnh thẻ HSSV, CCCD, thẻ thương binh
+  documentName?: string;
+  status: VerificationStatus;
+  submittedAt: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  validUntil?: string; // Ngày hết hạn ưu đãi (YYYY-MM-DD)
+  rejectReason?: string; // Lý do từ chối
+  notes?: string;
+}
+
+// ==============================================================
+// TRIP OCCUPANCY REPORT TYPES (Thống kê tỷ lệ lấp đầy theo chuyến)
+// ==============================================================
+export type OccupancyLoadStatus = 'OVERLOAD' | 'OPTIMAL' | 'LOW' | 'NO_TICKETS' | 'NO_BUS';
+
+export interface TripOccupancyItem {
+  tripId: string;
+  routeId: string;
+  routeCode: string;
+  routeName: string;
+  busPlate?: string;
+  busModel?: string;
+  driverName: string;
+  departureTime: string;
+  departureDate: string;
+  totalSeats: number;
+  bookedSeatsCount: number;
+  occupancyPercent: number;
+  loadStatus: OccupancyLoadStatus;
+  recommendation: string;
 }

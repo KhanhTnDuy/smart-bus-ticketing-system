@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   MessageSquareWarning,
   Send,
@@ -10,7 +10,9 @@ import {
   FileText,
   RotateCcw,
 } from 'lucide-react';
-import { useData } from '../../context/DataContext';
+import { listRoutes, RouteDto } from '../../api/routeManagement';
+import { createFeedback, listMyFeedback, FeedbackDto, FeedbackTypeCode } from '../../api/feedback';
+import { toComplaintStatus } from '../../hooks/useFeedbackManagement';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { ComplaintCategory } from '../../types';
@@ -18,11 +20,31 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { Badge } from '../../components/common/Badge';
 
 export const ComplaintPage: React.FC = () => {
-  const { routes, complaints, addComplaint } = useData();
   const { currentUser } = useAuth();
   const { success, error } = useToast();
 
-  const [routeId, setRouteId] = useState(routes[0]?.id || '');
+  // Tuyến và lịch sử khiếu nại đọc từ backend; gửi khiếu nại ghi thẳng vào cơ sở dữ liệu.
+  const [routes, setRoutes] = useState<RouteDto[]>([]);
+  const [myComplaints, setMyComplaints] = useState<FeedbackDto[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [routeList, mine] = await Promise.all([listRoutes(), listMyFeedback(FeedbackTypeCode.Complaint)]);
+      setRoutes(routeList);
+      setMyComplaints(mine);
+      setLoadError(null);
+      setRouteId((prev) => prev || (routeList[0] ? String(routeList[0].id) : ''));
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Không tải được dữ liệu.');
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  const [routeId, setRouteId] = useState('');
   const [category, setCategory] = useState<ComplaintCategory>('ATTITUDE');
   const [tripDate, setTripDate] = useState(new Date().toISOString().split('T')[0]);
   const [subject, setSubject] = useState('');
@@ -30,12 +52,6 @@ export const ComplaintPage: React.FC = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // List of complaints submitted by this passenger
-  const myComplaints = complaints.filter(
-    (c) =>
-      c.passengerEmail.toLowerCase() === (currentUser?.email || '').toLowerCase() ||
-      c.passengerName.toLowerCase() === (currentUser?.fullName || '').toLowerCase()
-  );
 
   const validate = () => {
     const errs: Record<string, string> = {};
@@ -57,32 +73,24 @@ export const ComplaintPage: React.FC = () => {
 
     setIsSubmitting(true);
 
-    const complaintData = {
-      passengerName: currentUser?.fullName || 'Hành khách',
-      passengerEmail: currentUser?.email || 'passenger@bus.com',
-      passengerPhone: currentUser?.phone || '0900000000',
-      routeId,
-      tripDate,
-      category,
-      subject: subject.trim(),
-      description: description.trim(),
-    };
-
     try {
-      const res = await addComplaint(complaintData);
+      // Backend chưa có cột phân loại và ngày xảy ra, nên ghi hai thông tin này vào đầu nội dung.
+      await createFeedback({
+        passengerId: Number(currentUser?.id) || 0,
+        routeId: Number(routeId),
+        type: FeedbackTypeCode.Complaint,
+        subject: subject.trim(),
+        content: `[${category}] Ngày xảy ra: ${tripDate}\n${description.trim()}`,
+      });
       setIsSubmitting(false);
-      if (res.success) {
-        success('Đã gửi khiếu nại thành công! Ban quản lý sẽ xác minh và phản hồi sớm.');
-        // Reset form
-        setSubject('');
-        setDescription('');
-        setErrors({});
-      } else {
-        error(res.message || 'Gửi khiếu nại thất bại.');
-      }
-    } catch (err: any) {
+      success('Đã gửi khiếu nại thành công! Ban quản lý sẽ xác minh và phản hồi sớm.');
+      setSubject('');
+      setDescription('');
+      setErrors({});
+      await loadData();
+    } catch (err) {
       setIsSubmitting(false);
-      error(err.message || 'Lỗi gửi khiếu nại.');
+      error(err instanceof Error ? err.message : 'Gửi khiếu nại thất bại.');
     }
   };
 
@@ -106,6 +114,12 @@ export const ComplaintPage: React.FC = () => {
         ]}
         icon={<MessageSquareWarning className="w-5 h-5 text-rose-500" />}
       />
+
+      {loadError && (
+        <div className="p-3 rounded-lg border border-rose-300 bg-rose-50 dark:bg-rose-950/30 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300">
+          Không tải được dữ liệu từ máy chủ: {loadError}
+        </div>
+      )}
 
       {/* 2. Main Content Grid: Form on Left, History on Right */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -136,7 +150,7 @@ export const ComplaintPage: React.FC = () => {
                   className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
                 >
                   {routes.map((r) => (
-                    <option key={r.id} value={r.id}>
+                    <option key={r.id} value={String(r.id)}>
                       {r.code}: {r.name}
                     </option>
                   ))}
@@ -262,9 +276,9 @@ export const ComplaintPage: React.FC = () => {
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-mono font-bold text-[11px] text-institutional-700 dark:text-sky-400">
-                        {c.id}
+                        #{c.id}
                       </span>
-                      <Badge variant="complaintStatus" value={c.status} size="sm" />
+                      <Badge variant="complaintStatus" value={toComplaintStatus(c.status)} size="sm" />
                     </div>
 
                     <div className="font-bold text-slate-900 dark:text-white line-clamp-1">
@@ -272,24 +286,13 @@ export const ComplaintPage: React.FC = () => {
                     </div>
 
                     <p className="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2">
-                      {c.description}
+                      {c.content}
                     </p>
 
                     <div className="text-[10px] text-slate-400 pt-1 flex items-center justify-between">
-                      <span>Tuyến: {routes.find((r) => r.id === c.routeId)?.code}</span>
-                      <span>Ngày: {c.tripDate}</span>
+                      <span>Tuyến: {c.routeCode ?? "-"}</span>
+                      <span>Gửi lúc: {new Date(c.createdAt.endsWith("Z") ? c.createdAt : c.createdAt + "Z").toLocaleDateString("vi-VN")}</span>
                     </div>
-
-                    {c.adminResponse && (
-                      <div className="mt-2 p-2 rounded bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[11px]">
-                        <span className="font-bold text-emerald-700 dark:text-emerald-400">
-                          Phản hồi từ quản lý:
-                        </span>
-                        <p className="text-slate-700 dark:text-slate-300 mt-0.5">
-                          {c.adminResponse}
-                        </p>
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>

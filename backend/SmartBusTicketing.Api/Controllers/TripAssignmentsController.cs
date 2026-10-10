@@ -191,6 +191,54 @@ public sealed class TripAssignmentsController(ITripAssignmentService service, Au
     }
 
     /// <summary>
+    /// Sửa giờ xuất bến, trạng thái hoặc số phút trễ của chuyến. Xe và nhân sự được phân công qua PUT {id}.
+    /// </summary>
+    [HttpPut("{id}/trip")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<ActionResult<TripAssignmentDto>> UpdateTrip(string id, [FromBody] UpdateTripRequest request, CancellationToken ct)
+    {
+        var (tripId, _) = ParseId(id);
+        if (!tripId.HasValue)
+            return NotFound(new ProblemDetails { Status = 404, Title = $"Mã chuyến xe không hợp lệ: '{id}'." });
+
+        var result = await service.UpdateTripAsync(tripId.Value, request, ct);
+        if (!result.Ok)
+        {
+            await audit.WriteAsync(User.AccountId(), User.Username() ?? "system",
+                $"Cập nhật chuyến #{tripId.Value} thất bại", AuditActionType.Update,
+                $"TRIP-{tripId.Value}", AuditStatus.Failure, result.Message, ct);
+            return ToProblem(this, result);
+        }
+
+        await LogAuditAsync($"Cập nhật chuyến #{tripId.Value} (Tuyến {result.Value!.RouteCode})",
+            AuditActionType.Update, $"TRIP-{tripId.Value}",
+            $"Giờ xuất bến: {result.Value.StartTime} {result.Value.Date}, trạng thái: {result.Value.StatusText}", ct);
+        return Ok(result.Value);
+    }
+
+    /// <summary>Xóa chuyến chưa có vé đặt và chưa ghi nhận sự cố.</summary>
+    [HttpDelete("{id}/trip")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<IActionResult> DeleteTrip(string id, CancellationToken ct)
+    {
+        var (tripId, _) = ParseId(id);
+        if (!tripId.HasValue)
+            return NotFound(new ProblemDetails { Status = 404, Title = $"Mã chuyến xe không hợp lệ: '{id}'." });
+
+        var result = await service.DeleteTripAsync(tripId.Value, ct);
+        if (!result.Ok)
+        {
+            await audit.WriteAsync(User.AccountId(), User.Username() ?? "system",
+                $"Xóa chuyến #{tripId.Value} thất bại", AuditActionType.Delete,
+                $"TRIP-{tripId.Value}", AuditStatus.Failure, result.Message, ct);
+            return ToProblem(this, result);
+        }
+
+        await LogAuditAsync($"Xóa chuyến #{tripId.Value}", AuditActionType.Delete, $"TRIP-{tripId.Value}", null, ct);
+        return NoContent();
+    }
+
+    /// <summary>
     /// Gỡ phân công xe, tài xế hoặc phụ xe khỏi chuyến chạy.
     /// Hỗ trợ cả định dạng số (1) và tiền tố (ASN-1, TRIP-1).
     /// </summary>

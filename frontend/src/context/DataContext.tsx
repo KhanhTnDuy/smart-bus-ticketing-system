@@ -25,6 +25,8 @@ import {
   RefundStatus,
   IncidentStatus,
   TicketStatus,
+  PassengerVerification,
+  Voucher,
 } from '../types';
 import {
   INITIAL_USERS,
@@ -45,6 +47,8 @@ import {
   INITIAL_ASSIGNMENTS,
   INITIAL_BUSES,
   INITIAL_TIMETABLES,
+  INITIAL_VERIFICATIONS,
+  INITIAL_VOUCHERS,
 } from '../data/mockData';
 import { useAuth } from './AuthContext';
 interface DataContextType {
@@ -189,6 +193,20 @@ interface DataContextType {
   addTimetable: (data: Omit<TimetableTemplate, 'id'>) => { success: boolean; message?: string; timetable?: TimetableTemplate };
   updateTimetable: (id: string, updates: Partial<TimetableTemplate>) => { success: boolean; message?: string };
   deleteTimetable: (id: string) => { success: boolean; message?: string };
+
+  // Verifications (Hồ sơ xét duyệt đối tượng ưu đãi)
+  verifications: PassengerVerification[];
+  approveVerification: (id: string, validUntil?: string, reviewerName?: string) => { success: boolean; message?: string };
+  rejectVerification: (id: string, reason: string, reviewerName?: string) => { success: boolean; message?: string };
+  addVerification: (item: Omit<PassengerVerification, 'id' | 'submittedAt' | 'status'>) => { success: boolean; message?: string; verification?: PassengerVerification };
+  deleteVerification: (id: string) => { success: boolean; message?: string };
+
+  // Vouchers (Mã giảm giá Marketing)
+  vouchers: Voucher[];
+  addVoucher: (data: Omit<Voucher, 'id' | 'createdAt' | 'usedCount' | 'remainingCount' | 'isActive' | 'status'>) => { success: boolean; message?: string; voucher?: Voucher };
+  updateVoucher: (id: number, updates: Partial<Voucher>) => { success: boolean; message?: string };
+  deleteVoucher: (id: number) => { success: boolean; message?: string };
+  toggleVoucherStatus: (id: number) => { success: boolean; message?: string };
 }
 
 
@@ -208,13 +226,13 @@ const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
 
 // Safe ID generator that finds the maximum numeric suffix to prevent collision on deleted records
 const generateNextSequentialId = (
-  items: Array<{ id: string }>,
+  items: Array<{ id: string | number }>,
   prefix: string,
   padLength: number = 2
 ): string => {
   const maxNum = items.reduce((max, item) => {
     const regex = new RegExp(`^${prefix}-?(\\d+)`, 'i');
-    const match = item.id.match(regex);
+    const match = String(item.id).match(regex);
     if (match) {
       const num = parseInt(match[1], 10);
       return !isNaN(num) ? Math.max(max, num) : max;
@@ -303,6 +321,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [timetables, setTimetables] = useState<TimetableTemplate[]>(() =>
     loadFromStorage('smart_bus_timetables', INITIAL_TIMETABLES)
   );
+  const [verifications, setVerifications] = useState<PassengerVerification[]>(() =>
+    loadFromStorage('smart_bus_verifications', INITIAL_VERIFICATIONS)
+  );
+  const [vouchers, setVouchers] = useState<Voucher[]>(() =>
+    loadFromStorage('smart_bus_vouchers', INITIAL_VOUCHERS)
+  );
 
 
   // Sync state to LocalStorage
@@ -378,6 +402,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     localStorage.setItem('smart_bus_timetables', JSON.stringify(timetables));
   }, [timetables]);
+
+  useEffect(() => {
+    localStorage.setItem('smart_bus_verifications', JSON.stringify(verifications));
+  }, [verifications]);
+
+  useEffect(() => {
+    localStorage.setItem('smart_bus_vouchers', JSON.stringify(vouchers));
+  }, [vouchers]);
 
 
   // Keep route stopCount in sync with actual stops
@@ -2005,6 +2037,240 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   };
 
+  // 9. DISCOUNT VERIFICATION OPERATIONS (Sprint 2 / US17)
+  const approveVerification = (id: string, validUntil?: string, reviewerName?: string) => {
+    const target = verifications.find((v) => v.id === id);
+    if (!target) {
+      return { success: false, message: 'Không tìm thấy hồ sơ ưu đãi.' };
+    }
+
+    const reviewer = reviewerName || getActorName();
+    const approvedAt = new Date().toISOString();
+    const expiryDate =
+      validUntil ||
+      new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    setVerifications((prev) =>
+      prev.map((v) =>
+        v.id === id
+          ? {
+              ...v,
+              status: 'APPROVED',
+              reviewedBy: reviewer,
+              reviewedAt: approvedAt,
+              validUntil: expiryDate,
+              rejectReason: undefined,
+            }
+          : v
+      )
+    );
+
+    // Update user record if matching
+    if (target.accountId) {
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === target.accountId
+            ? {
+                ...u,
+                isStudentVerified: target.beneficiaryType === 'STUDENT' ? true : u.isStudentVerified,
+                beneficiaryType: target.beneficiaryType,
+                discountValidUntil: expiryDate,
+              }
+            : u
+        )
+      );
+    }
+
+    addAuditLog({
+      user: reviewer,
+      action: 'Duyệt hồ sơ đối tượng ưu đãi',
+      module: 'VERIFICATION',
+      description: `Đã duyệt hồ sơ ưu đãi [${target.id}] cho hành khách ${target.passengerName} (${target.beneficiaryType}), hiệu lực đến ${expiryDate}`,
+      status: 'SUCCESS',
+      targetId: id,
+    });
+
+    return { success: true };
+  };
+
+  const rejectVerification = (id: string, reason: string, reviewerName?: string) => {
+    const target = verifications.find((v) => v.id === id);
+    if (!target) {
+      return { success: false, message: 'Không tìm thấy hồ sơ ưu đãi.' };
+    }
+    if (!reason.trim()) {
+      return { success: false, message: 'Vui lòng nhập lý do từ chối hồ sơ.' };
+    }
+
+    const reviewer = reviewerName || getActorName();
+    const reviewedAt = new Date().toISOString();
+
+    setVerifications((prev) =>
+      prev.map((v) =>
+        v.id === id
+          ? {
+              ...v,
+              status: 'REJECTED',
+              rejectReason: reason.trim(),
+              reviewedBy: reviewer,
+              reviewedAt,
+            }
+          : v
+      )
+    );
+
+    addAuditLog({
+      user: reviewer,
+      action: 'Từ chối hồ sơ đối tượng ưu đãi',
+      module: 'VERIFICATION',
+      description: `Từ chối hồ sơ [${target.id}] của ${target.passengerName}. Lý do: ${reason.trim()}`,
+      status: 'SUCCESS',
+      targetId: id,
+    });
+
+    return { success: true };
+  };
+
+  const addVerification = (item: Omit<PassengerVerification, 'id' | 'submittedAt' | 'status'>) => {
+    const newId = generateYearPrefixId(verifications, 'VER', 3);
+    const newVerification: PassengerVerification = {
+      ...item,
+      id: newId,
+      status: 'PENDING',
+      submittedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+    };
+
+    setVerifications((prev) => [newVerification, ...prev]);
+
+    addAuditLog({
+      user: getActorName(),
+      action: 'Nộp hồ sơ ưu đãi mới',
+      module: 'VERIFICATION',
+      description: `Hành khách ${item.passengerName} nộp hồ sơ ưu đãi đối tượng ${item.beneficiaryType}`,
+      status: 'SUCCESS',
+      targetId: newId,
+    });
+
+    return { success: true, verification: newVerification };
+  };
+
+  const deleteVerification = (id: string) => {
+    setVerifications((prev) => prev.filter((v) => v.id !== id));
+    addAuditLog({
+      user: getActorName(),
+      action: 'Xóa hồ sơ ưu đãi',
+      module: 'VERIFICATION',
+      description: `Đã xóa hồ sơ ưu đãi [${id}]`,
+      status: 'SUCCESS',
+      targetId: id,
+    });
+    return { success: true };
+  };
+
+  // 10. VOUCHER / PROMOTION OPERATIONS (Sprint 2 / US18)
+  const addVoucher = (data: Omit<Voucher, 'id' | 'createdAt' | 'usedCount' | 'remainingCount' | 'isActive' | 'status'>) => {
+    const upperCode = data.code.trim().toUpperCase();
+    if (vouchers.some((v) => v.code.toUpperCase() === upperCode)) {
+      return { success: false, message: `Mã giảm giá "${upperCode}" đã tồn tại trên hệ thống.` };
+    }
+
+    const newId = vouchers.reduce((max, v) => Math.max(max, Number(v.id) || 0), 0) + 1;
+    const newVoucher: Voucher = {
+      ...data,
+      id: newId,
+      code: upperCode,
+      usedCount: 0,
+      remainingCount: data.usageLimit,
+      isActive: true,
+      active: true,
+      status: 'ACTIVE',
+      createdAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+    };
+
+    setVouchers((prev) => [newVoucher, ...prev]);
+
+    const isPercent = data.discountType === 'Percent';
+    addAuditLog({
+      user: getActorName(),
+      action: 'Tạo mã giảm giá mới',
+      module: 'VOUCHER',
+      description: `Tạo voucher ${upperCode} (${isPercent ? `${data.discountValue}%` : `${data.discountValue.toLocaleString()} VNĐ`})`,
+      status: 'SUCCESS',
+      targetId: String(newId),
+    });
+
+    return { success: true, voucher: newVoucher };
+  };
+
+  const updateVoucher = (id: number, updates: Partial<Voucher>) => {
+    const target = vouchers.find((v) => v.id === id);
+    if (!target) {
+      return { success: false, message: 'Không tìm thấy mã giảm giá.' };
+    }
+
+    if (updates.code) {
+      const upperCode = updates.code.trim().toUpperCase();
+      if (vouchers.some((v) => v.id !== id && v.code.toUpperCase() === upperCode)) {
+        return { success: false, message: `Mã giảm giá "${upperCode}" đã trùng với một voucher khác.` };
+      }
+      updates.code = upperCode;
+    }
+
+    setVouchers((prev) =>
+      prev.map((v) => (v.id === id ? { ...v, ...updates } : v))
+    );
+
+    addAuditLog({
+      user: getActorName(),
+      action: 'Cập nhật mã giảm giá',
+      module: 'VOUCHER',
+      description: `Cập nhật thông tin voucher [${target.code}]`,
+      status: 'SUCCESS',
+      targetId: String(id),
+    });
+
+    return { success: true };
+  };
+
+  const deleteVoucher = (id: number) => {
+    const target = vouchers.find((v) => v.id === id);
+    setVouchers((prev) => prev.filter((v) => v.id !== id));
+
+    addAuditLog({
+      user: getActorName(),
+      action: 'Xóa mã giảm giá',
+      module: 'VOUCHER',
+      description: `Đã xóa mã voucher [${target ? target.code : id}]`,
+      status: 'SUCCESS',
+      targetId: String(id),
+    });
+
+    return { success: true };
+  };
+
+  const toggleVoucherStatus = (id: number) => {
+    const target = vouchers.find((v) => v.id === id);
+    if (!target) {
+      return { success: false, message: 'Không tìm thấy voucher.' };
+    }
+
+    const nextState = !(target.active ?? target.isActive);
+    setVouchers((prev) =>
+      prev.map((v) => (v.id === id ? { ...v, active: nextState, isActive: nextState, status: nextState ? 'ACTIVE' : 'EXPIRED' } : v))
+    );
+
+    addAuditLog({
+      user: getActorName(),
+      action: nextState ? 'Kích hoạt voucher' : 'Tạm ngưng voucher',
+      module: 'VOUCHER',
+      description: `Đã ${nextState ? 'kích hoạt' : 'tắt kích hoạt'} mã giảm giá [${target.code}]`,
+      status: 'SUCCESS',
+      targetId: String(id),
+    });
+
+    return { success: true };
+  };
+
   return (
     <DataContext.Provider
       value={{
@@ -2092,6 +2358,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         deleteTimetable,
 
         scanQrCode,
+
+        // US17: Beneficiary Verifications
+        verifications,
+        approveVerification,
+        rejectVerification,
+        addVerification,
+        deleteVerification,
+
+        // US18: Vouchers & Promotions
+        vouchers,
+        addVoucher,
+        updateVoucher,
+        deleteVoucher,
+        toggleVoucherStatus,
       }}
 
     >

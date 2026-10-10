@@ -28,6 +28,8 @@ import {
   LifeBuoy,
   TrendingUp,
   TicketPercent,
+  FileCheck2,
+  BarChart3,
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
@@ -77,7 +79,12 @@ export const Navbar: React.FC = () => {
     location.pathname.startsWith('/manager/ticket-requests') ||
     location.pathname.startsWith('/manager/refunds') ||
     location.pathname.startsWith('/manager/incidents') ||
-    location.pathname.startsWith('/manager/complaints');
+    location.pathname.startsWith('/manager/complaints') ||
+    location.pathname.startsWith('/manager/verifications');
+
+  const isManagerReportActive =
+    location.pathname.startsWith('/manager/revenue') ||
+    location.pathname.startsWith('/manager/occupancy');
 
   const isPassengerPaymentActive =
     location.pathname.startsWith('/passenger/payments') ||
@@ -246,6 +253,22 @@ export const Navbar: React.FC = () => {
                       >
                         <TicketPercent className="w-4 h-4 text-rose-400" />
                         <span>Mã giảm giá (Vouchers)</span>
+                      </NavLink>
+                      <NavLink
+                        to="/manager/occupancy"
+                        onClick={() => setActiveDropdown(null)}
+                        className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-blue-800/50 hover:text-white"
+                      >
+                        <BarChart3 className="w-4 h-4 text-sky-400" />
+                        <span>Tỷ lệ lấp đầy & Quy mô xe</span>
+                      </NavLink>
+                      <NavLink
+                        to="/manager/verifications"
+                        onClick={() => setActiveDropdown(null)}
+                        className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-blue-800/50 hover:text-white"
+                      >
+                        <FileCheck2 className="w-4 h-4 text-emerald-400" />
+                        <span>Duyệt hồ sơ ưu đãi</span>
                       </NavLink>
                     </div>
                   )}
@@ -478,6 +501,22 @@ export const Navbar: React.FC = () => {
                         <MessageSquareWarning className="w-4 h-4 text-amber-400" />
                         <span>Khiếu nại & đánh giá</span>
                       </NavLink>
+
+                      <NavLink
+                        to="/manager/verifications"
+                        onClick={() => setActiveDropdown(null)}
+                        className={({ isActive }) =>
+                          `flex items-center gap-2.5 px-4 py-2 text-xs font-medium transition-colors ${
+                            isActive
+                              ? 'bg-blue-800/80 text-amber-300 font-semibold'
+                              : 'text-slate-200 hover:bg-blue-800/50 hover:text-white'
+                          }`
+                        }
+                      >
+                        <FileCheck2 className="w-4 h-4 text-emerald-400" />
+                        <span>Duyệt hồ sơ ưu đãi</span>
+                      </NavLink>
+
                     </div>
                   )}
                 </div>
@@ -497,20 +536,59 @@ export const Navbar: React.FC = () => {
                   <span>Theo dõi GPS</span>
                 </NavLink>
 
-                {/* 5. Báo cáo doanh thu bán vé */}
-                <NavLink
-                  to="/manager/revenue"
-                  className={({ isActive }) =>
-                    `flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold uppercase tracking-wider transition-colors ${
-                      isActive
+                {/* 5. Báo cáo & Thống kê Dropdown */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => toggleDropdown('mgrReport')}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-semibold uppercase tracking-wider transition-colors ${
+                      isManagerReportActive || activeDropdown === 'mgrReport'
                         ? 'bg-institutional-800 text-amber-300 shadow-inner'
                         : 'text-slate-100 hover:bg-white/10 hover:text-white'
-                    }`
-                  }
-                >
-                  <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Báo cáo doanh thu</span>
-                </NavLink>
+                    }`}
+                  >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    <span>Báo cáo & Thống kê</span>
+                    <ChevronDown
+                      className={`w-3 h-3 transition-transform duration-200 ${
+                        activeDropdown === 'mgrReport' ? 'rotate-180 text-amber-300' : ''
+                      }`}
+                    />
+                  </button>
+
+                  {activeDropdown === 'mgrReport' && (
+                    <div className="absolute left-0 mt-1 w-56 bg-[#09254d] dark:bg-[#061530] text-white rounded-md shadow-2xl border border-blue-900/60 py-1.5 z-50 animate-fadeIn">
+                      <NavLink
+                        to="/manager/revenue"
+                        onClick={() => setActiveDropdown(null)}
+                        className={({ isActive }) =>
+                          `flex items-center gap-2.5 px-4 py-2 text-xs font-medium transition-colors ${
+                            isActive
+                              ? 'bg-blue-800/80 text-amber-300 font-semibold'
+                              : 'text-slate-200 hover:bg-blue-800/50 hover:text-white'
+                          }`
+                        }
+                      >
+                        <TrendingUp className="w-4 h-4 text-amber-400" />
+                        <span>Báo cáo doanh thu vé</span>
+                      </NavLink>
+                      <NavLink
+                        to="/manager/occupancy"
+                        onClick={() => setActiveDropdown(null)}
+                        className={({ isActive }) =>
+                          `flex items-center gap-2.5 px-4 py-2 text-xs font-medium transition-colors ${
+                            isActive
+                              ? 'bg-blue-800/80 text-amber-300 font-semibold'
+                              : 'text-slate-200 hover:bg-blue-800/50 hover:text-white'
+                          }`
+                        }
+                      >
+                        <BarChart3 className="w-4 h-4 text-sky-400" />
+                        <span>Tỷ lệ lấp đầy & Quy mô xe</span>
+                      </NavLink>
+                    </div>
+                  )}
+                </div>
 
                 {/* 6. Quản lý mã giảm giá (SCRUM-66 & SCRUM-67) */}
                 <NavLink
@@ -894,6 +972,20 @@ export const Navbar: React.FC = () => {
                 <TicketPercent className="w-4 h-4 text-rose-400" />
                 <span>Quản lý mã giảm giá (Vouchers)</span>
               </NavLink>
+              <NavLink
+                to="/manager/occupancy"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <BarChart3 className="w-4 h-4 text-sky-400" />
+                <span>Tỷ lệ lấp đầy & Quy mô xe</span>
+              </NavLink>
+              <NavLink
+                to="/manager/verifications"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <FileCheck2 className="w-4 h-4 text-emerald-400" />
+                <span>Duyệt hồ sơ ưu đãi</span>
+              </NavLink>
             </>
           )}
 
@@ -974,6 +1066,20 @@ export const Navbar: React.FC = () => {
               >
                 <TicketCheck className="w-4 h-4 text-sky-400" />
                 <span>Duyệt yêu cầu hủy / đổi vé</span>
+              </NavLink>
+              <NavLink
+                to="/manager/occupancy"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <BarChart3 className="w-4 h-4 text-sky-400" />
+                <span>Tỷ lệ lấp đầy & Quy mô xe</span>
+              </NavLink>
+              <NavLink
+                to="/manager/verifications"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <FileCheck2 className="w-4 h-4 text-emerald-400" />
+                <span>Duyệt hồ sơ ưu đãi</span>
               </NavLink>
               <NavLink
                 to="/manager/refunds"

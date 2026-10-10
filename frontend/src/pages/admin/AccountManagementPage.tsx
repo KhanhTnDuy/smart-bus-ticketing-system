@@ -11,7 +11,7 @@ import {
   Check,
   UserCheck,
 } from 'lucide-react';
-import { useData } from '../../context/DataContext';
+import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { User, Role, UserStatus } from '../../types';
@@ -22,7 +22,7 @@ import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { EmptyState } from '../../components/common/EmptyState';
 
 export const AccountManagementPage: React.FC = () => {
-  const { users, addAccount, updateAccount, deleteAccount, assignRole } = useData();
+  const { users, addAccount, updateAccount, deleteAccount, assignRole } = useAccountManagement();
   const { currentUser } = useAuth();
   const { success, error, warning } = useToast();
 

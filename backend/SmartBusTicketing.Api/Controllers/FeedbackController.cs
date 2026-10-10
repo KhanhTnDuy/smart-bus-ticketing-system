@@ -68,6 +68,20 @@ public class FeedbackController(AppDbContext db, AuditLogService audit) : Contro
         CreatedAt = f.CreatedAt,
     };
 
+    /// <summary>Phản ánh và đánh giá do chính người đăng nhập gửi, mới nhất trước.</summary>
+    [HttpGet("my")]
+    public async Task<IActionResult> GetMine([FromQuery] FeedbackType? type, CancellationToken ct)
+    {
+        var passengerId = User.AccountId();
+        if (passengerId is null) return Unauthorized();
+
+        var q = db.Feedbacks.AsNoTracking().Where(f => f.PassengerId == passengerId.Value);
+        if (type.HasValue) q = q.Where(f => f.Type == type.Value);
+
+        return Ok(await q.OrderByDescending(f => f.CreatedAt).ThenByDescending(f => f.Id)
+            .Select(ToDto).ToListAsync(ct));
+    }
+
     /// <summary>Hành khách chỉ xem được phản ánh của chính mình; Admin và Quản lý xem được tất cả.</summary>
     [HttpGet("{id:long}")]
     public async Task<IActionResult> Get(long id, CancellationToken ct)
@@ -155,6 +169,8 @@ public class FeedbackController(AppDbContext db, AuditLogService audit) : Contro
         };
 
         db.Feedbacks.Add(f);
+        if (request.Type == FeedbackType.Complaint)
+            await NotificationRules.NotifyManagementAsync(db, "Khiếu nại mới", $"Có khiếu nại mới: {f.Subject}", "/manager/complaints", passengerId, ct);
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync(passengerId, User.Username() ?? "passenger", "Submit feedback",
             AuditActionType.FeedbackSubmit, $"FEEDBACK-{f.Id}", ct: ct);
@@ -181,6 +197,9 @@ public class FeedbackController(AppDbContext db, AuditLogService audit) : Contro
                 ChangedBy = actorId.Value, ChangedAt = DateTime.UtcNow,
             });
         }
+        NotificationRules.Notify(db, f.PassengerId, NotificationType.Other, "Phản ánh của bạn đã được cập nhật",
+            $"\"{f.Subject}\" chuyển sang trạng thái {request.Status switch { FeedbackStatus.DangXuLy => "đang xử lý", FeedbackStatus.DaXuLy => "đã xử lý", _ => "chưa xử lý" }}.",
+            f.Type == FeedbackType.Complaint ? "/passenger/complaints" : "/passenger/rating");
         await db.SaveChangesAsync(ct);
 
         await audit.WriteAsync(actorId, User.Username() ?? "manager",
