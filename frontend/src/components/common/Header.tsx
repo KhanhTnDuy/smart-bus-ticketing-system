@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { useData } from '../../context/DataContext';
 import { Badge } from './Badge';
 import { NotificationBell } from './NotificationBell';
 import { Role } from '../../types';
@@ -22,7 +21,6 @@ import { Role } from '../../types';
 export const Header: React.FC = () => {
   const { currentUser, logout } = useAuth();
   const { isDark, toggleTheme } = useTheme();
-  const { users, addAuditLog } = useData();
   const navigate = useNavigate();
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -42,15 +40,6 @@ export const Header: React.FC = () => {
   }, []);
 
   const handleLogout = () => {
-    if (currentUser) {
-      addAuditLog({
-        user: currentUser.fullName || currentUser.username || 'Người dùng',
-        action: 'Đăng xuất hệ thống',
-        module: 'AUTH',
-        description: `Đăng xuất khỏi phiên làm việc tài khoản [${currentUser.email || currentUser.username}]`,
-        status: 'SUCCESS',
-      });
-    }
     logout();
     navigate('/login');
   };
