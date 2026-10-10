@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { Role, User, UserStatus } from '../types';
 import { ApiError } from '../api/client';
 import * as acctApi from '../api/accountManagement';
-import { INITIAL_USERS } from '../data/mockData';
 
 export interface MutationResult {
   success: boolean;
@@ -26,15 +25,13 @@ const describe = (err: unknown): string => {
   return 'Đã xảy ra lỗi không xác định.';
 };
 
+/**
+ * Tài khoản đọc và ghi thẳng vào backend. Máy chủ là nguồn dữ liệu duy nhất: không có dữ liệu mẫu,
+ * không lưu bản sao ở localStorage và không giả vờ thành công khi mất kết nối. Mọi lỗi (mạng, quyền,
+ * nghiệp vụ) được trả về để giao diện báo cho người dùng biết thao tác chưa được lưu.
+ */
 export const useAccountManagement = () => {
-  const [users, setUsers] = useState<User[]>(() => {
-    try {
-      const saved = localStorage.getItem('smart_bus_users');
-      return saved ? JSON.parse(saved) : INITIAL_USERS;
-    } catch {
-      return INITIAL_USERS;
-    }
-  });
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,17 +40,10 @@ export const useAccountManagement = () => {
     setError(null);
     try {
       const dtos = await acctApi.listAccounts(undefined, signal);
-      const mapped = dtos.map(acctApi.toUser);
-      setUsers(mapped);
-      try {
-        localStorage.setItem('smart_bus_users', JSON.stringify(mapped));
-      } catch {
-        /* ignore */
-      }
+      setUsers(dtos.map(acctApi.toUser));
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       setError(describe(err));
-      // Fallback data giữ nguyên từ localStorage/INITIAL_USERS
     } finally {
       setLoading(false);
     }
@@ -67,128 +57,77 @@ export const useAccountManagement = () => {
 
   const reload = useCallback(() => load(), [load]);
 
+  const mutate = useCallback(
+    async <T,>(action: () => Promise<T>): Promise<MutationResult & { value?: T }> => {
+      try {
+        const value = await action();
+        await load();
+        return { success: true, value };
+      } catch (err) {
+        return { success: false, message: describe(err) };
+      }
+    },
+    [load],
+  );
+
+  const toNumericId = (id: string): number | null => {
+    const n = Number(id);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  };
+
   const addAccount = useCallback(
     async (formData: AccountFormValues): Promise<MutationResult> => {
-      try {
-        const req: acctApi.CreateAccountRequest = {
+      const res = await mutate(() =>
+        acctApi.createAccount({
           username: formData.username.trim(),
+          // Máy chủ bắt buộc có mật khẩu: nếu quản trị không nhập thì sinh một mật khẩu tạm ngẫu nhiên.
           password: formData.password?.trim() || `SmartBus@${Math.floor(100000 + Math.random() * 900000)}`,
           fullName: formData.fullName.trim(),
           email: formData.email.trim() || undefined,
           phone: formData.phone.trim() || undefined,
           role: acctApi.roleToBackend(formData.role),
           active: formData.status === 'ACTIVE',
-        };
-        const dto = await acctApi.createAccount(req);
-        const newUser = acctApi.toUser(dto);
-        await load();
-        return { success: true, data: newUser };
-      } catch (err) {
-        // Fallback local update nếu API không kết nối được
-        if (err instanceof ApiError && err.status === 0) {
-          const fallbackUser: User = {
-            id: `USR-${Date.now().toString().slice(-4)}`,
-            username: formData.username.trim(),
-            fullName: formData.fullName.trim(),
-            email: formData.email.trim(),
-            phone: formData.phone.trim(),
-            role: formData.role,
-            status: formData.status,
-            createdAt: new Date().toISOString().split('T')[0],
-          };
-          setUsers((prev) => [fallbackUser, ...prev]);
-          return { success: true, data: fallbackUser };
-        }
-        return { success: false, message: describe(err) };
-      }
+        }),
+      );
+      return res.success ? { success: true, data: res.value ? acctApi.toUser(res.value) : undefined } : res;
     },
-    [load],
+    [mutate],
   );
 
   const updateAccount = useCallback(
     async (id: string, formData: Partial<AccountFormValues>): Promise<MutationResult> => {
-      try {
-        const numId = Number(id);
-        if (Number.isNaN(numId)) {
-          // ID kiểu mock (không phải số nguyên), cập nhật state nội bộ
-          setUsers((prev) =>
-            prev.map((u) => (u.id === id ? { ...u, ...formData } : u)),
-          );
-          return { success: true };
-        }
-
-        const req: acctApi.UpdateAccountRequest = {
+      const numId = toNumericId(id);
+      if (numId === null) return { success: false, message: 'Mã tài khoản không hợp lệ.' };
+      return mutate(() =>
+        acctApi.updateAccount(numId, {
           fullName: formData.fullName?.trim(),
           email: formData.email?.trim() || undefined,
           phone: formData.phone?.trim() || undefined,
           role: formData.role ? acctApi.roleToBackend(formData.role) : undefined,
           active: formData.status !== undefined ? formData.status === 'ACTIVE' : undefined,
           password: formData.password,
-        };
-        await acctApi.updateAccount(numId, req);
-        await load();
-        return { success: true };
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 0) {
-          setUsers((prev) =>
-            prev.map((u) => (u.id === id ? { ...u, ...formData } : u)),
-          );
-          return { success: true };
-        }
-        return { success: false, message: describe(err) };
-      }
+        }),
+      );
     },
-    [load],
+    [mutate],
   );
 
   const assignRole = useCallback(
     async (id: string, newRole: Role): Promise<MutationResult> => {
-      try {
-        const numId = Number(id);
-        if (Number.isNaN(numId)) {
-          setUsers((prev) =>
-            prev.map((u) => (u.id === id ? { ...u, role: newRole } : u)),
-          );
-          return { success: true };
-        }
-
-        await acctApi.updateAccountRole(numId, acctApi.roleToBackend(newRole));
-        await load();
-        return { success: true };
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 0) {
-          setUsers((prev) =>
-            prev.map((u) => (u.id === id ? { ...u, role: newRole } : u)),
-          );
-          return { success: true };
-        }
-        return { success: false, message: describe(err) };
-      }
+      const numId = toNumericId(id);
+      if (numId === null) return { success: false, message: 'Mã tài khoản không hợp lệ.' };
+      return mutate(() => acctApi.updateAccountRole(numId, acctApi.roleToBackend(newRole)));
     },
-    [load],
+    [mutate],
   );
 
   const deleteAccount = useCallback(
     async (id: string): Promise<MutationResult> => {
-      try {
-        const numId = Number(id);
-        if (Number.isNaN(numId)) {
-          setUsers((prev) => prev.filter((u) => u.id !== id));
-          return { success: true };
-        }
-
-        await acctApi.deleteAccount(numId);
-        await load();
-        return { success: true };
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 0) {
-          setUsers((prev) => prev.filter((u) => u.id !== id));
-          return { success: true };
-        }
-        return { success: false, message: describe(err) };
-      }
+      const numId = toNumericId(id);
+      if (numId === null) return { success: false, message: 'Mã tài khoản không hợp lệ.' };
+      return mutate(() => acctApi.deleteAccount(numId));
     },
-    [load],
+    [mutate],
   );
 
   return {
