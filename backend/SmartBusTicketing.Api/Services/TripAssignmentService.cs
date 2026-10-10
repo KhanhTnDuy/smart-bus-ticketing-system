@@ -839,13 +839,74 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
             }
         }
 
-        trip.DepartureAt = newDeparture;
-        trip.Status = newStatus;
-        if (request.DelayMinutes.HasValue) trip.DelayMinutes = request.DelayMinutes.Value;
-        await db.SaveChangesAsync(ct);
+        var cancelling = newStatus == TripStatus.Cancelled && trip.Status != TripStatus.Cancelled;
+        var ownsTx = cancelling && db.Database.CurrentTransaction == null;
+        var tx = ownsTx ? await db.Database.BeginTransactionAsync(ct) : null;
+        try
+        {
+            if (cancelling) await CancelTripBookingsAsync(trip.Id, ct);
+
+            trip.DepartureAt = newDeparture;
+            trip.Status = newStatus;
+            if (request.DelayMinutes.HasValue) trip.DelayMinutes = request.DelayMinutes.Value;
+            await db.SaveChangesAsync(ct);
+            if (tx != null) await tx.CommitAsync(ct);
+        }
+        finally
+        {
+            if (tx != null) await tx.DisposeAsync();
+        }
 
         var dto = await GetAssignmentByIdAsync(tripId, ct);
         return ServiceResult<TripAssignmentDto>.Success(dto!);
+    }
+
+    /// <summary>
+    /// Hủy chuyến thì hủy luôn các vé còn hiệu lực của chuyến: vé đã thanh toán sinh yêu cầu hoàn tiền (lý do
+    /// TripCancelled), lượt đặt không còn vé nào thì đóng, và hành khách nhận thông báo. Vé đã quét (Used) giữ nguyên.
+    /// </summary>
+    private async Task CancelTripBookingsAsync(long tripId, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var tickets = await db.Tickets
+            .Include(t => t.Booking)
+            .Where(t => t.TripId == tripId && (t.Status == TicketStatus.Held || t.Status == TicketStatus.Valid))
+            .ToListAsync(ct);
+        if (tickets.Count == 0) return;
+
+        foreach (var ticket in tickets)
+        {
+            var wasPaid = ticket.Status == TicketStatus.Valid;
+            ticket.Status = TicketStatus.Cancelled;
+            if (wasPaid)
+            {
+                await PaymentRules.CreateTicketRefundAsync(db, ticket, null, RefundReason.TripCancelled, now, ct);
+                // Lưu từng khoản để vé kế tiếp trong cùng lượt đặt thấy tổng đã hoàn khi tính tiền.
+                await db.SaveChangesAsync(ct);
+            }
+        }
+        await db.SaveChangesAsync(ct);
+
+        foreach (var booking in tickets.Select(t => t.Booking).DistinctBy(b => b.Id))
+        {
+            var stillActive = await db.Tickets.AnyAsync(t => t.BookingId == booking.Id &&
+                (t.Status == TicketStatus.Held || t.Status == TicketStatus.Valid || t.Status == TicketStatus.Used), ct);
+            if (!stillActive && booking.Status is BookingStatus.Pending or BookingStatus.Confirmed)
+                booking.Status = BookingStatus.Cancelled;
+        }
+
+        // Mỗi hành khách chỉ nhận một thông báo dù có nhiều lượt đặt trên chuyến.
+        foreach (var passengerId in tickets.Select(t => t.Booking.PassengerId).Distinct())
+        {
+            db.Notifications.Add(new Notification
+            {
+                AccountId = passengerId,
+                TripId = tripId,
+                Type = NotificationType.Other,
+                Message = $"Chuyến #{tripId} đã bị hủy. Vé đã thanh toán sẽ được hoàn tiền sau khi quản lý xử lý.",
+                CreatedAt = now,
+            });
+        }
     }
 
     /// <summary>Xóa chuyến chưa có vé đặt. Chuyến đã có vé phải hủy (đổi trạng thái) chứ không xóa được.</summary>

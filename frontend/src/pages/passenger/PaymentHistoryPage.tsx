@@ -1,290 +1,174 @@
-import React, { useState, useMemo } from 'react';
-import {
-  CreditCard,
-  Search,
-  Filter,
-  Eye,
-  Download,
-  Calendar,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  AlertCircle,
-  ArrowDownLeft,
-  Smartphone,
-  Building,
-  DollarSign,
-  Receipt,
-  FileCheck,
-} from 'lucide-react';
-import { useData } from '../../context/DataContext';
-import { useAuth } from '../../context/AuthContext';
-import { useToast } from '../../context/ToastContext';
-import { Badge } from '../../components/common/Badge';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { CreditCard, Search, Eye, RefreshCw, FileText } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Modal } from '../../components/common/Modal';
 import { EmptyState } from '../../components/common/EmptyState';
-import { PaymentRecord, PaymentMethod, PaymentStatus } from '../../types';
+import {
+  PAYMENT_METHOD_LABEL,
+  PAYMENT_STATUS_LABEL,
+  PaymentDto,
+  REFUND_REASON_LABEL,
+  REFUND_STATUS_LABEL,
+  formatDateTime,
+  formatVnd,
+  listMyPayments,
+} from '../../api/payments';
+
+const CARD = 'bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm';
+const FILTER =
+  'py-2 px-3 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500';
+
+const STATUS_STYLE: Record<string, string> = {
+  Success: 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800',
+  Refunded: 'bg-sky-50 text-sky-700 border-sky-300 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800',
+  Pending: 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800',
+  Failed: 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800',
+};
 
 export const PaymentHistoryPage: React.FC = () => {
-  const { payments, tickets, routes } = useData();
-  const { currentUser, role } = useAuth();
-  const { success } = useToast();
-  const showSuccess = success;
-
+  const navigate = useNavigate();
+  const [payments, setPayments] = useState<PaymentDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [methodFilter, setMethodFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [detail, setDetail] = useState<PaymentDto | null>(null);
 
-  const [selectedPayment, setSelectedPayment] = useState<PaymentRecord | null>(null);
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-
-  // Filter payments by role if passenger
-  const availablePayments = useMemo(() => {
-    let list = payments;
-    if (role === 'PASSENGER' && currentUser) {
-      // Find tickets belonging to user
-      const userTicketIds = tickets
-        .filter(
-          (t) =>
-            t.passengerId === currentUser.id ||
-            t.passengerName.toLowerCase() === currentUser.fullName.toLowerCase()
-        )
-        .map((t) => t.id);
-
-      list = list.filter((p) => userTicketIds.includes(p.ticketId));
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setPayments(await listMyPayments());
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không tải được lịch sử thanh toán.');
+    } finally {
+      setLoading(false);
     }
-    return list;
-  }, [payments, tickets, currentUser, role]);
+  }, []);
 
-  const filteredPayments = useMemo(() => {
-    return availablePayments.filter((p) => {
-      const txnCode = p.transactionCode || p.id;
-      const matchesSearch =
-        txnCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.ticketId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.amount.toString().includes(searchTerm);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-      const matchesMethod = methodFilter === 'ALL' || p.method === methodFilter;
-      const matchesStatus = statusFilter === 'ALL' || p.status === statusFilter;
+  const filtered = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    return payments.filter(
+      (p) =>
+        (statusFilter === 'ALL' || p.status === statusFilter) &&
+        (!q ||
+          p.bookingCode.toLowerCase().includes(q) ||
+          p.routeCode.toLowerCase().includes(q) ||
+          (p.providerTxnId ?? '').toLowerCase().includes(q) ||
+          (p.invoiceNo ?? '').toLowerCase().includes(q)),
+    );
+  }, [payments, searchTerm, statusFilter]);
 
-      return matchesSearch && matchesMethod && matchesStatus;
-    });
-  }, [availablePayments, searchTerm, methodFilter, statusFilter]);
-
-  const handleViewDetail = (payment: PaymentRecord) => {
-    setSelectedPayment(payment);
-    setIsDetailModalOpen(true);
-  };
-
-  const handleDownloadReceipt = (payment: PaymentRecord) => {
-    showSuccess(`Đã xuất biên lai điện tử cho giao dịch ${payment.transactionCode || payment.id}!`);
-  };
-
-  const renderMethodBadge = (method: PaymentMethod) => {
-    switch (method) {
-      case 'MOMO':
-        return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-pink-100 text-pink-700 dark:bg-pink-950/60 dark:text-pink-300 border border-pink-200 dark:border-pink-800 flex items-center gap-1.5 w-fit">
-            <Smartphone className="w-3.5 h-3.5" />
-            <span>Ví MoMo</span>
-          </span>
-        );
-      case 'VNPAY':
-        return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 flex items-center gap-1.5 w-fit">
-            <CreditCard className="w-3.5 h-3.5" />
-            <span>Cổng VNPay</span>
-          </span>
-        );
-      case 'ZALOPAY':
-        return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border border-sky-200 dark:border-sky-800 flex items-center gap-1.5 w-fit">
-            <Smartphone className="w-3.5 h-3.5" />
-            <span>Ví ZaloPay</span>
-          </span>
-        );
-      case 'BANK_TRANSFER':
-        return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1.5 w-fit">
-            <Building className="w-3.5 h-3.5" />
-            <span>Chuyển khoản NH</span>
-          </span>
-        );
-      default:
-        return <span>{method}</span>;
-    }
-  };
-
-  // Find linked ticket
-  const linkedTicket = useMemo(() => {
-    if (!selectedPayment) return null;
-    return tickets.find((t) => t.id === selectedPayment.ticketId);
-  }, [tickets, selectedPayment]);
-
-  const linkedRoute = useMemo(() => {
-    if (!linkedTicket) return null;
-    return routes.find((r) => r.id === linkedTicket.routeId);
-  }, [routes, linkedTicket]);
+  const paid = payments.filter((p) => p.status === 'Success' || p.status === 'Refunded').reduce((s, p) => s + p.amount, 0);
+  const refunded = payments.reduce((s, p) => s + p.refundedAmount, 0);
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Lịch Sử Giao Dịch & Thanh Toán"
-        subtitle="Theo dõi toàn bộ dòng tiền thanh toán vé điện tử qua các cổng MoMo, VNPay, ZaloPay và Ngân hàng số"
-        icon={<CreditCard className="w-6 h-6 text-amber-500" />}
-        breadcrumbs={[
-          { label: 'Trang chủ', href: '/' },
-          { label: 'Tài chính & Thanh toán' },
-          { label: 'Lịch sử thanh toán' },
-        ]}
+        title="Lịch sử thanh toán"
+        subtitle="Các giao dịch thanh toán vé của bạn, kèm hóa đơn và các khoản đã hoàn tiền."
+        icon={<CreditCard className="w-5 h-5 text-emerald-500" />}
+        action={
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            className="px-3.5 py-2 bg-institutional-600 hover:bg-institutional-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 disabled:opacity-60"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>Tải lại</span>
+          </button>
+        }
       />
 
-      {/* Statistics Quick Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm">
-          <div className="text-slate-400 text-xs font-semibold">Tổng số giao dịch</div>
-          <div className="text-xl font-bold text-institutional-900 dark:text-white mt-1">
-            {availablePayments.length} giao dịch
-          </div>
+      {error && (
+        <div className="p-3 rounded-lg border border-rose-300 bg-rose-50 dark:bg-rose-950/30 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300">
+          Không tải được dữ liệu từ máy chủ: {error}
         </div>
+      )}
 
-        <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm">
-          <div className="text-slate-400 text-xs font-semibold">Giao dịch thành công</div>
-          <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">
-            {availablePayments.filter((p) => p.status === 'SUCCESS').length}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[
+          ['Số giao dịch', String(payments.length)],
+          ['Tổng đã thanh toán', formatVnd(paid)],
+          ['Đã hoàn tiền', formatVnd(refunded)],
+        ].map(([label, value]) => (
+          <div key={label} className={`${CARD} p-4`}>
+            <div className="text-slate-400 text-xs font-semibold">{label}</div>
+            <div className="text-xl font-bold mt-1 text-slate-900 dark:text-white">{value}</div>
           </div>
-        </div>
-
-        <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm">
-          <div className="text-slate-400 text-xs font-semibold">Đã hoàn tiền (Refunded)</div>
-          <div className="text-xl font-bold text-amber-600 dark:text-amber-400 mt-1">
-            {availablePayments.filter((p) => p.status === 'REFUNDED').length}
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm">
-          <div className="text-slate-400 text-xs font-semibold">Tổng giá trị thanh toán</div>
-          <div className="text-xl font-bold text-institutional-700 dark:text-sky-300 mt-1">
-            {availablePayments
-              .filter((p) => p.status === 'SUCCESS')
-              .reduce((sum, p) => sum + p.amount, 0)
-              .toLocaleString('vi-VN')}{' '}
-            đ
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Search and Filters */}
-      <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-        <div className="flex flex-col sm:flex-row gap-3 flex-1">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Tìm theo mã giao dịch (TXN-...), mã vé hoặc số tiền..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-slate-400 shrink-0" />
-            <select
-              value={methodFilter}
-              onChange={(e) => setMethodFilter(e.target.value)}
-              className="py-2 px-3 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-            >
-              <option value="ALL">Tất cả phương thức</option>
-              <option value="MOMO">Ví MoMo</option>
-              <option value="VNPAY">Cổng VNPay</option>
-              <option value="ZALOPAY">Ví ZaloPay</option>
-              <option value="BANK_TRANSFER">Chuyển khoản Ngân hàng</option>
-            </select>
-
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="py-2 px-3 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-            >
-              <option value="ALL">Tất cả trạng thái</option>
-              <option value="SUCCESS">Thành công</option>
-              <option value="PENDING">Đang xử lý</option>
-              <option value="FAILED">Thất bại</option>
-              <option value="REFUNDED">Đã hoàn tiền</option>
-            </select>
-          </div>
+      <div className={`${CARD} p-4 flex flex-wrap gap-3 items-center`}>
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Tìm theo mã đặt chỗ, tuyến, mã giao dịch, số hóa đơn..."
+            className={`${FILTER} w-full pl-9`}
+          />
         </div>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={FILTER}>
+          <option value="ALL">Tất cả trạng thái</option>
+          {Object.entries(PAYMENT_STATUS_LABEL).map(([k, v]) => (
+            <option key={k} value={k}>
+              {v}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {/* Payment Table */}
-      {filteredPayments.length === 0 ? (
+      {loading && payments.length === 0 ? (
+        <div className="text-center text-xs text-slate-400 py-10">Đang tải dữ liệu...</div>
+      ) : filtered.length === 0 ? (
         <EmptyState
-          title="Không tìm thấy giao dịch nào"
-          description="Chưa có dữ liệu giao dịch thanh toán nào phù hợp với bộ lọc hiện tại."
+          title="Chưa có giao dịch nào"
+          description="Các giao dịch sẽ xuất hiện ở đây sau khi bạn thanh toán vé."
           icon={<CreditCard className="w-12 h-12 text-slate-300" />}
         />
       ) : (
-        <div className="bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#1e2f57] overflow-hidden shadow-sm">
+        <div className={`${CARD} overflow-hidden`}>
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
               <thead className="bg-slate-100 dark:bg-[#0c162d] text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
                 <tr>
-                  <th className="py-3 px-4">Mã giao dịch</th>
-                  <th className="py-3 px-4">Mã vé / Dịch vụ</th>
+                  <th className="py-3 px-4">Mã đặt chỗ</th>
+                  <th className="py-3 px-4">Tuyến / Ghế</th>
                   <th className="py-3 px-4">Phương thức</th>
                   <th className="py-3 px-4">Số tiền</th>
-                  <th className="py-3 px-4">Thời gian</th>
+                  <th className="py-3 px-4">Thanh toán lúc</th>
                   <th className="py-3 px-4">Trạng thái</th>
-                  <th className="py-3 px-4 text-right">Thao tác</th>
+                  <th className="py-3 px-4 text-right">Chi tiết</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredPayments.map((payment) => (
-                  <tr
-                    key={payment.id}
-                    className="hover:bg-slate-50/80 dark:hover:bg-[#162344] transition-colors"
-                  >
-                    <td className="py-3.5 px-4 font-mono font-bold text-institutional-700 dark:text-sky-300 whitespace-nowrap">
-                      {payment.transactionCode || payment.id}
+                {filtered.map((p) => (
+                  <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/40">
+                    <td className="py-3 px-4 font-mono font-bold text-institutional-700 dark:text-sky-300">{p.bookingCode}</td>
+                    <td className="py-3 px-4">
+                      <div className="font-bold text-slate-900 dark:text-white">{p.routeCode}</div>
+                      <div className="text-[11px] text-slate-400">Ghế {p.seats.join(', ')}</div>
                     </td>
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">
-                        {payment.ticketId}
+                    <td className="py-3 px-4">{PAYMENT_METHOD_LABEL[p.method] ?? p.method}</td>
+                    <td className="py-3 px-4 font-bold text-emerald-600 dark:text-emerald-400">{formatVnd(p.amount)}</td>
+                    <td className="py-3 px-4 text-slate-500">{formatDateTime(p.paidAt)}</td>
+                    <td className="py-3 px-4">
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${STATUS_STYLE[p.status] ?? ''}`}>
+                        {PAYMENT_STATUS_LABEL[p.status] ?? p.status}
                       </span>
                     </td>
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      {renderMethodBadge(payment.method)}
-                    </td>
-                    <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                      {payment.amount.toLocaleString('vi-VN')} đ
-                    </td>
-                    <td className="py-3.5 px-4 whitespace-nowrap text-slate-500 dark:text-slate-400">
-                      {new Date(payment.createdAt).toLocaleString('vi-VN')}
-                    </td>
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <Badge variant="paymentStatus" value={payment.status} />
-                    </td>
-                    <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleViewDetail(payment)}
-                          className="px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-institutional-700 dark:text-sky-300 font-semibold rounded text-xs hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1 transition-colors"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Chi tiết</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadReceipt(payment)}
-                          className="px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-emerald-700 dark:text-emerald-400 font-semibold rounded text-xs hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1 transition-colors"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Biên lai</span>
-                        </button>
-                      </div>
+                    <td className="py-3 px-4 text-right">
+                      <button type="button" title="Chi tiết" onClick={() => setDetail(p)} className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-sky-600">
+                        <Eye className="w-4 h-4" />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -294,96 +178,60 @@ export const PaymentHistoryPage: React.FC = () => {
         </div>
       )}
 
-      {/* DETAIL MODAL */}
-      {selectedPayment && (
-        <Modal
-          isOpen={isDetailModalOpen}
-          onClose={() => setIsDetailModalOpen(false)}
-          title={`CHI TIẾT GIAO DỊCH — ${selectedPayment.transactionCode || selectedPayment.id}`}
-          maxWidth="lg"
-        >
-          <div className="space-y-4">
-            {/* Header Status Card */}
-            <div className="bg-slate-50 dark:bg-[#0c162d] p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-center space-y-2">
-              <div className="text-xs text-slate-500">Số tiền thanh toán</div>
-              <div className="text-2xl font-black text-institutional-900 dark:text-white">
-                {selectedPayment.amount.toLocaleString('vi-VN')} VNĐ
-              </div>
-              <div className="flex justify-center">
-                <Badge variant="paymentStatus" value={selectedPayment.status} />
-              </div>
-            </div>
+      <Modal isOpen={detail !== null} onClose={() => setDetail(null)} title={`Giao dịch ${detail?.bookingCode ?? ''}`} maxWidth="lg">
+        {detail && (
+          <div className="space-y-4 text-xs">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+              {[
+                ['Mã giao dịch', detail.providerTxnId ?? '-'],
+                ['Phương thức', PAYMENT_METHOD_LABEL[detail.method] ?? detail.method],
+                ['Số tiền', formatVnd(detail.amount)],
+                ['Thanh toán lúc', formatDateTime(detail.paidAt)],
+                ['Tuyến', `${detail.routeCode} - ${detail.routeName}`],
+                ['Khởi hành', formatDateTime(detail.departureAt)],
+                ['Ghế', detail.seats.join(', ')],
+                ['Đã hoàn', formatVnd(detail.refundedAmount)],
+              ].map(([k, v]) => (
+                <div key={k}>
+                  <dt className="text-slate-400 font-semibold">{k}</dt>
+                  <dd className="text-slate-900 dark:text-white font-medium break-all">{v}</dd>
+                </div>
+              ))}
+            </dl>
 
-            {/* Information Grid */}
-            <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-              <div className="py-2.5 flex justify-between">
-                <span className="text-slate-500">Mã giao dịch hệ thống:</span>
-                <span className="font-mono font-bold text-slate-900 dark:text-white">
-                  {selectedPayment.transactionCode || selectedPayment.id}
-                </span>
-              </div>
-              <div className="py-2.5 flex justify-between items-center">
-                <span className="text-slate-500">Phương thức thanh toán:</span>
-                <div>{renderMethodBadge(selectedPayment.method)}</div>
-              </div>
-              <div className="py-2.5 flex justify-between">
-                <span className="text-slate-500">Thời gian khởi tạo:</span>
-                <span className="text-slate-900 dark:text-white">
-                  {new Date(selectedPayment.createdAt).toLocaleString('vi-VN')}
-                </span>
-              </div>
-              <div className="py-2.5 flex justify-between">
-                <span className="text-slate-500">Mã vé liên kết:</span>
-                <span className="font-mono font-bold text-institutional-600 dark:text-sky-400">
-                  {selectedPayment.ticketId}
-                </span>
-              </div>
-              {linkedTicket && (
-                <>
-                  <div className="py-2.5 flex justify-between">
-                    <span className="text-slate-500">Hành khách:</span>
-                    <span className="font-semibold text-slate-900 dark:text-white">
-                      {linkedTicket.passengerName}
-                    </span>
+            {detail.refunds.length > 0 && (
+              <div className="space-y-2">
+                <div className="font-bold text-slate-700 dark:text-slate-300">Hoàn tiền</div>
+                {detail.refunds.map((r) => (
+                  <div key={r.id} className="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800 flex justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-slate-900 dark:text-white">
+                        {formatVnd(r.amount)} · {REFUND_REASON_LABEL[r.reason] ?? r.reason}
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        Gửi {formatDateTime(r.createdAt)}
+                        {r.note ? ` · ${r.note}` : ''}
+                      </div>
+                    </div>
+                    <span className="font-bold text-slate-700 dark:text-slate-200">{REFUND_STATUS_LABEL[r.status] ?? r.status}</span>
                   </div>
-                  <div className="py-2.5 flex justify-between">
-                    <span className="text-slate-500">Tuyến xe:</span>
-                    <span className="font-semibold text-slate-900 dark:text-white">
-                      {linkedRoute ? `${linkedRoute.code || linkedRoute.routeCode} - ${linkedRoute.name}` : linkedTicket.routeId}
-                    </span>
-                  </div>
-                </>
-              )}
-              <div className="py-2.5 flex justify-between">
-                <span className="text-slate-500">Trạng thái hạch toán:</span>
-                <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Đã ghi nhận ngân hàng
-                </span>
+                ))}
               </div>
-            </div>
+            )}
 
-            {/* Modal Actions */}
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+            {detail.invoiceNo && (
               <button
                 type="button"
-                onClick={() => handleDownloadReceipt(selectedPayment)}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+                onClick={() => navigate('/passenger/invoices')}
+                className="px-4 py-2 rounded-lg border border-institutional-600 text-institutional-600 dark:text-sky-400 font-bold flex items-center gap-1.5"
               >
-                <Download className="w-4 h-4" />
-                <span>Tải biên lai PDF</span>
+                <FileText className="w-4 h-4" />
+                Xem hóa đơn {detail.invoiceNo}
               </button>
-              <button
-                type="button"
-                onClick={() => setIsDetailModalOpen(false)}
-                className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
-              >
-                Đóng
-              </button>
-            </div>
+            )}
           </div>
-        </Modal>
-      )}
+        )}
+      </Modal>
     </div>
   );
 };
