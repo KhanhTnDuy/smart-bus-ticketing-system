@@ -108,6 +108,24 @@ Cần chạy `dotnet ef database update` để áp migration `AddIncidentAndScan
 - Vé còn `Held` (chưa thanh toán) bị từ chối. Hệ thống chưa có luồng thanh toán nên chưa vé nào sang `Valid`; khi thử phải
   tự đổi trạng thái vé trong cơ sở dữ liệu.
 - `GET ?tripId=` lịch sử quét của chuyến.
+
+## Thanh toán, hóa đơn, hoàn tiền
+
+Cần `dotnet ef database update` để áp migration `AddRefundProcessing` (thêm cột xử lý cho `refunds`; `PaymentMethod`
+có thêm `BankTransfer`, lưu dạng chuỗi nên không đổi cấu trúc bảng).
+
+**Chưa nối cổng thanh toán thật.** Lệnh thanh toán luôn thành công và sinh mã giao dịch giả lập (`SIM-...`); phần còn lại chạy thật.
+
+- `POST /api/payments { bookingId, method }` (Hành khách): lấy số tiền từ `Booking.FinalAmount` ở máy chủ. Lượt đặt chuyển
+  `Pending` sang `Confirmed` bằng một câu UPDATE có điều kiện còn trong thời hạn giữ chỗ (10 phút), nên bấm hai lần hoặc trả
+  sau khi hết hạn đều bị từ chối (409). Thanh toán xong, các vé `Held` sang `Valid` (quét QR được) và tạo hóa đơn `INV-yyyyMMdd-nnnnnn`.
+- `GET /api/payments/my`, `GET /api/invoices/my`, `GET /api/refunds/my` cho hành khách; `GET /api/payments`, `/api/invoices`,
+  `/api/refunds` cho Admin, Quản lý.
+- **Hoàn tiền** tạo tự động ở trạng thái `Pending` khi (1) quản lý duyệt yêu cầu hủy một vé đã thanh toán, (2) chuyến bị hủy
+  (`PUT /api/assignments/{id}/trip` với trạng thái Cancelled; các vé còn hiệu lực bị hủy, lượt đặt đóng, hành khách nhận thông báo).
+  Giá mỗi vé là số tiền thanh toán chia đều cho các vé của lượt đặt, tổng hoàn không vượt số tiền đã trả.
+- `PATCH /api/refunds/{id}/process { approve, note }` (Admin, Quản lý): duyệt thì `Success`, từ chối thì `Failed` và bắt buộc
+  có `note`. Khi tổng hoàn thành công bằng số tiền đã trả, giao dịch chuyển `Refunded`. Xử lý lần hai trả 409.
 ## Báo cáo doanh thu (SCRUM-82, SCRUM-86)
 
 `GET /api/reports/revenue` (Admin, Quản lý) với các tham số tùy chọn `startDate`,

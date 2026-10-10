@@ -21,6 +21,14 @@ import { Badge } from '../../components/common/Badge';
 import { ApiError } from '../../api/client';
 import { listRouteStops, listRoutes, RouteDto, RouteStopDto } from '../../api/routeManagement';
 import { confirmBooking, getTripSeats, searchTrips, TripDto, TripSeatDto } from '../../api/booking';
+import { payBooking, PaymentMethodCode, PaymentDto } from '../../api/payments';
+
+const PAYMENT_METHOD_CODE: Record<string, PaymentMethodCode> = {
+  MOMO: PaymentMethodCode.Momo,
+  VNPAY: PaymentMethodCode.VnPay,
+  ZALOPAY: PaymentMethodCode.ZaloPay,
+  BANK_TRANSFER: PaymentMethodCode.BankTransfer,
+};
 
 export const RouteBookingPage: React.FC = () => {
   const { currentUser } = useAuth();
@@ -94,6 +102,8 @@ export const RouteBookingPage: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('MOMO');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [createdTicketId, setCreatedTicketId] = useState<string>('');
+  // Kết quả thanh toán sau khi giữ chỗ; null nghĩa là vẫn chưa thanh toán.
+  const [paidInfo, setPaidInfo] = useState<PaymentDto | null>(null);
   /** Số tiền do máy chủ chốt khi đặt vé, có thể khác số hiển thị lúc chọn ghế. */
   const [serverFinalAmount, setServerFinalAmount] = useState<number | null>(null);
 
@@ -325,6 +335,17 @@ export const RouteBookingPage: React.FC = () => {
           `Máy chủ chốt ${booking.finalAmount.toLocaleString('vi-VN')} VNĐ theo đối tượng ưu đãi đã được duyệt của tài khoản, khác số ${totalCalculatedAmount.toLocaleString('vi-VN')} VNĐ hiển thị lúc chọn ghế.`
         );
       }
+      // Thanh toán ngay sau khi giữ chỗ. Nếu lỗi thì ghế vẫn được giữ 10 phút để khách trả lại ở mục Vé điện tử.
+      try {
+        const payment = await payBooking(booking.bookingId, PAYMENT_METHOD_CODE[paymentMethod]);
+        setPaidInfo(payment);
+        success(`Đã thanh toán ${payment.amount.toLocaleString('vi-VN')} VNĐ. Hóa đơn ${payment.invoiceNo ?? ''}.`);
+      } catch (payErr) {
+        setPaidInfo(null);
+        error(
+          `${payErr instanceof ApiError ? payErr.message : 'Thanh toán không thành công.'} Ghế vẫn được giữ trong 10 phút, bạn có thể thanh toán lại ở mục Vé điện tử.`
+        );
+      }
       setCurrentStep(4);
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Không xác nhận được đặt vé.';
@@ -346,6 +367,7 @@ export const RouteBookingPage: React.FC = () => {
     setSelectedSeatIds([]);
     setCurrentStep(1);
     setCreatedTicketId('');
+    setPaidInfo(null);
     setServerFinalAmount(null);
   };
 
@@ -1228,10 +1250,10 @@ export const RouteBookingPage: React.FC = () => {
 
           <div>
             <span className="text-xs font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-3 py-1 rounded-full border border-emerald-200 dark:border-emerald-800">
-              GIAO DỊCH THÀNH CÔNG
+              {paidInfo ? "ĐÃ THANH TOÁN" : "CHƯA THANH TOÁN"}
             </span>
             <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-2">
-              Đã Giữ Chỗ Thành Công!
+              {paidInfo ? "Thanh Toán Thành Công!" : "Đã Giữ Chỗ, Chờ Thanh Toán"}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Mã đặt chỗ của bạn: <strong className="font-mono text-slate-900 dark:text-white">{createdTicketId}</strong>
