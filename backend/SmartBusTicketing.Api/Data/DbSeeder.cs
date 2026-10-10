@@ -348,4 +348,79 @@ public static class DbSeeder
             logger.LogWarning(ex, "Bỏ qua khởi tạo dữ liệu mẫu phân công xe & nhân sự: {Message}", ex.Message);
         }
     }
+
+    /// <summary>
+    /// Dữ liệu mẫu phục vụ phát triển & kiểm thử chức năng Quản lý & Kiểm tra Voucher (SCRUM-66 & SCRUM-67).
+    /// </summary>
+    public static async Task SeedVouchersSampleDataAsync(WebApplication app, CancellationToken ct = default)
+    {
+        if (!app.Environment.IsDevelopment()) return;
+
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(DbSeeder));
+
+        try
+        {
+            if (await db.Vouchers.AnyAsync(ct)) return;
+
+            var now = DateTime.UtcNow;
+            var sampleVouchers = new List<Voucher>
+            {
+                new()
+                {
+                    Code = "HE2026",
+                    DiscountType = DiscountType.Percent,
+                    DiscountValue = 20,
+                    StartAt = now.AddDays(-7),
+                    EndAt = now.AddDays(30),
+                    UsageLimit = 100
+                },
+                new()
+                {
+                    Code = "CHAOHEXANH",
+                    DiscountType = DiscountType.Fixed,
+                    DiscountValue = 10000,
+                    StartAt = now.AddDays(-5),
+                    EndAt = now.AddDays(45),
+                    UsageLimit = 50
+                },
+                new()
+                {
+                    Code = "HETHAN2025",
+                    DiscountType = DiscountType.Percent,
+                    DiscountValue = 15,
+                    StartAt = now.AddDays(-60),
+                    EndAt = now.AddDays(-5),
+                    UsageLimit = 200
+                },
+                new()
+                {
+                    Code = "HETLUOT",
+                    DiscountType = DiscountType.Percent,
+                    DiscountValue = 50,
+                    StartAt = now.AddDays(-10),
+                    EndAt = now.AddDays(20),
+                    UsageLimit = 1
+                },
+                new()
+                {
+                    Code = "VIPKHACHHANG",
+                    DiscountType = DiscountType.Fixed,
+                    DiscountValue = 25000,
+                    StartAt = now.AddDays(3),
+                    EndAt = now.AddDays(30),
+                    UsageLimit = 500
+                }
+            };
+
+            db.Vouchers.AddRange(sampleVouchers);
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation("Đã khởi tạo các mã voucher mẫu phục vụ kiểm thử (SCRUM-66, SCRUM-67).");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Bỏ qua khởi tạo dữ liệu mẫu voucher: {Message}", ex.Message);
+        }
+    }
 }

@@ -25,6 +25,7 @@ import { ScheduleManagementPage } from '../pages/manager/ScheduleManagementPage'
 import { AssignmentManagementPage } from '../pages/manager/AssignmentManagementPage';
 import { RefundManagementPage } from '../pages/manager/RefundManagementPage';
 import { RevenueReportPage } from '../pages/manager/RevenueReportPage';
+import { VoucherManagementPage } from '../pages/manager/VoucherManagementPage';
 import { DiscountVerificationPage } from '../pages/manager/DiscountVerificationPage';
 import { OccupancyReportPage } from '../pages/manager/OccupancyReportPage';
 
@@ -92,8 +93,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/manager/refunds" element={<RefundManagementPage />} />
           <Route path="/manager/incidents" element={<IncidentPage />} />
           <Route path="/manager/revenue" element={<RevenueReportPage />} />
-
-          {/* SPRINT 2 / US17, US18, US19 FEATURES */}
+          <Route path="/manager/vouchers" element={<VoucherManagementPage />} />
           <Route path="/manager/verifications" element={<DiscountVerificationPage />} />
           <Route path="/manager/occupancy" element={<OccupancyReportPage />} />
         </Route>
