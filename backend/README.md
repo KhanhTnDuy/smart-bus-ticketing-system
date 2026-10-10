@@ -164,3 +164,16 @@ Cần `dotnet ef database update` để áp migration `AddNotificationTitleLink`
 `GET /api/reports/occupancy?startDate=&endDate=&routeId=&status=` (Admin, Quản lý). Mỗi chuyến chưa hủy có số ghế đã chiếm trên sức chứa của xe,
 phần trăm và nhóm tải: `OVERLOAD` (từ 85%), `OPTIMAL` (60-84%), `LOW` (dưới 60%), `NO_TICKETS` (chưa có vé), `NO_BUS` (chưa gán xe) kèm đề xuất.
 Ghế đã chiếm gồm vé `Valid`, `Used` và vé `Held` của lượt đặt còn trong thời hạn giữ chỗ, cùng quy tắc với sơ đồ ghế. Trung bình chỉ tính các chuyến đã có xe.
+## Hồ sơ ưu đãi giá vé và tải giấy tờ
+
+Cần `dotnet ef database update` để áp migration `AddDiscountApplicationReview` (thêm `SubmittedAt`, `ReviewedAt`, `RejectReason`
+cho `passenger_verifications`).
+
+- `POST /api/uploads` (đăng nhập): nhận ảnh JPG, PNG hoặc PDF tối đa 5 MB, loại tệp xác định bằng chữ ký đầu tệp chứ không tin phần mở
+  rộng hay Content-Type của client. Tệp lưu ở `App_Data/uploads` (không công khai, đã có trong `.gitignore`) với tên do máy chủ sinh,
+  chỉ đọc được qua `GET /api/uploads/{tên}` bởi chính chủ hoặc Admin, Quản lý.
+- `POST /api/discount-applications` (Hành khách): nộp hồ sơ kèm đường dẫn giấy tờ của chính mình; mỗi lúc chỉ một hồ sơ chờ duyệt, không nộp lại
+  khi đang có ưu đãi cùng loại còn hạn. `GET /my` xem hồ sơ của mình.
+- `GET /api/discount-applications` và `POST /{id}/review` chỉ cho Admin, Quản lý. Từ chối bắt buộc có lý do, ngày hết hạn không được ở quá
+  khứ, xử lý lần hai trả 409. Hành khách và Quản lý đều nhận thông báo.
+- Hồ sơ đã duyệt và còn hạn là điều kiện để `BookingsController` tính giá ưu đãi khi đặt vé.

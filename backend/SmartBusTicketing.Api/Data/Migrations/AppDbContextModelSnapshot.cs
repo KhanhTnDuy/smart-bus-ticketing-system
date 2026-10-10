@@ -662,12 +662,21 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.Property<int>("PassengerTypeId")
                         .HasColumnType("int");
 
+                    b.Property<string>("RejectReason")
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<long?>("ReviewedBy")
                         .HasColumnType("bigint");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("longtext");
+
+                    b.Property<DateTime>("SubmittedAt")
+                        .HasColumnType("datetime(6)");
 
                     b.Property<DateOnly?>("ValidUntil")
                         .HasColumnType("date");
