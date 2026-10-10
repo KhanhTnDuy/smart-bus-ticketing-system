@@ -159,6 +159,11 @@ Cần `dotnet ef database update` để áp migration `AddNotificationTitleLink`
 - Mỗi thông báo có `Link` tới trang liên quan; bấm vào chuông sẽ mở trang đó và đánh dấu đã đọc.
 - Chưa có kênh đẩy: giao diện hỏi lại mỗi 30 giây và khi quay lại tab.
 
+## Thống kê tỷ lệ lấp đầy
+
+`GET /api/reports/occupancy?startDate=&endDate=&routeId=&status=` (Admin, Quản lý). Mỗi chuyến chưa hủy có số ghế đã chiếm trên sức chứa của xe,
+phần trăm và nhóm tải: `OVERLOAD` (từ 85%), `OPTIMAL` (60-84%), `LOW` (dưới 60%), `NO_TICKETS` (chưa có vé), `NO_BUS` (chưa gán xe) kèm đề xuất.
+Ghế đã chiếm gồm vé `Valid`, `Used` và vé `Held` của lượt đặt còn trong thời hạn giữ chỗ, cùng quy tắc với sơ đồ ghế. Trung bình chỉ tính các chuyến đã có xe.
 ## Hồ sơ ưu đãi giá vé và tải giấy tờ
 
 Cần `dotnet ef database update` để áp migration `AddDiscountApplicationReview` (thêm `SubmittedAt`, `ReviewedAt`, `RejectReason`

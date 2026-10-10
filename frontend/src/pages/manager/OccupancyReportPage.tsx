@@ -1,522 +1,235 @@
-import React, { useState, useMemo } from 'react';
-import {
-  Users,
-  Bus,
-  Calendar,
-  Filter,
-  RotateCcw,
-  AlertTriangle,
-  CheckCircle2,
-  TrendingUp,
-  TrendingDown,
-  BarChart3,
-  ArrowRight,
-  Info,
-  Clock,
-  Sparkles,
-} from 'lucide-react';
-import { useData } from '../../context/DataContext';
+import React, { useCallback, useEffect, useState } from 'react';
+import { BarChart3, RefreshCw, Download } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
-import { Badge } from '../../components/common/Badge';
 import { EmptyState } from '../../components/common/EmptyState';
-import { TripOccupancyItem, OccupancyLoadStatus } from '../../types';
+import { useToast } from '../../context/ToastContext';
+import { listRoutes, RouteDto } from '../../api/routeManagement';
+import { LOAD_STATUS_LABEL, LoadStatus, OccupancyReport, getOccupancyReport } from '../../api/occupancyReport';
+
+const CARD = 'bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm';
+const FILTER =
+  'py-2 px-3 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500';
+
+const STATUS_STYLE: Record<LoadStatus, string> = {
+  OVERLOAD: 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800',
+  OPTIMAL: 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800',
+  LOW: 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800',
+  NO_TICKETS: 'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600',
+  NO_BUS: 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-300 dark:bg-fuchsia-950/40 dark:text-fuchsia-300 dark:border-fuchsia-800',
+};
+
+const BAR_COLOR: Record<LoadStatus, string> = {
+  OVERLOAD: 'bg-rose-500',
+  OPTIMAL: 'bg-emerald-500',
+  LOW: 'bg-amber-500',
+  NO_TICKETS: 'bg-slate-400',
+  NO_BUS: 'bg-fuchsia-400',
+};
+
+const iso = (d: Date) => d.toLocaleDateString('en-CA');
+const parseUtc = (s: string) => new Date(s.endsWith('Z') ? s : `${s}Z`);
+const csvCell = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
 
 export const OccupancyReportPage: React.FC = () => {
-  const { trips, routes, buses } = useData();
+  const { error: showError } = useToast();
+  const [routes, setRoutes] = useState<RouteDto[]>([]);
+  const [routeId, setRouteId] = useState('ALL');
+  const [status, setStatus] = useState<LoadStatus | 'ALL'>('ALL');
+  const [startDate, setStartDate] = useState(iso(new Date()));
+  const [endDate, setEndDate] = useState(iso(new Date(Date.now() + 7 * 86400000)));
 
-  // Filters
-  const [selectedRouteId, setSelectedRouteId] = useState<string>('ALL');
-  const [selectedDate, setSelectedDate] = useState<string>(() => {
-    // Default to the date of first trip or today
-    return trips.length > 0 ? trips[0].departureDate : new Date().toISOString().split('T')[0];
-  });
-  const [loadStatusFilter, setLoadStatusFilter] = useState<string>('ALL');
+  const [report, setReport] = useState<OccupancyReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Available unique dates in trips for quick picker
-  const availableDates = useMemo(() => {
-    const set = new Set<string>();
-    trips.forEach((t) => {
-      if (t.departureDate) set.add(t.departureDate);
-    });
-    return Array.from(set).sort();
-  }, [trips]);
+  useEffect(() => {
+    listRoutes()
+      .then(setRoutes)
+      .catch(() => setRoutes([]));
+  }, []);
 
-  // Compute Occupancy Analysis for all trips
-  const analyzedTrips: TripOccupancyItem[] = useMemo(() => {
-    return trips.map((trip) => {
-      const route = routes.find((r) => r.id === trip.routeId);
-      const bookedCount = trip.bookedSeats ? trip.bookedSeats.length : 0;
-      const bus = buses.find((b) => b.plateNumber === trip.busPlate);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setReport(await getOccupancyReport({ startDate, endDate, routeId, status }));
+      setLoadError(null);
+    } catch (err) {
+      setReport(null);
+      setLoadError(err instanceof Error ? err.message : 'Không tải được thống kê.');
+    } finally {
+      setLoading(false);
+    }
+  }, [startDate, endDate, routeId, status]);
 
-      const hasBus = Boolean(
-        trip.busPlate &&
-          trip.busPlate !== 'Chưa gán xe' &&
-          trip.busPlate.trim() !== '' &&
-          trip.totalSeats > 0
-      );
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-      let loadStatus: OccupancyLoadStatus;
-      let occupancyPercent = 0;
-      let recommendation = '';
-
-      if (!hasBus) {
-        loadStatus = 'NO_BUS';
-        occupancyPercent = 0;
-        recommendation = 'Chưa bố trí phương tiện. Cần gán xe và tài xế trước giờ xuất bến!';
-      } else if (bookedCount === 0) {
-        loadStatus = 'NO_TICKETS';
-        occupancyPercent = 0;
-        recommendation = 'Chưa có hành khách đặt chỗ. Xem xét gộp chuyến hoặc đẩy khuyến mại tuyến.';
-      } else {
-        occupancyPercent = Math.round((bookedCount / trip.totalSeats) * 100);
-        if (occupancyPercent >= 85) {
-          loadStatus = 'OVERLOAD';
-          recommendation =
-            'Tỷ lệ lấp đầy rất cao (>85%). Đề xuất tăng tần suất chuyến hoặc nâng cấp lên xe 45 chỗ.';
-        } else if (occupancyPercent >= 60) {
-          loadStatus = 'OPTIMAL';
-          recommendation =
-            'Tỷ lệ lấp đầy lý tưởng (60-85%). Giữ nguyên quy mô phương tiện và lịch chạy.';
-        } else {
-          loadStatus = 'LOW';
-          recommendation =
-            'Tỷ lệ lấp đầy thấp (<60%). Đề xuất thu gọn quy mô sang xe 16-29 chỗ để tiết kiệm nhiên liệu.';
-        }
-      }
-
-      return {
-        tripId: trip.id,
-        routeId: trip.routeId,
-        routeCode: route?.code || route?.routeCode || 'TUYẾN',
-        routeName: route?.name || 'Tuyến xe buýt',
-        busPlate: hasBus ? trip.busPlate : undefined,
-        busModel: bus?.model || (hasBus ? `${trip.totalSeats} chỗ` : 'Chưa rõ'),
-        driverName: trip.driverName || 'Chưa gán',
-        departureTime: trip.departureTime,
-        departureDate: trip.departureDate,
-        totalSeats: trip.totalSeats,
-        bookedSeatsCount: bookedCount,
-        occupancyPercent,
-        loadStatus,
-        recommendation,
-      };
-    });
-  }, [trips, routes, buses]);
-
-  // Filtered List
-  const filteredList = useMemo(() => {
-    return analyzedTrips.filter((item) => {
-      const matchRoute = selectedRouteId === 'ALL' || item.routeId === selectedRouteId;
-      const matchDate = !selectedDate || item.departureDate === selectedDate;
-      const matchStatus = loadStatusFilter === 'ALL' || item.loadStatus === loadStatusFilter;
-      return matchRoute && matchDate && matchStatus;
-    });
-  }, [analyzedTrips, selectedRouteId, selectedDate, loadStatusFilter]);
-
-  // Aggregate Metrics & KPIs
-  const stats = useMemo(() => {
-    const total = filteredList.length;
-    const tripsWithBus = filteredList.filter((item) => item.loadStatus !== 'NO_BUS');
-    const totalSeats = tripsWithBus.reduce((sum, item) => sum + item.totalSeats, 0);
-    const totalBooked = tripsWithBus.reduce((sum, item) => sum + item.bookedSeatsCount, 0);
-
-    const avgOccupancy =
-      totalSeats > 0 ? Math.round((totalBooked / totalSeats) * 100) : 0;
-
-    const overloaded = filteredList.filter((item) => item.loadStatus === 'OVERLOAD').length;
-    const optimal = filteredList.filter((item) => item.loadStatus === 'OPTIMAL').length;
-    const low = filteredList.filter((item) => item.loadStatus === 'LOW').length;
-    const noTickets = filteredList.filter((item) => item.loadStatus === 'NO_TICKETS').length;
-    const noBus = filteredList.filter((item) => item.loadStatus === 'NO_BUS').length;
-
-    return {
-      total,
-      totalSeats,
-      totalBooked,
-      avgOccupancy,
-      overloaded,
-      optimal,
-      low,
-      noTickets,
-      noBus,
-    };
-  }, [filteredList]);
-
-  // Reset filter
-  const handleResetFilters = () => {
-    setSelectedRouteId('ALL');
-    setSelectedDate(availableDates[0] || '');
-    setLoadStatusFilter('ALL');
+  const exportCsv = () => {
+    if (!report || report.trips.length === 0) return showError('Chưa có dữ liệu để xuất.');
+    const lines = [
+      ['Mã chuyến', 'Tuyến', 'Khởi hành', 'Xe', 'Tài xế', 'Số ghế', 'Đã đặt', 'Tỷ lệ (%)', 'Trạng thái'].map(csvCell).join(','),
+      ...report.trips.map((t) =>
+        [
+          `TRIP-${t.tripId}`,
+          t.routeCode,
+          parseUtc(t.departureAt).toLocaleString('vi-VN'),
+          t.busPlate ?? '',
+          t.driverName ?? '',
+          t.totalSeats,
+          t.occupiedSeats,
+          t.occupancyPercent,
+          LOAD_STATUS_LABEL[t.loadStatus],
+        ]
+          .map(csvCell)
+          .join(','),
+      ),
+    ];
+    const url = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ty-le-lap-day-${iso(new Date())}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
+
+  const s = report?.summary;
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Báo cáo tỷ lệ lấp đầy & Đề xuất quy mô xe"
-        description="Theo dõi hệ số sử dụng ghế trên từng chuyến xe để tối ưu hóa việc phân bổ phương tiện 16, 29 hoặc 45 chỗ."
+        title="Thống kê tỷ lệ lấp đầy theo chuyến"
+        subtitle="Tỷ lệ ghế đã đặt trên sức chứa của xe, cảnh báo chuyến quá tải, tải thấp, chưa gán xe hoặc chưa có vé."
+        icon={<BarChart3 className="w-5 h-5 text-sky-500" />}
+        action={
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => void load()}
+              disabled={loading}
+              className="px-3.5 py-2 bg-institutional-600 hover:bg-institutional-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 disabled:opacity-60"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              <span>Tải lại</span>
+            </button>
+            <button type="button" onClick={exportCsv} className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5">
+              <Download className="w-4 h-4" />
+              <span>Xuất CSV</span>
+            </button>
+          </div>
+        }
       />
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-              Số chuyến khảo sát
-            </p>
-            <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
-              {stats.total}{' '}
-              <span className="text-xs font-normal text-slate-400">chuyến</span>
-            </p>
-            <p className="text-xs text-slate-500 mt-1">
-              Đã đặt: {stats.totalBooked} / {stats.totalSeats} ghế
-            </p>
-          </div>
-          <div className="w-12 h-12 bg-blue-50 dark:bg-blue-950/40 rounded-xl flex items-center justify-center text-blue-600 dark:text-blue-400">
-            <Bus className="w-6 h-6" />
+      {loadError && (
+        <div className="p-3 rounded-lg border border-rose-300 bg-rose-50 dark:bg-rose-950/30 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300">
+          Không tải được thống kê từ máy chủ: {loadError}
+        </div>
+      )}
+
+      <div className={`${CARD} p-4 flex flex-wrap gap-3 items-center`}>
+        <select value={routeId} onChange={(e) => setRouteId(e.target.value)} className={FILTER}>
+          <option value="ALL">Tất cả tuyến</option>
+          {routes.map((r) => (
+            <option key={r.id} value={String(r.id)}>
+              {r.code} - {r.name}
+            </option>
+          ))}
+        </select>
+        <select value={status} onChange={(e) => setStatus(e.target.value as LoadStatus | 'ALL')} className={FILTER}>
+          <option value="ALL">Tất cả mức tải</option>
+          {(Object.keys(LOAD_STATUS_LABEL) as LoadStatus[]).map((k) => (
+            <option key={k} value={k}>
+              {LOAD_STATUS_LABEL[k]}
+            </option>
+          ))}
+        </select>
+        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={FILTER} title="Từ ngày" />
+        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className={FILTER} title="Đến ngày" />
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className={`${CARD} p-4`}>
+          <div className="text-slate-400 text-xs font-semibold">Số chuyến</div>
+          <div className="text-xl font-bold mt-1 text-slate-900 dark:text-white">{s?.totalTrips ?? 0}</div>
+        </div>
+        <div className={`${CARD} p-4`}>
+          <div className="text-slate-400 text-xs font-semibold">Tỷ lệ lấp đầy trung bình</div>
+          <div className="text-xl font-bold mt-1 text-slate-900 dark:text-white">{s?.averageOccupancyPercent ?? 0}%</div>
+          <div className="text-[11px] text-slate-400">
+            {s?.occupiedSeats ?? 0}/{s?.totalSeats ?? 0} ghế (chỉ tính chuyến đã có xe)
           </div>
         </div>
-
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wider">
-              Lấp đầy trung bình
-            </p>
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">
-              {stats.avgOccupancy}%
-            </p>
-            <div className="w-24 bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 mt-2">
-              <div
-                className={`h-1.5 rounded-full ${
-                  stats.avgOccupancy >= 75
-                    ? 'bg-emerald-500'
-                    : stats.avgOccupancy >= 50
-                    ? 'bg-blue-500'
-                    : 'bg-amber-500'
-                }`}
-                style={{ width: `${Math.min(stats.avgOccupancy, 100)}%` }}
-              />
-            </div>
-          </div>
-          <div className="w-12 h-12 bg-blue-50 dark:bg-blue-950/40 rounded-xl flex items-center justify-center text-blue-600 dark:text-blue-400">
-            <BarChart3 className="w-6 h-6" />
+        <div className={`${CARD} p-4`}>
+          <div className="text-slate-400 text-xs font-semibold">Cần chú ý</div>
+          <div className="text-xl font-bold mt-1 text-rose-600 dark:text-rose-400">{(s?.overload ?? 0) + (s?.noBus ?? 0)}</div>
+          <div className="text-[11px] text-slate-400">
+            {s?.overload ?? 0} quá tải · {s?.noBus ?? 0} chưa gán xe
           </div>
         </div>
-
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-medium text-rose-600 dark:text-rose-400 uppercase tracking-wider">
-              Chuyến quá tải (&gt;85%)
-            </p>
-            <p className="text-2xl font-bold text-rose-600 dark:text-rose-400 mt-1">
-              {stats.overloaded}{' '}
-              <span className="text-xs font-normal text-slate-400">chuyến</span>
-            </p>
-            <p className="text-xs text-rose-500 dark:text-rose-400 mt-1 flex items-center gap-1">
-              <TrendingUp className="w-3.5 h-3.5" />
-              Cần nâng cấp xe lớn
-            </p>
-          </div>
-          <div className="w-12 h-12 bg-rose-50 dark:bg-rose-950/40 rounded-xl flex items-center justify-center text-rose-600 dark:text-rose-400">
-            <AlertTriangle className="w-6 h-6" />
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wider">
-              Tải thấp (&lt;60%) &amp; Trống
-            </p>
-            <p className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1">
-              {stats.low + stats.noTickets}{' '}
-              <span className="text-xs font-normal text-slate-400">chuyến</span>
-            </p>
-            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
-              <TrendingDown className="w-3.5 h-3.5" />
-              Đề xuất hạ quy mô xe
-            </p>
-          </div>
-          <div className="w-12 h-12 bg-amber-50 dark:bg-amber-950/40 rounded-xl flex items-center justify-center text-amber-600 dark:text-amber-400">
-            <Users className="w-6 h-6" />
+        <div className={`${CARD} p-4`}>
+          <div className="text-slate-400 text-xs font-semibold">Tải thấp / chưa có vé</div>
+          <div className="text-xl font-bold mt-1 text-amber-600 dark:text-amber-400">{(s?.low ?? 0) + (s?.noTickets ?? 0)}</div>
+          <div className="text-[11px] text-slate-400">
+            {s?.low ?? 0} tải thấp · {s?.noTickets ?? 0} chưa có vé
           </div>
         </div>
       </div>
 
-      {/* Filter Bar */}
-      <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col md:flex-row gap-4 justify-between items-center">
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          {/* Route filter */}
-          <div className="flex items-center gap-2">
-            <Bus className="w-4 h-4 text-slate-400" />
-            <select
-              value={selectedRouteId}
-              onChange={(e) => setSelectedRouteId(e.target.value)}
-              className="text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="ALL">Tất cả tuyến xe</option>
-              {routes.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.code || r.routeCode} - {r.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Date Picker */}
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-slate-400" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          {/* Status filter */}
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-slate-400" />
-            <select
-              value={loadStatusFilter}
-              onChange={(e) => setLoadStatusFilter(e.target.value)}
-              className="text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="ALL">Tất cả tình trạng tải</option>
-              <option value="OVERLOAD">Quá tải (&gt;85%)</option>
-              <option value="OPTIMAL">Tối ưu (60% - 85%)</option>
-              <option value="LOW">Tải thấp (&lt;60%)</option>
-              <option value="NO_TICKETS">Chưa có vé (0%)</option>
-              <option value="NO_BUS">Chưa gán xe</option>
-            </select>
-          </div>
-        </div>
-
-        {(selectedRouteId !== 'ALL' || loadStatusFilter !== 'ALL') && (
-          <button
-            onClick={handleResetFilters}
-            className="p-2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-1 text-xs"
-            title="Đặt lại bộ lọc"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Đặt lại
-          </button>
-        )}
-      </div>
-
-      {/* Exception Notice Banner (if any unassigned bus) */}
-      {stats.noBus > 0 && (
-        <div className="p-4 bg-fuchsia-50 dark:bg-fuchsia-950/30 border border-fuchsia-200 dark:border-fuchsia-800 rounded-xl flex items-center justify-between text-xs text-fuchsia-900 dark:text-fuchsia-200">
-          <div className="flex items-center gap-2.5">
-            <AlertTriangle className="w-5 h-5 text-fuchsia-600 flex-shrink-0" />
-            <div>
-              <p className="font-semibold text-sm">
-                Phát hiện {stats.noBus} chuyến xe chưa được gán phương tiện trong ngày đã chọn!
-              </p>
-              <p className="text-fuchsia-700 dark:text-fuchsia-300">
-                Các chuyến này đang không có thông số số ghế khả dụng. Hãy vào Quản lý Lịch chạy để phân công xe nhằm tránh ảnh hưởng đến hành khách.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Bar Chart Visualization (Tỷ lệ lấp đầy theo khung giờ) */}
-      {filteredList.length > 0 && (
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-blue-600" />
-                Biểu đồ tỷ lệ lấp đầy theo chuyến xe trong ngày ({selectedDate})
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Đường đứt nét đỏ thể hiện ngưỡng quá tải 85%; đường đứt nét vàng thể hiện ngưỡng tải thấp 60%.
-              </p>
-            </div>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="flex items-center gap-1 text-rose-600 font-medium">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" /> Quá tải (&gt;85%)
-              </span>
-              <span className="flex items-center gap-1 text-emerald-600 font-medium">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Tối ưu (60-85%)
-              </span>
-              <span className="flex items-center gap-1 text-amber-600 font-medium">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" /> Thấp (&lt;60%)
-              </span>
-            </div>
-          </div>
-
-          <div className="pt-6 pb-2">
-            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3 items-end min-h-[180px]">
-              {filteredList.map((item) => {
-                const heightPercent = item.loadStatus === 'NO_BUS' ? 10 : Math.max(item.occupancyPercent, 6);
-                let barColor = 'bg-slate-300 dark:bg-slate-700';
-                if (item.loadStatus === 'OVERLOAD') barColor = 'bg-rose-500';
-                else if (item.loadStatus === 'OPTIMAL') barColor = 'bg-emerald-500';
-                else if (item.loadStatus === 'LOW') barColor = 'bg-amber-500';
-                else if (item.loadStatus === 'NO_BUS') barColor = 'bg-fuchsia-400';
-
-                return (
-                  <div key={item.tripId} className="flex flex-col items-center group relative">
-                    <div className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {item.loadStatus === 'NO_BUS' ? 'N/A' : `${item.occupancyPercent}%`}
-                    </div>
-                    <div className="w-full bg-slate-100 dark:bg-slate-900 rounded-t-lg h-36 flex items-end justify-center p-1 relative overflow-hidden">
-                      <div
-                        className={`w-full ${barColor} rounded-t transition-all duration-500 group-hover:opacity-90`}
-                        style={{ height: `${heightPercent}%` }}
-                      />
-                    </div>
-                    <div className="mt-2 text-center">
-                      <div className="text-xs font-semibold text-slate-900 dark:text-white">
-                        {item.departureTime}
-                      </div>
-                      <div className="text-[10px] text-slate-400 font-mono">
-                        {item.routeCode}
-                      </div>
-                    </div>
-
-                    {/* Tooltip on hover */}
-                    <div className="absolute bottom-full mb-2 hidden group-hover:block z-20 w-48 p-2.5 bg-slate-900 text-white text-xs rounded-lg shadow-xl pointer-events-none">
-                      <p className="font-bold">{item.tripId} • {item.departureTime}</p>
-                      <p className="text-[11px] text-slate-300">{item.routeName}</p>
-                      <p className="text-[11px] mt-1">
-                        Xe: {item.busPlate || 'Chưa gán xe'} ({item.busModel})
-                      </p>
-                      <p className="text-[11px]">
-                        Khách: {item.bookedSeatsCount} / {item.totalSeats} ghế
-                      </p>
-                      <p className="text-[10px] text-amber-300 mt-1">
-                        {item.recommendation}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Main Table: Detailed Occupancy and Vehicle Sizing Recommendation */}
-      <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        {filteredList.length === 0 ? (
-          <EmptyState
-            title="Không có dữ liệu chuyến xe"
-            description="Không tìm thấy chuyến xe nào chạy trong ngày hoặc tuyến xe đã chọn."
-            actionLabel="Đặt lại bộ lọc"
-            onAction={handleResetFilters}
-          />
-        ) : (
+      {loading && !report ? (
+        <div className="text-center text-xs text-slate-400 py-10">Đang tải dữ liệu...</div>
+      ) : !report || report.trips.length === 0 ? (
+        <EmptyState title="Không có chuyến nào" description="Không có chuyến nào trong khoảng thời gian và điều kiện đã chọn." icon={<BarChart3 className="w-12 h-12 text-slate-300" />} />
+      ) : (
+        <div className={`${CARD} overflow-hidden`}>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-slate-600 dark:text-slate-300">
-              <thead className="bg-slate-50 dark:bg-slate-900/60 text-xs uppercase font-semibold text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-100 dark:bg-[#0c162d] text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
                 <tr>
-                  <th className="px-5 py-4">Mã chuyến</th>
-                  <th className="px-5 py-4">Tuyến &amp; Giờ chạy</th>
-                  <th className="px-5 py-4">Phương tiện hiện tại</th>
-                  <th className="px-5 py-4">Số ghế đã đặt</th>
-                  <th className="px-5 py-4">Tỷ lệ lấp đầy</th>
-                  <th className="px-5 py-4">Tình trạng</th>
-                  <th className="px-5 py-4">Đề xuất quy mô xe (Sizing)</th>
+                  <th className="py-3 px-4">Chuyến</th>
+                  <th className="py-3 px-4">Khởi hành</th>
+                  <th className="py-3 px-4">Xe / Tài xế</th>
+                  <th className="py-3 px-4 w-1/4">Lấp đầy</th>
+                  <th className="py-3 px-4">Mức tải</th>
+                  <th className="py-3 px-4">Đề xuất</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
-                {filteredList.map((item) => (
-                  <tr
-                    key={item.tripId}
-                    className="hover:bg-slate-50/80 dark:hover:bg-slate-750 transition-colors"
-                  >
-                    <td className="px-5 py-4 font-mono font-bold text-slate-900 dark:text-white">
-                      {item.tripId}
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="font-semibold text-slate-900 dark:text-white">
-                        {item.routeCode} - {item.routeName}
-                      </div>
-                      <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
-                        <Clock className="w-3.5 h-3.5" />
-                        {item.departureTime} • {item.departureDate}
-                      </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      {item.busPlate ? (
-                        <div>
-                          <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
-                            {item.busPlate}
-                          </span>
-                          <div className="text-xs text-slate-500 dark:text-slate-400">
-                            {item.busModel} (Tổng {item.totalSeats} ghế)
-                          </div>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {report.trips.map((t) => {
+                  const dep = parseUtc(t.departureAt);
+                  return (
+                    <tr key={t.tripId} className="hover:bg-slate-50 dark:hover:bg-slate-900/40 align-top">
+                      <td className="py-3 px-4">
+                        <div className="font-mono font-bold text-institutional-600 dark:text-sky-400">TRIP-{t.tripId}</div>
+                        <div className="text-[11px] text-slate-400">{t.routeCode}</div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="font-bold text-slate-900 dark:text-white">{dep.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>
+                        <div className="text-[11px] text-slate-400">{dep.toLocaleDateString('vi-VN')}</div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="font-mono text-amber-600 dark:text-amber-400">{t.busPlate ?? 'Chưa gán xe'}</div>
+                        <div className="text-[11px] text-slate-400">{t.driverName ?? 'Chưa gán tài xế'}</div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="h-2 rounded bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                          <div className={`h-2 ${BAR_COLOR[t.loadStatus]}`} style={{ width: `${Math.min(100, t.occupancyPercent)}%` }} />
                         </div>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-950/40 dark:text-fuchsia-300 border border-fuchsia-200 dark:border-fuchsia-800">
-                          Chưa gán xe
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4">
-                      {item.loadStatus === 'NO_BUS' ? (
-                        <span className="text-xs text-slate-400 italic">Chưa xác định</span>
-                      ) : (
-                        <div>
-                          <span className="font-bold text-slate-900 dark:text-white">
-                            {item.bookedSeatsCount}
-                          </span>
-                          <span className="text-xs text-slate-500"> / {item.totalSeats} chỗ</span>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          {t.loadStatus === 'NO_BUS' ? 'Chưa có sức chứa' : `${t.occupiedSeats}/${t.totalSeats} ghế (${t.occupancyPercent}%)`}
                         </div>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 min-w-[130px]">
-                      {item.loadStatus === 'NO_BUS' ? (
-                        <span className="text-xs text-slate-400">N/A</span>
-                      ) : (
-                        <div>
-                          <div className="flex justify-between text-xs font-semibold mb-1">
-                            <span
-                              className={
-                                item.occupancyPercent >= 85
-                                  ? 'text-rose-600'
-                                  : item.occupancyPercent >= 60
-                                  ? 'text-emerald-600'
-                                  : item.occupancyPercent > 0
-                                  ? 'text-amber-600'
-                                  : 'text-slate-500'
-                              }
-                            >
-                              {item.occupancyPercent}%
-                            </span>
-                          </div>
-                          <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className={`h-1.5 rounded-full ${
-                                item.occupancyPercent >= 85
-                                  ? 'bg-rose-500'
-                                  : item.occupancyPercent >= 60
-                                  ? 'bg-emerald-500'
-                                  : 'bg-amber-500'
-                              }`}
-                              style={{ width: `${Math.min(item.occupancyPercent, 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-5 py-4">
-                      <Badge variant="occupancyStatus" value={item.loadStatus} />
-                    </td>
-                    <td className="px-5 py-4 max-w-sm">
-                      <div className="flex items-start gap-1.5 text-xs text-slate-700 dark:text-slate-300">
-                        <Sparkles className="w-3.5 h-3.5 text-blue-500 flex-shrink-0 mt-0.5" />
-                        <span>{item.recommendation}</span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-0.5 rounded text-[11px] font-bold border whitespace-nowrap ${STATUS_STYLE[t.loadStatus]}`}>{LOAD_STATUS_LABEL[t.loadStatus]}</span>
+                      </td>
+                      <td className="py-3 px-4 text-slate-600 dark:text-slate-300 max-w-xs">{t.recommendation}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
