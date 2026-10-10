@@ -46,7 +46,11 @@ public class Notification
     public Incident? Incident { get; set; }
     public NotificationType Type { get; set; }
     public bool IsRead { get; set; }
+    public string Title { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
+
+    /// <summary>Đường dẫn trang giao diện mở ra khi người dùng bấm vào thông báo (vd /passenger/payments).</summary>
+    public string? Link { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 

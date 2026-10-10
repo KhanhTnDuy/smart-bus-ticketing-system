@@ -112,6 +112,9 @@ public class PaymentsController(AppDbContext db, AuditLogService audit) : Contro
         await db.Tickets
             .Where(t => t.BookingId == booking.Id && t.Status == TicketStatus.Held)
             .ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, TicketStatus.Valid), ct);
+        NotificationRules.Notify(db, actorId.Value, NotificationType.Other, "Thanh toán thành công",
+            $"Đã thanh toán {payment.Amount:N0} đ cho lượt đặt {booking.BookingCode}. Vé điện tử đã sẵn sàng.",
+            "/passenger/tickets", booking.TripId);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 
