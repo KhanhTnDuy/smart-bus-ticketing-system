@@ -261,12 +261,3 @@ public sealed class RouteStopSummaryDto
     public int StopOrder { get; init; }
     public int MinutesFromStart { get; init; }
 }
-
-/// <summary>Sửa giờ xuất bến, trạng thái hoặc số phút trễ của một chuyến. Bỏ trống trường nào thì giữ nguyên trường đó.</summary>
-public sealed class UpdateTripRequest
-{
-    /// <summary>Giờ xuất bến mới, giờ UTC.</summary>
-    public DateTime? DepartureAt { get; init; }
-    public TripStatus? Status { get; init; }
-    public int? DelayMinutes { get; init; }
-}
