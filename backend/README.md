@@ -158,3 +158,17 @@ Cần `dotnet ef database update` để áp migration `AddNotificationTitleLink`
   yêu cầu hủy/đổi vé mới, yêu cầu hoàn tiền mới và khiếu nại mới.
 - Mỗi thông báo có `Link` tới trang liên quan; bấm vào chuông sẽ mở trang đó và đánh dấu đã đọc.
 - Chưa có kênh đẩy: giao diện hỏi lại mỗi 30 giây và khi quay lại tab.
+
+## Hồ sơ ưu đãi giá vé và tải giấy tờ
+
+Cần `dotnet ef database update` để áp migration `AddDiscountApplicationReview` (thêm `SubmittedAt`, `ReviewedAt`, `RejectReason`
+cho `passenger_verifications`).
+
+- `POST /api/uploads` (đăng nhập): nhận ảnh JPG, PNG hoặc PDF tối đa 5 MB, loại tệp xác định bằng chữ ký đầu tệp chứ không tin phần mở
+  rộng hay Content-Type của client. Tệp lưu ở `App_Data/uploads` (không công khai, đã có trong `.gitignore`) với tên do máy chủ sinh,
+  chỉ đọc được qua `GET /api/uploads/{tên}` bởi chính chủ hoặc Admin, Quản lý.
+- `POST /api/discount-applications` (Hành khách): nộp hồ sơ kèm đường dẫn giấy tờ của chính mình; mỗi lúc chỉ một hồ sơ chờ duyệt, không nộp lại
+  khi đang có ưu đãi cùng loại còn hạn. `GET /my` xem hồ sơ của mình.
+- `GET /api/discount-applications` và `POST /{id}/review` chỉ cho Admin, Quản lý. Từ chối bắt buộc có lý do, ngày hết hạn không được ở quá
+  khứ, xử lý lần hai trả 409. Hành khách và Quản lý đều nhận thông báo.
+- Hồ sơ đã duyệt và còn hạn là điều kiện để `BookingsController` tính giá ưu đãi khi đặt vé.
