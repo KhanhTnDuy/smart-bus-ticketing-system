@@ -169,6 +169,8 @@ public class FeedbackController(AppDbContext db, AuditLogService audit) : Contro
         };
 
         db.Feedbacks.Add(f);
+        if (request.Type == FeedbackType.Complaint)
+            await NotificationRules.NotifyManagementAsync(db, "Khiếu nại mới", $"Có khiếu nại mới: {f.Subject}", "/manager/complaints", passengerId, ct);
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync(passengerId, User.Username() ?? "passenger", "Submit feedback",
             AuditActionType.FeedbackSubmit, $"FEEDBACK-{f.Id}", ct: ct);
@@ -195,6 +197,9 @@ public class FeedbackController(AppDbContext db, AuditLogService audit) : Contro
                 ChangedBy = actorId.Value, ChangedAt = DateTime.UtcNow,
             });
         }
+        NotificationRules.Notify(db, f.PassengerId, NotificationType.Other, "Phản ánh của bạn đã được cập nhật",
+            $"\"{f.Subject}\" chuyển sang trạng thái {request.Status switch { FeedbackStatus.DangXuLy => "đang xử lý", FeedbackStatus.DaXuLy => "đã xử lý", _ => "chưa xử lý" }}.",
+            f.Type == FeedbackType.Complaint ? "/passenger/complaints" : "/passenger/rating");
         await db.SaveChangesAsync(ct);
 
         await audit.WriteAsync(actorId, User.Username() ?? "manager",
