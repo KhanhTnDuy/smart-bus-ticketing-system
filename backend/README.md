@@ -145,3 +145,16 @@ Cách tính nằm trong `Services/RevenueReportCalculator.cs`:
 
 Hiện hệ thống chưa có luồng thanh toán nên chưa có booking nào sang `Confirmed`;
 báo cáo sẽ trả về 0 cho đến khi luồng này được làm.
+
+## Thông báo
+
+Cần `dotnet ef database update` để áp migration `AddNotificationTitleLink` (thêm `Title`, `Link` cho `notifications`).
+
+- `GET /api/notifications/my?take=` trả `{ unreadCount, items }` của chính người đăng nhập; `PATCH /{id}/read` và
+  `POST /read-all` chỉ đổi thông báo của chính mình (người khác trả 404).
+- Thông báo được tạo trong cùng giao dịch với sự kiện (`Services/NotificationRules.cs`): thanh toán thành công, yêu cầu hủy/đổi
+  vé được duyệt hoặc từ chối, hoàn tiền xong hoặc bị từ chối, chuyến bị hủy, sự cố trễ giờ (hành khách đã đặt vé trên chuyến),
+  được phân công hoặc bị gỡ khỏi chuyến (tài xế, phụ xe), phản ánh đổi trạng thái. Quản lý và Admin nhận thông báo về sự cố mới,
+  yêu cầu hủy/đổi vé mới, yêu cầu hoàn tiền mới và khiếu nại mới.
+- Mỗi thông báo có `Link` tới trang liên quan; bấm vào chuông sẽ mở trang đó và đánh dấu đã đọc.
+- Chưa có kênh đẩy: giao diện hỏi lại mỗi 30 giây và khi quay lại tab.

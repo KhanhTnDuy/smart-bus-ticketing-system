@@ -590,6 +590,17 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                 });
             }
 
+            // Báo cho người mới được phân công và người vừa bị gỡ khỏi chuyến; người giữ nguyên không bị báo lại.
+            var before = currentStaff.Select(s => s.AccountId).ToHashSet();
+            var after = new[] { targetDriverId, targetConductorId }.Where(x => x.HasValue).Select(x => x!.Value).ToHashSet();
+            var tripInfo = $"#{tripId} tuyến {trip.BusRoute.Code} lúc {FormatVietnamTime(trip.DepartureAt)}";
+            foreach (var id in after.Except(before))
+                NotificationRules.Notify(db, id, NotificationType.Other, "Bạn được phân công chuyến mới",
+                    $"Chuyến {tripInfo}.", "/driver/schedule", tripId);
+            foreach (var id in before.Except(after))
+                NotificationRules.Notify(db, id, NotificationType.Other, "Bạn không còn phụ trách một chuyến",
+                    $"Chuyến {tripInfo} đã được gỡ khỏi lịch của bạn.", "/driver/schedule", tripId);
+
             await db.SaveChangesAsync(ct);
             if (tx != null) await tx.CommitAsync(ct);
 
@@ -898,14 +909,8 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
         // Mỗi hành khách chỉ nhận một thông báo dù có nhiều lượt đặt trên chuyến.
         foreach (var passengerId in tickets.Select(t => t.Booking.PassengerId).Distinct())
         {
-            db.Notifications.Add(new Notification
-            {
-                AccountId = passengerId,
-                TripId = tripId,
-                Type = NotificationType.Other,
-                Message = $"Chuyến #{tripId} đã bị hủy. Vé đã thanh toán sẽ được hoàn tiền sau khi quản lý xử lý.",
-                CreatedAt = now,
-            });
+            NotificationRules.Notify(db, passengerId, NotificationType.Other, "Chuyến xe đã bị hủy",
+                $"Chuyến #{tripId} đã bị hủy. Vé đã thanh toán sẽ được hoàn tiền sau khi quản lý xử lý.", "/passenger/payments", tripId);
         }
     }
 
