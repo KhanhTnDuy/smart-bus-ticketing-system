@@ -78,6 +78,7 @@ public class TicketScan
     public long ScannedBy { get; set; }
     public Account Scanner { get; set; } = null!;
     public ScanResult Result { get; set; }
+    public DateTime ScannedAt { get; set; }
 }
 
 public class Voucher
