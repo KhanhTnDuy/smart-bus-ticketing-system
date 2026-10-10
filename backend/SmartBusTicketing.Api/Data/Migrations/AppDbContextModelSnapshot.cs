@@ -557,7 +557,14 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.Property<bool>("IsRead")
                         .HasColumnType("tinyint(1)");
 
+                    b.Property<string>("Link")
+                        .HasColumnType("longtext");
+
                     b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Title")
                         .IsRequired()
                         .HasColumnType("longtext");
 

@@ -106,6 +106,7 @@ public class TicketsController(AppDbContext db, AuditLogService audit, ITicketEx
             CreatedAt = DateTime.UtcNow
         };
         db.TicketChangeRequests.Add(request);
+        await NotificationRules.NotifyManagementAsync(db, "Yêu cầu hủy vé mới", $"{GetActorName()} xin hủy vé ghế {ticket.Seat.SeatCode}.", "/manager/ticket-requests", passengerId, ct, ticket.TripId);
         await db.SaveChangesAsync(ct);
 
         await audit.WriteAsync(passengerId, GetActorName(), "REQUEST_CANCEL_TICKET", AuditActionType.Create,
@@ -171,6 +172,7 @@ public class TicketsController(AppDbContext db, AuditLogService audit, ITicketEx
             CreatedAt = DateTime.UtcNow
         };
         db.TicketChangeRequests.Add(request);
+        await NotificationRules.NotifyManagementAsync(db, "Yêu cầu đổi vé mới", $"{GetActorName()} xin đổi vé ghế {ticket.Seat.SeatCode}.", "/manager/ticket-requests", passengerId, ct, ticket.TripId);
         await db.SaveChangesAsync(ct);
 
         await audit.WriteAsync(passengerId, GetActorName(), "REQUEST_EXCHANGE_TICKET", AuditActionType.Create,
