@@ -22,7 +22,6 @@ import {
   ShieldCheck,
   CheckCircle,
 } from 'lucide-react';
-import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { Badge } from '../../components/common/Badge';
@@ -45,7 +44,6 @@ import {
 } from '../../api/booking';
 
 export const ElectronicTicketPage: React.FC = () => {
-  const { routes } = useData();
   const { role } = useAuth();
   const { success, error, info } = useToast();
 
@@ -118,11 +116,8 @@ export const ElectronicTicketPage: React.FC = () => {
   const [changeSeats, setChangeSeats] = useState<TripSeatDto[]>([]);
   const [isLoadingChangeSeats, setIsLoadingChangeSeats] = useState(false);
 
-  // Helper to get Route Name
-  const getRouteName = (routeId: string) => {
-    const r = routes.find((item) => item.id === routeId);
-    return r ? `${r.code || r.routeCode || ''} - ${r.name}` : routeId;
-  };
+  // Tên tuyến luôn có sẵn trong dữ liệu vé từ máy chủ; mã tuyến chỉ là phương án cuối.
+  const getRouteName = (routeId: string) => routeId;
 
   // Máy chủ đã lọc theo tài khoản đang đăng nhập nên không lọc lại ở client: lọc
   // thêm theo tên hoặc số điện thoại như bản dữ liệu mẫu sẽ làm mất vé của chính
@@ -164,7 +159,7 @@ export const ElectronicTicketPage: React.FC = () => {
 
       return matchesSearch && matchesStatus;
     });
-  }, [userTickets, searchTerm, statusFilter, routes]);
+  }, [userTickets, searchTerm, statusFilter]);
 
   // Handle "Xem vé"
   const handleViewTicket = (ticket: Ticket) => {
