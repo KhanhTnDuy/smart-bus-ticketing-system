@@ -5,7 +5,7 @@
  * Có fallback tự động sang dữ liệu nội bộ trong DataContext khi backend chưa triển khai controller.
  */
 
-import { api, ApiError } from './client';
+import { api } from './client';
 
 export interface RevenueReportQueryParams {
   startDate?: string;
@@ -51,40 +51,22 @@ export interface RevenueReportResponse {
   isRealApiData?: boolean;
 }
 
+
 export const revenueReportApi = {
   /**
-   * Gọi API backend lấy báo cáo doanh thu.
-   * Trả về null nếu API chưa sẵn sàng hoặc gặp lỗi kết nối.
+   * Lấy báo cáo doanh thu từ backend (GET /api/reports/revenue). Lỗi mạng, lỗi quyền hay lỗi máy chủ được
+   * ném ra để trang báo cho người dùng biết; không có dữ liệu thay thế cục bộ.
    */
-  async getRevenueReport(
-    params: RevenueReportQueryParams,
-    signal?: AbortSignal
-  ): Promise<RevenueReportResponse | null> {
-    try {
-      const response = await api.get<RevenueReportResponse>(
-        '/api/reports/revenue',
-        {
-          startDate: params.startDate || undefined,
-          endDate: params.endDate || undefined,
-          routeId: params.routeId && params.routeId !== 'ALL' ? params.routeId : undefined,
-          groupBy: params.groupBy || 'DAILY',
-        },
-        signal
-      );
-      if (response && response.summary) {
-        return {
-          ...response,
-          isRealApiData: true,
-        };
-      }
-      return null;
-    } catch (err) {
-      // Khi backend chưa dựng controller (HTTP 404/500/ERR_CONNECTION_REFUSED),
-      // ghi log nhẹ và trả về null để trang fallback mượt mà sang DataContext.
-      if (err instanceof ApiError && (err.status === 404 || err.status === 500 || err.status === 0)) {
-        console.info('[RevenueReportApi] Backend API chưa sẵn sàng, đang fallback sang dữ liệu DataContext:', err.message);
-      }
-      return null;
-    }
+  async getRevenueReport(params: RevenueReportQueryParams, signal?: AbortSignal): Promise<RevenueReportResponse> {
+    return api.get<RevenueReportResponse>(
+      '/api/reports/revenue',
+      {
+        startDate: params.startDate || undefined,
+        endDate: params.endDate || undefined,
+        routeId: params.routeId && params.routeId !== 'ALL' ? params.routeId : undefined,
+        groupBy: params.groupBy || 'DAILY',
+      },
+      signal,
+    );
   },
 };
