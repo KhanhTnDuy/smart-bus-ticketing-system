@@ -132,15 +132,13 @@ public class IncidentsController(AppDbContext db, AuditLogService audit) : Contr
             : $"Chuyến #{trip.Id} gặp sự cố tại {incident.Location}. Nhà xe đang xử lý.";
         foreach (var passengerId in passengerIds)
         {
-            incident.Notifications.Add(new Notification
-            {
-                AccountId = passengerId,
-                TripId = trip.Id,
-                Type = delayMinutes > 0 ? NotificationType.Delay : NotificationType.Incident,
-                Message = message,
-                CreatedAt = now,
-            });
+            NotificationRules.Notify(db, passengerId, delayMinutes > 0 ? NotificationType.Delay : NotificationType.Incident,
+                delayMinutes > 0 ? "Chuyến trễ giờ" : "Chuyến gặp sự cố", message, "/passenger/tickets", trip.Id, incident);
         }
+
+        // Báo cho quản lý để xử lý (không báo lại cho chính người đang là quản lý báo sự cố).
+        await NotificationRules.NotifyManagementAsync(db, "Có sự cố mới",
+            $"{User.Username() ?? "Người dùng"} báo sự cố chuyến #{trip.Id} tại {incident.Location}.", "/manager/incidents", actorId, ct, trip.Id, NotificationType.Incident);
 
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync(actorId, User.Username() ?? "system", $"Báo sự cố chuyến #{trip.Id}",

@@ -319,6 +319,13 @@ public class TicketChangeRequestsController(
             request.ProcessedBy = actorId;
             request.ProcessedAt = now;
 
+            NotificationRules.Notify(db, ticket.Booking.PassengerId, NotificationType.Other,
+                request.RequestType == ChangeRequestType.Cancel ? "Yêu cầu hủy vé đã được duyệt" : "Yêu cầu đổi vé đã được duyệt",
+                request.RequestType == ChangeRequestType.Cancel
+                    ? $"Vé ghế {ticket.Seat.SeatCode} đã được hủy. Nếu vé đã thanh toán, khoản hoàn tiền sẽ được xử lý sớm."
+                    : $"Vé ghế {ticket.Seat.SeatCode} đã được đổi sang ghế {newSeatCode}.",
+                "/passenger/tickets", ticket.TripId);
+
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
 
@@ -376,6 +383,11 @@ public class TicketChangeRequestsController(
         request.Status = ChangeRequestStatus.Rejected;
         request.ProcessedBy = actorId;
         request.ProcessedAt = DateTime.UtcNow;
+
+        var passengerId = await db.Tickets.Where(t => t.Id == request.TicketId).Select(t => t.Booking.PassengerId).FirstAsync(ct);
+        NotificationRules.Notify(db, passengerId, NotificationType.Other,
+            request.RequestType == ChangeRequestType.Cancel ? "Yêu cầu hủy vé bị từ chối" : "Yêu cầu đổi vé bị từ chối",
+            "Vé của bạn không thay đổi. Liên hệ tổng đài nếu cần hỗ trợ thêm.", "/passenger/tickets");
 
         await db.SaveChangesAsync(ct);
 

@@ -89,6 +89,15 @@ public class RefundsController(AppDbContext db, AuditLogService audit) : Control
             return Conflict(new { message = "Yêu cầu hoàn tiền này đã được xử lý." });
         }
 
+        var passengerId = await db.Payments.Where(p => p.Id == refund.PaymentId).Select(p => p.Booking!.PassengerId).FirstAsync(ct);
+        NotificationRules.Notify(db, passengerId, NotificationType.Other,
+            request.Approve ? "Đã hoàn tiền" : "Yêu cầu hoàn tiền bị từ chối",
+            request.Approve
+                ? $"Bạn đã được hoàn {refund.Amount:N0} đ về phương thức thanh toán ban đầu."
+                : $"Yêu cầu hoàn {refund.Amount:N0} đ bị từ chối. Lý do: {note}",
+            "/passenger/payments");
+        await db.SaveChangesAsync(ct);
+
         if (request.Approve)
         {
             var payment = await db.Payments.Include(p => p.Refunds).FirstAsync(p => p.Id == refund.PaymentId, ct);
