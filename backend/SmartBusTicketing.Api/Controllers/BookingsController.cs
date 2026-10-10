@@ -114,7 +114,8 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
         }).ToList());
     }
 
-    [HttpPost]
+    /// <summary>Chỉ hành khách đặt vé. Nhân viên đặt được sẽ tạo lượt đặt mà không ai thanh toán được (thanh toán cũng chỉ dành cho hành khách) và chiếm ghế trong 10 phút.</summary>
+    [HttpPost, Authorize(Roles = "Passenger")]
     public async Task<IActionResult> ConfirmBooking([FromBody] ConfirmBookingDto dto, CancellationToken ct)
     {
         if (!ModelState.IsValid)
