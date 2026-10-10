@@ -38,11 +38,6 @@ public class Refund
     public decimal Amount { get; set; }
     public RefundReason Reason { get; set; }
     public RefundStatus Status { get; set; } = RefundStatus.Pending;
-    public DateTime CreatedAt { get; set; }
-    public DateTime? ProcessedAt { get; set; }
-    public long? ProcessedBy { get; set; }
-    public Account? Processor { get; set; }
-    public string? Note { get; set; }
 }
 
 public class MonthlyPass

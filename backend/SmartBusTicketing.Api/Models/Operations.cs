@@ -23,15 +23,6 @@ public class Incident
     public int DelayMinutes { get; set; }
     public IncidentStatus Status { get; set; } = IncidentStatus.Open;
 
-    /// <summary>Vị trí xảy ra sự cố do tài xế nhập (tên đường, trạm...).</summary>
-    public string Location { get; set; } = string.Empty;
-    public string Description { get; set; } = string.Empty;
-    public DateTime CreatedAt { get; set; }
-    public DateTime? ResolvedAt { get; set; }
-    public long? ResolvedBy { get; set; }
-    public Account? Resolver { get; set; }
-    public string? ResolutionNote { get; set; }
-
     public ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 }
 
@@ -46,12 +37,6 @@ public class Notification
     public Incident? Incident { get; set; }
     public NotificationType Type { get; set; }
     public bool IsRead { get; set; }
-    public string Title { get; set; } = string.Empty;
-    public string Message { get; set; } = string.Empty;
-
-    /// <summary>Đường dẫn trang giao diện mở ra khi người dùng bấm vào thông báo (vd /passenger/payments).</summary>
-    public string? Link { get; set; }
-    public DateTime CreatedAt { get; set; }
 }
 
 public class Feedback

@@ -17,8 +17,6 @@ public interface ITripAssignmentService
 
     // Thao tác tạo chuyến & phân công
     Task<ServiceResult<TripAssignmentDto>> CreateTripWithAssignmentAsync(CreateTripRequest request, CancellationToken ct);
-    Task<ServiceResult<TripAssignmentDto>> UpdateTripAsync(long tripId, UpdateTripRequest request, CancellationToken ct);
-    Task<ServiceResult<bool>> DeleteTripAsync(long tripId, CancellationToken ct);
 
     // Tra cứu khả dụng & kiểm tra xung đột
     Task<IReadOnlyList<AvailableBusDto>> GetAvailableBusesAsync(DateTime departureAt, long routeId, long? excludeTripId, CancellationToken ct);
@@ -590,17 +588,6 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                 });
             }
 
-            // Báo cho người mới được phân công và người vừa bị gỡ khỏi chuyến; người giữ nguyên không bị báo lại.
-            var before = currentStaff.Select(s => s.AccountId).ToHashSet();
-            var after = new[] { targetDriverId, targetConductorId }.Where(x => x.HasValue).Select(x => x!.Value).ToHashSet();
-            var tripInfo = $"#{tripId} tuyến {trip.BusRoute.Code} lúc {FormatVietnamTime(trip.DepartureAt)}";
-            foreach (var id in after.Except(before))
-                NotificationRules.Notify(db, id, NotificationType.Other, "Bạn được phân công chuyến mới",
-                    $"Chuyến {tripInfo}.", "/driver/schedule", tripId);
-            foreach (var id in before.Except(after))
-                NotificationRules.Notify(db, id, NotificationType.Other, "Bạn không còn phụ trách một chuyến",
-                    $"Chuyến {tripInfo} đã được gỡ khỏi lịch của bạn.", "/driver/schedule", tripId);
-
             await db.SaveChangesAsync(ct);
             if (tx != null) await tx.CommitAsync(ct);
 
@@ -796,145 +783,6 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
 
         return assignRes;
     }
-    /// <summary>
-    /// Sửa giờ xuất bến, trạng thái hoặc số phút trễ. Đổi giờ khi chuyến đã có vé đặt bị từ chối, và giờ mới
-    /// không được làm trùng lịch với xe hoặc nhân sự đã gán cho chuyến.
-    /// </summary>
-    public async Task<ServiceResult<TripAssignmentDto>> UpdateTripAsync(long tripId, UpdateTripRequest request, CancellationToken ct)
-    {
-        var trip = await db.Trips
-            .Include(t => t.TripStaff)
-            .Include(t => t.Bookings)
-            .FirstOrDefaultAsync(t => t.Id == tripId, ct);
-        if (trip == null)
-            return ServiceResult<TripAssignmentDto>.Fail(ServiceError.NotFound, $"Không tìm thấy chuyến chạy có ID {tripId}.");
-
-        if (trip.Status == TripStatus.Completed)
-            return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Conflict,
-                $"Chuyến chạy #{tripId} đã hoàn thành, không thể chỉnh sửa.");
-
-        if (request.Status.HasValue && !Enum.IsDefined(request.Status.Value))
-            return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Invalid, "Trạng thái chuyến không hợp lệ.");
-        if (request.DelayMinutes is < 0)
-            return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Invalid, "Số phút trễ không được âm.");
-
-        var newDeparture = request.DepartureAt.HasValue
-            ? DateTime.SpecifyKind(request.DepartureAt.Value, DateTimeKind.Utc)
-            : trip.DepartureAt;
-        var newStatus = request.Status ?? trip.Status;
-        var departureChanged = newDeparture != trip.DepartureAt;
-
-        if (departureChanged && trip.Bookings.Any(b => b.Status == BookingStatus.Pending || b.Status == BookingStatus.Confirmed))
-            return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Conflict,
-                $"Chuyến #{tripId} đã có vé đặt nên không thể đổi giờ xuất bến.");
-
-        // Chuyến còn hoạt động mà đổi giờ hoặc mở lại thì xe và nhân sự đã gán phải còn rảnh vào lúc đó.
-        var active = newStatus is TripStatus.Scheduled or TripStatus.Running or TripStatus.Delayed;
-        var reactivated = active && trip.Status == TripStatus.Cancelled;
-        if (active && (departureChanged || reactivated))
-        {
-            var duration = await GetRouteDurationMinutesAsync(trip.RouteId, ct);
-            if (trip.BusId.HasValue)
-            {
-                var c = await FindConflictingTripForBusAsync(trip.BusId.Value, newDeparture, duration, tripId, ct);
-                if (c != null)
-                    return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Conflict,
-                        $"Xe đã gán cho chuyến này bị trùng với chuyến #{c.Id} lúc {FormatVietnamTime(c.DepartureAt)}.");
-            }
-            foreach (var staff in trip.TripStaff)
-            {
-                var c = await FindConflictingTripForStaffAsync(staff.AccountId, newDeparture, duration, tripId, ct);
-                if (c != null)
-                    return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Conflict,
-                        $"Nhân sự đã gán cho chuyến này bị trùng với chuyến #{c.Id} lúc {FormatVietnamTime(c.DepartureAt)}.");
-            }
-        }
-
-        var cancelling = newStatus == TripStatus.Cancelled && trip.Status != TripStatus.Cancelled;
-        var ownsTx = cancelling && db.Database.CurrentTransaction == null;
-        var tx = ownsTx ? await db.Database.BeginTransactionAsync(ct) : null;
-        try
-        {
-            if (cancelling) await CancelTripBookingsAsync(trip.Id, ct);
-
-            trip.DepartureAt = newDeparture;
-            trip.Status = newStatus;
-            if (request.DelayMinutes.HasValue) trip.DelayMinutes = request.DelayMinutes.Value;
-            await db.SaveChangesAsync(ct);
-            if (tx != null) await tx.CommitAsync(ct);
-        }
-        finally
-        {
-            if (tx != null) await tx.DisposeAsync();
-        }
-
-        var dto = await GetAssignmentByIdAsync(tripId, ct);
-        return ServiceResult<TripAssignmentDto>.Success(dto!);
-    }
-
-    /// <summary>
-    /// Hủy chuyến thì hủy luôn các vé còn hiệu lực của chuyến: vé đã thanh toán sinh yêu cầu hoàn tiền (lý do
-    /// TripCancelled), lượt đặt không còn vé nào thì đóng, và hành khách nhận thông báo. Vé đã quét (Used) giữ nguyên.
-    /// </summary>
-    private async Task CancelTripBookingsAsync(long tripId, CancellationToken ct)
-    {
-        var now = DateTime.UtcNow;
-        var tickets = await db.Tickets
-            .Include(t => t.Booking)
-            .Where(t => t.TripId == tripId && (t.Status == TicketStatus.Held || t.Status == TicketStatus.Valid))
-            .ToListAsync(ct);
-        if (tickets.Count == 0) return;
-
-        foreach (var ticket in tickets)
-        {
-            var wasPaid = ticket.Status == TicketStatus.Valid;
-            ticket.Status = TicketStatus.Cancelled;
-            if (wasPaid)
-            {
-                await PaymentRules.CreateTicketRefundAsync(db, ticket, null, RefundReason.TripCancelled, now, ct);
-                // Lưu từng khoản để vé kế tiếp trong cùng lượt đặt thấy tổng đã hoàn khi tính tiền.
-                await db.SaveChangesAsync(ct);
-            }
-        }
-        await db.SaveChangesAsync(ct);
-
-        foreach (var booking in tickets.Select(t => t.Booking).DistinctBy(b => b.Id))
-        {
-            var stillActive = await db.Tickets.AnyAsync(t => t.BookingId == booking.Id &&
-                (t.Status == TicketStatus.Held || t.Status == TicketStatus.Valid || t.Status == TicketStatus.Used), ct);
-            if (!stillActive && booking.Status is BookingStatus.Pending or BookingStatus.Confirmed)
-                booking.Status = BookingStatus.Cancelled;
-        }
-
-        // Mỗi hành khách chỉ nhận một thông báo dù có nhiều lượt đặt trên chuyến.
-        foreach (var passengerId in tickets.Select(t => t.Booking.PassengerId).Distinct())
-        {
-            NotificationRules.Notify(db, passengerId, NotificationType.Other, "Chuyến xe đã bị hủy",
-                $"Chuyến #{tripId} đã bị hủy. Vé đã thanh toán sẽ được hoàn tiền sau khi quản lý xử lý.", "/passenger/payments", tripId);
-        }
-    }
-
-    /// <summary>Xóa chuyến chưa có vé đặt. Chuyến đã có vé phải hủy (đổi trạng thái) chứ không xóa được.</summary>
-    public async Task<ServiceResult<bool>> DeleteTripAsync(long tripId, CancellationToken ct)
-    {
-        var trip = await db.Trips.Include(t => t.TripStaff).FirstOrDefaultAsync(t => t.Id == tripId, ct);
-        if (trip == null)
-            return ServiceResult<bool>.Fail(ServiceError.NotFound, $"Không tìm thấy chuyến chạy có ID {tripId}.");
-
-        if (await db.Bookings.AnyAsync(b => b.TripId == tripId, ct) || await db.Tickets.AnyAsync(t => t.TripId == tripId, ct))
-            return ServiceResult<bool>.Fail(ServiceError.Conflict,
-                $"Chuyến #{tripId} đã có vé đặt nên không thể xóa. Hãy chuyển sang trạng thái Đã hủy.");
-        if (await db.Incidents.AnyAsync(i => i.TripId == tripId, ct))
-            return ServiceResult<bool>.Fail(ServiceError.Conflict,
-                $"Chuyến #{tripId} đã có sự cố được ghi nhận nên không thể xóa.");
-
-        db.BusLocations.RemoveRange(db.BusLocations.Where(l => l.TripId == tripId));
-        db.TripStaff.RemoveRange(trip.TripStaff);
-        db.Trips.Remove(trip);
-        await db.SaveChangesAsync(ct);
-        return ServiceResult<bool>.Success(true);
-    }
-
 
     // ==========================================
     // 3. Tra cứu khả dụng & kiểm tra xung đột

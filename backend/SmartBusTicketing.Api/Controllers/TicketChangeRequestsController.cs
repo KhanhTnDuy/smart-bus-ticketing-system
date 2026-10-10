@@ -14,8 +14,10 @@ namespace SmartBusTicketing.Api.Controllers;
 /// Hành khách xem yêu cầu của chính mình ở /my. Admin và Quản lý xem toàn bộ và quyết định
 /// duyệt hoặc từ chối; chỉ tới lúc duyệt thì vé và ghế mới thực sự thay đổi.
 ///
-/// Duyệt yêu cầu hủy một vé đã thanh toán thì tạo yêu cầu hoàn tiền (Refund) gắn với Id của yêu cầu này,
-/// để quản lý xử lý ở mục Hoàn tiền. Vé chưa thanh toán (Held) hủy thì chỉ nhả chỗ.
+/// Chưa tạo hồ sơ hoàn tiền khi duyệt yêu cầu hủy: refunds.PaymentId là NOT NULL trỏ sang
+/// payments, mà hệ thống chưa có luồng thanh toán nên không tồn tại giao dịch nào để hoàn.
+/// Vé hiện dừng ở Held (giữ chỗ, chưa trả tiền) nên hủy vé thực chất là nhả chỗ. Khi có
+/// thanh toán thì chỗ cần bổ sung là tạo Refund gắn vào Id của yêu cầu này.
 /// </summary>
 [ApiController]
 [Route("api/ticket-change-requests")]
@@ -254,9 +256,6 @@ public class TicketChangeRequestsController(
                 // Chuyển sang Cancelled làm ActiveSeatKey về NULL, nhờ đó ghế bán lại được ngay.
                 ticket.Status = TicketStatus.Cancelled;
 
-                // Vé đã thanh toán thì tạo yêu cầu hoàn tiền để quản lý xử lý ở mục Hoàn tiền.
-                await PaymentRules.CreateTicketRefundAsync(db, ticket, request.Id, RefundReason.TicketCancelled, now, ct);
-
                 // Lượt đặt không còn vé nào còn hiệu lực thì đóng luôn, nếu không nó treo ở
                 // Pending vĩnh viễn và vẫn bị tính vào các báo cáo "đang chờ".
                 var remainingActive = await db.Tickets
@@ -319,13 +318,6 @@ public class TicketChangeRequestsController(
             request.ProcessedBy = actorId;
             request.ProcessedAt = now;
 
-            NotificationRules.Notify(db, ticket.Booking.PassengerId, NotificationType.Other,
-                request.RequestType == ChangeRequestType.Cancel ? "Yêu cầu hủy vé đã được duyệt" : "Yêu cầu đổi vé đã được duyệt",
-                request.RequestType == ChangeRequestType.Cancel
-                    ? $"Vé ghế {ticket.Seat.SeatCode} đã được hủy. Nếu vé đã thanh toán, khoản hoàn tiền sẽ được xử lý sớm."
-                    : $"Vé ghế {ticket.Seat.SeatCode} đã được đổi sang ghế {newSeatCode}.",
-                "/passenger/tickets", ticket.TripId);
-
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
 
@@ -383,11 +375,6 @@ public class TicketChangeRequestsController(
         request.Status = ChangeRequestStatus.Rejected;
         request.ProcessedBy = actorId;
         request.ProcessedAt = DateTime.UtcNow;
-
-        var passengerId = await db.Tickets.Where(t => t.Id == request.TicketId).Select(t => t.Booking.PassengerId).FirstAsync(ct);
-        NotificationRules.Notify(db, passengerId, NotificationType.Other,
-            request.RequestType == ChangeRequestType.Cancel ? "Yêu cầu hủy vé bị từ chối" : "Yêu cầu đổi vé bị từ chối",
-            "Vé của bạn không thay đổi. Liên hệ tổng đài nếu cần hỗ trợ thêm.", "/passenger/tickets");
 
         await db.SaveChangesAsync(ct);
 

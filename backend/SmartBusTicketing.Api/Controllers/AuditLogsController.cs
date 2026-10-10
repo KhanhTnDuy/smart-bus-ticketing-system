@@ -8,7 +8,7 @@ namespace SmartBusTicketing.Api.Controllers;
 
 [ApiController]
 [Route("api/audit-logs")]
-[Authorize(Roles = "Admin")]
+[Authorize(Roles = "Admin,Manager")]
 public class AuditLogsController(AppDbContext db) : ControllerBase
 {
     /// <summary>
