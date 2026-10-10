@@ -294,6 +294,9 @@ public class TicketChangeRequestsController(
                 var newSeat = validation.Seat!;
                 await seatHolds.ReleaseStaleHoldsAsync(newTrip.Id, [newSeat.Id], ct);
 
+                // Vé mới giữ trạng thái của vé cũ (đã thanh toán thì vẫn Valid). Phải đọc trước khi đổi vé cũ sang Exchanged,
+                // nếu không vé đã trả tiền sẽ thành Held, hết hạn giữ chỗ và không quét QR được.
+                var newTicketStatus = ticket.Status == TicketStatus.Valid ? TicketStatus.Valid : TicketStatus.Held;
                 // Vé cũ sang Exchanged: trạng thái này không nằm trong tập mà ActiveSeatKey coi
                 // là đang chiếm, nên ghế cũ tự được nhả.
                 ticket.Status = TicketStatus.Exchanged;
@@ -305,7 +308,7 @@ public class TicketChangeRequestsController(
                     SeatId = newSeat.Id,
                     BoardStopId = ticket.BoardStopId,
                     AlightStopId = ticket.AlightStopId,
-                    Status = ticket.Status == TicketStatus.Valid ? TicketStatus.Valid : TicketStatus.Held,
+                    Status = newTicketStatus,
                     QrCode = Guid.NewGuid().ToString("N")
                 };
                 db.Tickets.Add(newTicket);
