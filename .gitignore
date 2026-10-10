@@ -28,3 +28,6 @@ obj/
 Thumbs.db
 .DS_Store
 *.swp
+
+# Giấy tờ người dùng tải lên (dữ liệu cá nhân), không đưa vào repo
+App_Data/
