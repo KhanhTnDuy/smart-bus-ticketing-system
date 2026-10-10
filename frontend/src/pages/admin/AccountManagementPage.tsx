@@ -22,7 +22,7 @@ import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { EmptyState } from '../../components/common/EmptyState';
 
 export const AccountManagementPage: React.FC = () => {
-  const { users, addAccount, updateAccount, deleteAccount, assignRole } = useAccountManagement();
+  const { users, error: loadError, addAccount, updateAccount, deleteAccount, assignRole } = useAccountManagement();
   const { currentUser } = useAuth();
   const { success, error, warning } = useToast();
 
@@ -240,6 +240,12 @@ export const AccountManagementPage: React.FC = () => {
           </button>
         }
       />
+
+      {loadError && (
+        <div className="p-3 rounded-lg border border-rose-300 bg-rose-50 dark:bg-rose-950/30 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300">
+          Không tải được danh sách tài khoản từ máy chủ: {loadError}
+        </div>
+      )}
 
       {/* 2. Search & Filter Bar */}
       <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm space-y-3">
