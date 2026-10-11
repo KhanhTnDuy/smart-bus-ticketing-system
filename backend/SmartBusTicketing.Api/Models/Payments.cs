@@ -35,7 +35,15 @@ public class Invoice
     public string InvoiceNo { get; set; } = null!;
     public string Email { get; set; } = null!;
     public decimal Total { get; set; }
+
+    /// <summary>Thời điểm gửi email hóa đơn thành công. Rỗng nghĩa là chưa gửi (chờ gửi, thất bại hoặc chưa có địa chỉ).</summary>
     public DateTime? SentAt { get; set; }
+
+    /// <summary>Số lần đã thử gửi. Tới InvoiceEmailService.MaxAttempts thì ngừng tự thử lại; khách bấm gửi lại sẽ đặt về 0.</summary>
+    public int EmailAttempts { get; set; }
+
+    /// <summary>Lý do lần gửi gần nhất thất bại (cắt ngắn), chỉ để quản trị xem, không trả ra API.</summary>
+    public string? EmailError { get; set; }
 }
 
 public class Refund
