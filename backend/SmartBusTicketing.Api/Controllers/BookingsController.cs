@@ -115,6 +115,63 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
     }
 
     /// <summary>Chỉ hành khách đặt vé. Nhân viên đặt được sẽ tạo lượt đặt mà không ai thanh toán được (thanh toán cũng chỉ dành cho hành khách) và chiếm ghế trong 10 phút.</summary>
+    /// <summary>
+    /// Khách hủy một lượt đặt đang giữ chỗ mà chưa trả tiền (bấm "Hủy thanh toán" / quay lại đổi ghế): lượt đặt và
+    /// các vé Held chuyển sang Cancelled nên ghế được nhả ngay thay vì đợi hết 10 phút. Lượt đặt đã thanh toán thì
+    /// không hủy ở đây (dùng yêu cầu hủy vé, có hoàn tiền). Gọi lặp lại là an toàn.
+    ///
+    /// Cố ý KHÔNG đụng tới giao dịch đang chờ: khách có thể đã mở trang ngân hàng ở tab khác và vẫn trả tiền sau
+    /// khi hủy. Khi đó PaymentSettlementService thấy lượt đặt không còn Pending nên tự mở yêu cầu hoàn tiền,
+    /// còn nếu đánh dấu giao dịch Failed ở đây thì khoản tiền đó sẽ bị bỏ qua.
+    /// </summary>
+    [HttpPost("{id:long}/cancel"), Authorize(Roles = "Passenger")]
+    public async Task<IActionResult> CancelPendingBooking(long id, CancellationToken ct)
+    {
+        var passengerId = GetActorId();
+        if (passengerId is null)
+        {
+            return Unauthorized(new { message = "Không xác định được tài khoản từ phiên đăng nhập!" });
+        }
+
+        // 404 cả khi lượt đặt của người khác: 403 sẽ tiết lộ rằng mã đó tồn tại.
+        var booking = await db.Bookings.AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Id == id && b.PassengerId == passengerId, ct);
+        if (booking is null)
+        {
+            return NotFound(new { message = "Không tìm thấy lượt đặt vé của bạn." });
+        }
+
+        const string alreadyPaid = "Lượt đặt này đã được thanh toán. Hãy gửi yêu cầu hủy vé ở mục Vé điện tử nếu muốn hủy.";
+        if (booking.Status == BookingStatus.Confirmed) return Conflict(new { message = alreadyPaid });
+        if (booking.Status != BookingStatus.Pending)
+        {
+            return Ok(new { message = "Lượt đặt này đã được hủy hoặc hết hạn giữ chỗ.", released = false });
+        }
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // Chỉ đổi khi còn Pending: nếu vừa lúc thanh toán xác nhận xong thì không đè lên.
+        var cancelled = await db.Bookings
+            .Where(b => b.Id == id && b.Status == BookingStatus.Pending)
+            .ExecuteUpdateAsync(s => s.SetProperty(b => b.Status, BookingStatus.Cancelled), ct);
+        if (cancelled != 1)
+        {
+            await tx.RollbackAsync(ct);
+            var current = await db.Bookings.AsNoTracking().Where(b => b.Id == id).Select(b => b.Status).FirstAsync(ct);
+            return current == BookingStatus.Confirmed
+                ? Conflict(new { message = alreadyPaid })
+                : Ok(new { message = "Lượt đặt này đã được hủy hoặc hết hạn giữ chỗ.", released = false });
+        }
+
+        var released = await db.Tickets
+            .Where(t => t.BookingId == id && t.Status == TicketStatus.Held)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, TicketStatus.Cancelled), ct);
+        await tx.CommitAsync(ct);
+
+        await audit.WriteAsync(passengerId, GetActorName(), $"Hủy giữ chỗ {booking.BookingCode}", AuditActionType.Update,
+            $"BOOKING-{id}", details: $"Khách hủy thanh toán, nhả {released} ghế.", ct: ct);
+        return Ok(new { message = "Đã hủy giữ chỗ, ghế đã được nhả.", released = true, seats = released });
+    }
+
     [HttpPost, Authorize(Roles = "Passenger")]
     public async Task<IActionResult> ConfirmBooking([FromBody] ConfirmBookingDto dto, CancellationToken ct)
     {
