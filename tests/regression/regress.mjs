@@ -5,6 +5,54 @@
 import { spawnSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import net from 'node:net';
+import http from 'node:http';
+
+// Cổng máy chủ "API hoàn tiền VNPay" giả mà kịch bản tự mở. Phải trùng Payments__VnPay__RefundUrl của backend
+// (vd. http://127.0.0.1:2526/refund). Bỏ trống thì nhóm G4 bị bỏ qua. REFUND_TIERS=1 báo backend đang chạy với chính sách hoàn
+// theo giờ [24h:100%, 2h:50%] (Refunds__Tiers__...), bật thêm các phép kiểm chính sách.
+const REFUND_SINK_PORT = Number(process.env.REFUND_SINK_PORT || 0);
+const REFUND_TIERS = process.env.REFUND_TIERS === '1';
+
+// API hoàn tiền giả: kiểm chữ ký yêu cầu theo đặc tả (các trường nối bằng "|") rồi trả lời có ký. `mode`: ok, code91
+// (không tìm thấy giao dịch), code94 (yêu cầu trùng), badsig (sai chữ ký phản hồi). `failNext` > 0 thì trả HTTP 500 vài lần đầu.
+function startRefundSink(port, secret) {
+  const sink = { requests: [], mode: 'ok', failNext: 0, server: null };
+  const sign = (parts) => createHmac('sha512', secret).update(parts.join('|')).digest('hex');
+  sink.server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      let j;
+      try { j = JSON.parse(body); } catch { res.writeHead(400); res.end(); return; }
+      const g = (k) => String(j[k] ?? '');
+      const expected = sign([g('vnp_RequestId'), g('vnp_Version'), g('vnp_Command'), g('vnp_TmnCode'), g('vnp_TransactionType'),
+        g('vnp_TxnRef'), g('vnp_Amount'), g('vnp_TransactionNo'), g('vnp_TransactionDate'), g('vnp_CreateBy'), g('vnp_CreateDate'),
+        g('vnp_IpAddr'), g('vnp_OrderInfo')]);
+      const validReq = expected === j.vnp_SecureHash;
+      sink.requests.push({ ...j, validReq });
+      if (sink.failNext > 0) { sink.failNext--; res.writeHead(500); res.end('boom'); return; }
+
+      let code = '00';
+      let msg = 'Refund success';
+      if (!validReq) { code = '97'; msg = 'Checksum failed'; }
+      else if (sink.mode === 'code91') { code = '91'; msg = 'Unable to find the transaction'; }
+      else if (sink.mode === 'code94') { code = '94'; msg = 'Duplicate request'; }
+      const r = {
+        vnp_ResponseId: 'RESP' + sink.requests.length, vnp_Command: 'refund', vnp_ResponseCode: code, vnp_Message: msg,
+        vnp_TmnCode: g('vnp_TmnCode'), vnp_TxnRef: g('vnp_TxnRef'), vnp_Amount: g('vnp_Amount'), vnp_BankCode: 'NCB',
+        vnp_PayDate: '20261011230000', vnp_TransactionNo: String(15000000 + sink.requests.length),
+        vnp_TransactionType: g('vnp_TransactionType'), vnp_TransactionStatus: '05', vnp_OrderInfo: g('vnp_OrderInfo'),
+        vnp_PromotionCode: '', vnp_PromotionAmount: '',
+      };
+      r.vnp_SecureHash = sink.mode === 'badsig' ? 'f'.repeat(128) : sign([r.vnp_ResponseId, r.vnp_Command, r.vnp_ResponseCode,
+        r.vnp_Message, r.vnp_TmnCode, r.vnp_TxnRef, r.vnp_Amount, r.vnp_BankCode, r.vnp_PayDate, r.vnp_TransactionNo,
+        r.vnp_TransactionType, r.vnp_TransactionStatus, r.vnp_OrderInfo, r.vnp_PromotionCode, r.vnp_PromotionAmount]);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(r));
+    });
+  });
+  return new Promise((resolve, reject) => { sink.server.once('error', reject); sink.server.listen(port, '127.0.0.1', () => resolve(sink)); });
+}
 
 // Cổng máy chủ SMTP giả mà kịch bản tự mở để nhận email hóa đơn. Phải trùng Email__Port của backend (backend chạy với
 // Email__Enabled=true Email__Host=127.0.0.1 Email__UseSsl=false Email__FromAddress=...). Bỏ trống thì nhóm G3 bị bỏ qua.
@@ -542,7 +590,7 @@ try {
     is('VNPay: lượt đặt hết hạn không được xác nhận', sql(`select Status from bookings where Id=${v3.bookingId}`) === 'Confirmed' ? 'Confirmed' : 'khong', 'khong');
     check('VNPay: vé không thành Valid', sql(`select count(*) from tickets where BookingId=${v3.bookingId} and Status='Valid'`) === '0');
     is('VNPay: giao dịch trễ vẫn ghi nhận Success (tiền đã thu)', stat(pv3.j?.id), 'Success');
-    is('VNPay: tự mở một yêu cầu hoàn tiền Pending', sql(`select concat(Amount,'/',Status) from refunds where PaymentId=${pv3.j?.id}`), '7000.00/Pending');
+    check('VNPay: tự mở một yêu cầu hoàn tiền 7.000 đ', /^7000\.00\/(Pending|Success)$/.test(sql(`select concat(Amount,'/',Status) from refunds where PaymentId=${pv3.j?.id}`)));
     is('VNPay: không có hóa đơn cho giao dịch trễ', sql(`select count(*) from invoices where PaymentId=${pv3.j?.id}`), '0');
     check('VNPay: quản lý được báo có hoàn tiền cần xử lý', Number(sql(`select count(*) from notifications where Title like '%Hoàn tiền thanh toán trễ%'`)) > 0);
     is('VNPay: IPN lặp lại cho giao dịch trễ không tạo thêm hoàn tiền', (await ipn(cb(ref3, 7000))).j?.RspCode === '02' && sql(`select count(*) from refunds where PaymentId=${pv3.j?.id}`) === '1' ? 1 : 0, 1);
@@ -606,7 +654,7 @@ try {
     const late7 = await ret(cb(ref7, 7000, { vnp_TransactionNo: '14999007' }));
     is('Hủy giữ chỗ: trả tiền sau khi hủy không báo thành công', late7.j?.success, false);
     is('Hủy giữ chỗ: không có vé Valid cho lượt đặt đã hủy', sql(`select count(*) from tickets where BookingId=${v7.bookingId} and Status='Valid'`), '0');
-    is('Hủy giữ chỗ: tiền về sau khi hủy được mở hoàn tiền', sql(`select concat(Amount,'/',Status) from refunds where PaymentId=${pv7.j?.id}`), '7000.00/Pending');
+    check('Hủy giữ chỗ: tiền về sau khi hủy được mở hoàn tiền', /^7000\.00\/(Pending|Success)$/.test(sql(`select concat(Amount,'/',Status) from refunds where PaymentId=${pv7.j?.id}`)));
   }
 
   // ============================================================
@@ -693,6 +741,181 @@ try {
       is('Email: hóa đơn lưu địa chỉ vừa nhập', sql(`select Email from invoices where Id=${pay3.j?.invoiceId}`), 'qa_p2_new@example.com');
     } finally {
       sink.server.close();
+    }
+  }
+
+  // ============================================================
+  sec('G4. Hoàn tiền tự động qua VNPay');
+  if (!REFUND_SINK_PORT || !VNPAY_SECRET) {
+    console.log('  (bỏ qua: chưa đặt REFUND_SINK_PORT và VNPAY_SECRET)');
+  } else {
+    // Các khoản hoàn VNPay của nhóm trước đã bị vòng nền thử gọi (và thất bại vì chưa có máy chủ giả): bỏ chúng đi để nhóm này
+    // chỉ thấy yêu cầu của chính nó.
+    sql(`update refunds set Status='Failed', Note='bo qua trong test' where Status='Pending' and PaymentId in (select Id from payments where Method='VnPay')`);
+    const rs = await startRefundSink(REFUND_SINK_PORT, VNPAY_SECRET);
+    try {
+      const seatsR = seatsOf(6, 4, 20);
+      const wait = async (cond, ms = 40000) => { for (let t = 0; t < ms; t += 500) { if (cond()) return true; await new Promise((r) => setTimeout(r, 500)); } return false; };
+      const bookR = async (tok, seats) => (await call(tok, 'POST', '/api/bookings', { tripId: tripA, seatIds: seats, boardStopId: 1, alightStopId: 2 })).j;
+      const payR = (tok, id) => call(tok, 'POST', '/api/payments', { bookingId: id, method: 1 });
+      const refOf = (pay) => new URL(pay.j.paymentUrl).searchParams.get('vnp_TxnRef');
+      const signed = (txnRef, amountVnd, over = {}) => vnpSign({
+        vnp_Amount: String(Math.round(amountVnd * 100)), vnp_BankCode: 'NCB', vnp_OrderInfo: 'Thanh toan ve', vnp_PayDate: '20261011223344',
+        vnp_ResponseCode: '00', vnp_TmnCode: 'TESTTMN01', vnp_TransactionNo: String(14100000 + Math.floor(Math.random() * 99999)),
+        vnp_TransactionStatus: '00', vnp_TxnRef: txnRef, ...over,
+      });
+      const ret = (o) => call(null, 'GET', '/api/payments/vnpay/return?' + new URLSearchParams(o).toString());
+      const refund = (id) => {
+        const [status, attempts, gw, by, note] = sql(`select Status, Attempts, ifnull(GatewayRefId,''), ifnull(ProcessedBy,''), ifnull(Note,'') from refunds where Id=${id}`).split('\t');
+        return { status, attempts: Number(attempts), gw, by, note: note ?? '' };
+      };
+      const statusIs = (id, st) => () => refund(id).status === st;
+
+      // 1. Tiền về sau khi hết hạn giữ chỗ: tự mở khoản hoàn rồi tự hoàn toàn bộ qua cổng.
+      const ba = await bookR(p1, [seatsR[0]]);
+      const pa = await payR(p1, ba.bookingId);
+      const refA = refOf(pa);
+      sql(`update bookings set HoldExpiresAt='2020-01-01' where Id=${ba.bookingId}`);
+      await ret(signed(refA, 7000, { vnp_TransactionNo: '14999101' }));
+      const rfA = Number(sql(`select Id from refunds where PaymentId=${pa.j?.id}`));
+      check('Hoàn tự động: yêu cầu hoàn tới API VNPay', await wait(() => rs.requests.length >= 1));
+      const qa = rs.requests[0] ?? {};
+      is('Hoàn tự động: hoàn toàn bộ (loại 02)', qa.vnp_TransactionType, '02');
+      is('Hoàn tự động: lệnh refund', qa.vnp_Command, 'refund');
+      is('Hoàn tự động: mã giao dịch gốc', qa.vnp_TxnRef, refA);
+      is('Hoàn tự động: số tiền nhân 100', qa.vnp_Amount, '700000');
+      is('Hoàn tự động: mã giao dịch VNPay gốc', qa.vnp_TransactionNo, '14999101');
+      is('Hoàn tự động: ngày giao dịch gốc (ngày tạo)', qa.vnp_TransactionDate, sql(`select GatewayCreateDate from payments where Id=${pa.j?.id}`));
+      is('Hoàn tự động: mã yêu cầu cố định theo khoản hoàn', qa.vnp_RequestId, `RF${rfA}`);
+      check('Hoàn tự động: chữ ký yêu cầu đúng đặc tả', qa.validReq === true);
+      check('Hoàn tự động: khoản hoàn chuyển Success', await wait(statusIs(rfA, 'Success')));
+      check('Hoàn tự động: lưu mã hoàn của cổng', refund(rfA).gw.startsWith('150000'));
+      is('Hoàn tự động: không có người duyệt (hệ thống tự làm)', refund(rfA).by, '');
+      check('Hoàn tự động: ghi chú hoàn tự động', refund(rfA).note.includes('tự động'));
+      is('Hoàn tự động: giao dịch chuyển Refunded', sql(`select Status from payments where Id=${pa.j?.id}`), 'Refunded');
+      check('Hoàn tự động: khách nhận thông báo đã hoàn tiền', Number(sql("select count(*) from notifications where AccountId=7 and Title='Đã hoàn tiền'")) > 0);
+      check('Hoàn tự động: có nhật ký hoàn tiền', Number(sql(`select count(*) from audit_logs where Action='Hoàn tiền #${rfA} qua VNPay'`)) === 1);
+      const n1 = rs.requests.length;
+      await new Promise((r) => setTimeout(r, 12000));
+      is('Hoàn tự động: khoản đã hoàn không bị gọi lại', rs.requests.length, n1);
+
+      // 2. Khách hủy 1 trong 2 vé đã thanh toán, quản lý duyệt: tự hoàn một phần (loại 03), giao dịch vẫn Success.
+      const bb = await bookR(p1, [seatsR[1], seatsR[2]]);
+      const pb = await payR(p1, bb.bookingId);
+      await ret(signed(refOf(pb), 14000, { vnp_TransactionNo: '14999102' }));
+      const tkB = sql(`select Id from tickets where BookingId=${bb.bookingId} order by Id`).split('\n').map(Number);
+      const cancelB = await call(p1, 'POST', `/api/tickets/${tkB[0]}/cancel`, { reason: 'Doi ke hoach di chuyen' });
+      is('Hoàn tự động: khách gửi yêu cầu hủy 1 vé', cancelB.s, 200);
+      const reqsBefore = rs.requests.length;
+      is('Hoàn tự động: quản lý duyệt hủy', (await call(mg, 'POST', `/api/ticket-change-requests/${cancelB.j?.changeRequestId}/approve`)).s, 200);
+      const rfB = Number(sql(`select Id from refunds where PaymentId=${pb.j?.id} order by Id desc limit 1`));
+      check('Hoàn tự động: duyệt hủy vé kéo theo yêu cầu hoàn tới cổng', await wait(() => rs.requests.length > reqsBefore));
+      const qb = rs.requests[rs.requests.length - 1] ?? {};
+      is('Hoàn tự động: hoàn một phần (loại 03)', qb.vnp_TransactionType, '03');
+      is('Hoàn tự động: hoàn đúng tiền của một vé', qb.vnp_Amount, '700000');
+      check('Hoàn tự động: hoàn một phần thành công', await wait(statusIs(rfB, 'Success')));
+      is('Hoàn tự động: giao dịch vẫn Success khi mới hoàn một phần', sql(`select Status from payments where Id=${pb.j?.id}`), 'Success');
+
+      // 3. Các tình huống lỗi trên một giao dịch riêng, mỗi lần chèn đúng một khoản hoàn để dễ theo dõi.
+      const bp = await bookR(p1, [seatsR[3]]);
+      const pp = await payR(p1, bp.bookingId);
+      await ret(signed(refOf(pp), 7000, { vnp_TransactionNo: '14999103' }));
+      const insertRefund = (amount) => {
+        sql(`insert into refunds (PaymentId, Amount, Reason, Status, CreatedAt, Attempts) values (${pp.j?.id}, ${amount}, 'PaymentFailed', 'Pending', UTC_TIMESTAMP(), 0)`);
+        return Number(sql('select max(Id) from refunds'));
+      };
+
+      // 3a. Lỗi tạm thời (HTTP 500): giữ Pending, ghi lần thử, tự thử lại sau ~30 giây với cùng mã yêu cầu rồi thành công.
+      rs.mode = 'ok';
+      rs.failNext = 1;
+      const nT = rs.requests.length;
+      const rfT = insertRefund(1000);
+      check('Hoàn lỗi tạm thời: lần thử đầu tới cổng', await wait(() => rs.requests.length > nT, 25000));
+      check('Hoàn lỗi tạm thời: ghi nhận lần thử 1', await wait(() => refund(rfT).attempts === 1, 10000));
+      is('Hoàn lỗi tạm thời: vẫn Pending', refund(rfT).status, 'Pending');
+      check('Hoàn lỗi tạm thời: ghi lý do vào ghi chú', refund(rfT).note.startsWith('Lần 1/5'));
+      check('Hoàn lỗi tạm thời: tự thử lại và hoàn thành công', await wait(statusIs(rfT, 'Success'), 90000));
+      const reqsT = rs.requests.slice(nT).filter((x) => x.vnp_RequestId === `RF${rfT}`);
+      is('Hoàn lỗi tạm thời: hai lần gọi dùng cùng mã yêu cầu', reqsT.length, 2);
+      is('Hoàn lỗi tạm thời: hoàn một phần vì giao dịch đã hoàn trước đó', reqsT[1]?.vnp_TransactionType, '03');
+
+      // 3b. Cổng từ chối (91): ngừng tự động, báo quản lý, không gọi lại.
+      rs.mode = 'code91';
+      const n91 = rs.requests.length;
+      const rf91 = insertRefund(1100);
+      check('Cổng từ chối: chuyển sang xử lý tay', await wait(() => refund(rf91).attempts === 5, 25000));
+      is('Cổng từ chối: vẫn Pending, chưa báo thành công', refund(rf91).status, 'Pending');
+      check('Cổng từ chối: ghi chú nêu mã lỗi của cổng', refund(rf91).note.startsWith('Cần xử lý tay') && refund(rf91).note.includes('91'));
+      is('Cổng từ chối: chỉ gọi cổng một lần', rs.requests.length - n91, 1);
+      const listed = (await call(mg, 'GET', '/api/refunds')).j?.find((x) => x.id === rf91);
+      is('Cổng từ chối: API báo needsManual', listed?.needsManual, true);
+      check('Cổng từ chối: quản lý được báo', Number(sql("select count(*) from notifications where Title='Hoàn tiền cần xử lý tay'")) > 0);
+      await new Promise((r) => setTimeout(r, 12000));
+      is('Cổng từ chối: không tự gọi lại', rs.requests.length - n91, 1);
+
+      // 3c. Quản lý duyệt tay: gọi lại cổng (bỏ giới hạn số lần tự thử). Cổng chấp nhận lần này thì thành công.
+      rs.mode = 'ok';
+      is('Duyệt tay: hành khách không được duyệt -> 403', (await call(p1, 'PATCH', `/api/refunds/${rf91}/process`, { approve: true })).s, 403);
+      const okManual = await call(mg, 'PATCH', `/api/refunds/${rf91}/process`, { approve: true });
+      is('Duyệt tay: quản lý duyệt -> gọi cổng thành công', okManual.s, 200);
+      is('Duyệt tay: khoản hoàn Success', refund(rf91).status, 'Success');
+      check('Duyệt tay: ghi người duyệt', refund(rf91).by !== '');
+      check('Duyệt tay: lưu mã hoàn của cổng', refund(rf91).gw.startsWith('150000'));
+      is('Duyệt tay: duyệt lần hai -> 409', (await call(mg, 'PATCH', `/api/refunds/${rf91}/process`, { approve: true })).s, 409);
+
+      // 3d. Cổng báo yêu cầu trùng (94): không biết đã hoàn chưa nên không tự coi là thành công. Quản lý đối soát rồi xác nhận
+      // đã hoàn ngoài cổng (bắt buộc ghi mã đối soát), hệ thống không gọi cổng nữa.
+      rs.mode = 'code94';
+      const rf94 = insertRefund(1200);
+      check('Yêu cầu trùng: chuyển xử lý tay', await wait(() => refund(rf94).attempts === 5, 25000));
+      const n94 = rs.requests.length;
+      is('Xác nhận ngoài cổng: thiếu ghi chú -> 400', (await call(mg, 'PATCH', `/api/refunds/${rf94}/process`, { approve: true, confirmedExternally: true })).s, 400);
+      const ext = await call(mg, 'PATCH', `/api/refunds/${rf94}/process`, { approve: true, confirmedExternally: true, note: 'Da doi soat VNPay, hoan thu cong ma 889900' });
+      is('Xác nhận ngoài cổng: có ghi chú -> 200', ext.s, 200);
+      is('Xác nhận ngoài cổng: khoản hoàn Success', refund(rf94).status, 'Success');
+      is('Xác nhận ngoài cổng: không gọi cổng thêm', rs.requests.length, n94);
+      is('Xác nhận ngoài cổng: không có mã hoàn của cổng', refund(rf94).gw, '');
+
+      // 3e. Phản hồi sai chữ ký: không tin, không báo thành công, chuyển xử lý tay.
+      rs.mode = 'badsig';
+      const rfSig = insertRefund(1300);
+      check('Sai chữ ký phản hồi: chuyển xử lý tay', await wait(() => refund(rfSig).attempts === 5, 25000));
+      is('Sai chữ ký phản hồi: không báo thành công', refund(rfSig).status, 'Pending');
+      check('Sai chữ ký phản hồi: ghi chú nêu lý do', refund(rfSig).note.includes('sai chữ ký'));
+
+      // 3f. Từ chối khoản hoàn vẫn hoạt động (ghi lý do bắt buộc), không gọi cổng.
+      const nRej = rs.requests.length;
+      is('Từ chối hoàn: thiếu lý do -> 400', (await call(mg, 'PATCH', `/api/refunds/${rfSig}/process`, { approve: false })).s, 400);
+      is('Từ chối hoàn: có lý do -> 200', (await call(mg, 'PATCH', `/api/refunds/${rfSig}/process`, { approve: false, note: 'Khong du dieu kien hoan' })).s, 200);
+      is('Từ chối hoàn: khoản hoàn Failed', refund(rfSig).status, 'Failed');
+      is('Từ chối hoàn: không gọi cổng', rs.requests.length, nRej);
+
+      // 4. Chính sách hoàn theo giờ (chỉ khi backend chạy với Refunds__Tiers: 24h=100%, 2h=50%). Dùng thanh toán giả lập để
+      // tách khỏi cổng; hủy vé do khách nên áp chính sách, quản lý duyệt hủy là lúc tính tiền hoàn.
+      if (REFUND_TIERS) {
+        const cancelWithTrip = async (hoursAhead, seat) => {
+          sql(`insert into trips (RouteId, ScheduleId, BusId, DepartureAt, Status, DelayMinutes) values (1, NULL, 3, DATE_ADD(UTC_TIMESTAMP(), interval ${hoursAhead} hour), 'Scheduled', 0)`);
+          const tid = Number(sql('select max(Id) from trips'));
+          const bk = (await call(p1, 'POST', '/api/bookings', { tripId: tid, seatIds: [seat], boardStopId: 1, alightStopId: 2 })).j;
+          const pay = await call(p1, 'POST', '/api/payments', { bookingId: bk.bookingId, method: 0 });
+          const tk = Number(sql(`select Id from tickets where BookingId=${bk.bookingId}`));
+          const c = await call(p1, 'POST', `/api/tickets/${tk}/cancel`, { reason: 'Doi ke hoach di chuyen' });
+          await call(mg, 'POST', `/api/ticket-change-requests/${c.j?.changeRequestId}/approve`);
+          return { payId: pay.j?.id, ticketId: tk };
+        };
+        const [t5, t1, t30] = [seatsOf(3, 3, 0)[0], seatsOf(3, 3, 0)[1], seatsOf(3, 3, 0)[2]];
+        const c5 = await cancelWithTrip(5, t5);
+        is('Chính sách: còn 5 giờ hoàn 50%', sql(`select concat(Amount,'/',ifnull(Note,'')) from refunds where PaymentId=${c5.payId}`), '3500.00/Theo chính sách hoàn 50% tiền vé.');
+        const c1 = await cancelWithTrip(1, t1);
+        is('Chính sách: còn dưới 2 giờ không hoàn', sql(`select count(*) from refunds where PaymentId=${c1.payId}`), '0');
+        is('Chính sách: vé vẫn được hủy dù không hoàn', sql(`select Status from tickets where Id=${c1.ticketId}`), 'Cancelled');
+        const c30 = await cancelWithTrip(30, t30);
+        is('Chính sách: còn 30 giờ hoàn 100%', sql(`select concat(Amount,'/',ifnull(Note,'-')) from refunds where PaymentId=${c30.payId}`), '7000.00/-');
+      } else {
+        console.log('  (bỏ qua chính sách hoàn theo giờ: chưa đặt REFUND_TIERS=1)');
+      }
+    } finally {
+      rs.server.close();
     }
   }
 
