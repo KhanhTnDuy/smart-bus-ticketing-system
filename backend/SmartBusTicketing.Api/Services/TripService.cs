@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using SmartBusTicketing.Api.Data;
 using SmartBusTicketing.Api.DTOs;
 using SmartBusTicketing.Api.Models;
+using SmartBusTicketing.Api.Services.Fares;
 
 namespace SmartBusTicketing.Api.Services;
 
@@ -155,6 +156,9 @@ public sealed class TripService(AppDbContext db) : ITripService
             .OrderByDescending(f => f.EffectiveFrom)
             .ToListAsync(ct);
 
+        // Bảng giá niêm yết theo km hành trình (nếu đã lập): đây là giá chính thức, thay cho giá cố định theo tuyến.
+        var distanceBands = await db.DistanceFares.AsNoTracking().OrderBy(b => b.FromKm).ToListAsync(ct);
+
         // 7. Ánh xạ thành TripDto
         var resultList = new List<TripDto>();
 
@@ -167,7 +171,12 @@ public sealed class TripService(AppDbContext db) : ITripService
 
             // Bảng giá chi tiết theo từng loại đối tượng
             var routeFares = allFares.Where(f => f.RouteId == trip.RouteId).ToList();
-            var standardFare = routeFares.FirstOrDefault(f => f.PassengerTypeId == 1)?.Price
+            var legKm = FareCalculator.LegKm(
+                routeOrder.Route.RouteStops.FirstOrDefault(s => s.StopOrder == routeOrder.FromOrder),
+                routeOrder.Route.RouteStops.FirstOrDefault(s => s.StopOrder == routeOrder.ToOrder));
+            var bandPrice = FareCalculator.BandPrice(distanceBands, legKm);
+            var standardFare = bandPrice
+                               ?? routeFares.FirstOrDefault(f => f.PassengerTypeId == 1)?.Price
                                ?? routeFares.FirstOrDefault()?.Price
                                ?? 7000m;
 
@@ -175,9 +184,11 @@ public sealed class TripService(AppDbContext db) : ITripService
             foreach (var pt in allPassengerTypes)
             {
                 var fareRecord = routeFares.FirstOrDefault(f => f.PassengerTypeId == pt.Id);
-                decimal price = fareRecord != null
-                    ? fareRecord.Price
-                    : Math.Round(standardFare * (100 - pt.DiscountPercent) / 100m, 0);
+                decimal price = bandPrice is not null
+                    ? FareCalculator.ApplyDiscount(bandPrice.Value, pt.DiscountPercent)
+                    : fareRecord != null
+                        ? fareRecord.Price
+                        : Math.Round(standardFare * (100 - pt.DiscountPercent) / 100m, 0);
 
                 prices.Add(new TripPassengerFareDto
                 {
@@ -220,6 +231,7 @@ public sealed class TripService(AppDbContext db) : ITripService
                 DriverName = driverName,
                 AssistantName = assistantName,
                 Price = standardFare,
+                DistanceKm = legKm,
                 TotalSeats = totalSeats,
                 BookedSeats = bookedSeats,
                 AvailableSeats = availableSeats,

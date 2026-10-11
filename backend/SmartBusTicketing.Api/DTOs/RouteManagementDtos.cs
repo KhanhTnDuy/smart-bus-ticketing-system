@@ -61,6 +61,8 @@ public sealed class RouteStopDto
     public decimal Longitude { get; init; }
     public int StopOrder { get; init; }
     public int MinutesFromStart { get; init; }
+    /// <summary>Km từ trạm đầu tuyến, hệ thống tự tính từ tọa độ trạm và độ dài tuyến.</summary>
+    public decimal? DistanceFromStartKm { get; init; }
 }
 
 public sealed class RouteStopItem

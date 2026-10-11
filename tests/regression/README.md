@@ -86,3 +86,9 @@ chuyển xử lý tay, phản hồi sai chữ ký, quản lý duyệt tay qua c�
 (tài khoản giả, không dùng tài khoản thật). Nhóm kiểm: mã VietQR và nội dung chuyển khoản, quyền xem và xác nhận, xác nhận tay, chống dùng lại mã giao dịch ngân hàng,
 tiền về trễ mở khoản hoàn, webhook (khóa API, lệch số tiền, nội dung bị chèn dấu cách, gửi trùng, gọi đồng thời, giao dịch quá hạn được mở lại) và job nhả giữ chỗ (mất tới ~80 giây).
 Dùng chuyến riêng trên xe 4 để không tranh ghế với nhóm khác.
+
+## Nhóm G6 – bảng giá vé theo km hành trình
+
+Không cần cấu hình thêm. Nhóm kiểm: km từng trạm tự tính, phân quyền thêm/sửa/xóa bậc giá, dữ liệu sai (km ngược, giá 0), chống chồng lấn bậc, mốc ranh giới (đúng 12 km thuộc bậc 8-12),
+giá mọi chặng và giá đối tượng ưu đãi, tìm chuyến trả `distanceKm` và giá theo km, đặt vé tính tiền theo km của chặng khách chọn, xóa hết bậc thì quay về giá cố định cũ của tuyến, tuyến mới tự tính km.
+Nhóm chạy cuối cùng, tự lập rồi xóa bảng giá nên không đổi giá của các nhóm khác.
