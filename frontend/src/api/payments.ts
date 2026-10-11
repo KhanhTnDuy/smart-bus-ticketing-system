@@ -97,6 +97,10 @@ export interface InvoiceDto {
   total: number;
   method: string;
   paidAt: string | null;
+  /** Thời điểm email hóa đơn được gửi, null nếu chưa gửi. */
+  sentAt: string | null;
+  /** Sent: đã gửi · Pending: đang chờ/thử lại · Failed: quá số lần thử · NoAddress: tài khoản chưa có email. */
+  emailStatus: 'Sent' | 'Pending' | 'Failed' | 'NoAddress';
   routeCode: string;
   routeName: string;
   departureAt: string;
@@ -157,6 +161,13 @@ export const confirmVnPayReturn = (search: string) =>
 export const listMyPayments = (signal?: AbortSignal) => api.get<PaymentDto[]>('/api/payments/my', undefined, signal);
 
 export const listAllPayments = (signal?: AbortSignal) => api.get<PaymentDto[]>('/api/payments', undefined, signal);
+
+/**
+ * Gửi (lại) email hóa đơn. Máy chủ gửi trong nền nên trả về ngay với trạng thái hiện tại. `email` chỉ có tác dụng khi hóa đơn
+ * chưa có địa chỉ (tài khoản chưa khai email); có địa chỉ rồi thì thư luôn gửi tới địa chỉ đã lưu.
+ */
+export const sendInvoiceEmail = (id: number, email?: string) =>
+  api.post<InvoiceDto>(`/api/invoices/${id}/send`, { email: email?.trim() || undefined });
 
 export const listMyInvoices = (signal?: AbortSignal) => api.get<InvoiceDto[]>('/api/invoices/my', undefined, signal);
 
