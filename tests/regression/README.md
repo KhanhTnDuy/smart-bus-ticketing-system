@@ -18,6 +18,7 @@
 | N | Hủy chuyến kéo theo hoàn tiền |
 | O | Báo cáo doanh thu và lấp đầy khớp CSDL |
 | P | Nhật ký hệ thống |
+| R | Thống kê lấp đầy theo chuyến (SCRUM-79: phân quyền, lọc tuyến, khoảng rỗng, khoảng ngược) |
 | Q | Quản lý và kiểm tra voucher (SCRUM-66, SCRUM-67: tạo, trùng mã, phân quyền, hết hạn, hết lượt, áp dụng khi đặt vé, an toàn cập nhật và xóa) |
 
 ## Cách chạy

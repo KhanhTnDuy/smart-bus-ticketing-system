@@ -168,7 +168,7 @@ const sql = (q) => {
 };
 
 // Mốc id lớn nhất trước khi chạy: mọi dòng do kịch bản tạo ra đều có id lớn hơn mốc nên dọn được chính xác.
-const TABLES = ['distance_fares', 'refunds', 'invoices', 'payments', 'ticket_scans', 'notifications', 'incidents', 'ticket_change_requests', 'feedback_history', 'feedbacks', 'passenger_verifications', 'tickets', 'bookings', 'vouchers', 'trip_staff', 'bus_locations', 'trips', 'schedules', 'accounts', 'routes', 'buses', 'stops'];
+const TABLES = ['distance_fares', 'refunds', 'invoices', 'payments', 'ticket_scans', 'notifications', 'incidents', 'ticket_change_requests', 'feedback_history', 'feedbacks', 'passenger_verifications', 'tickets', 'bookings', 'vouchers', 'bus_locations', 'trips', 'schedules', 'accounts', 'routes', 'buses', 'stops'];
 const baseline = {};
 for (const t of TABLES) baseline[t] = Number(sql(`select coalesce(max(Id),0) from ${t}`));
 
@@ -1249,10 +1249,11 @@ try {
   check('voucher hết hạn không hợp lệ', valExp.j?.isValid === false);
 
   // 3. Đặt vé áp dụng voucher (SCRUM-67)
+  const tripQ = (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: '2026-11-21T01:00:00Z', busId: 1, driverId: 4 })).j?.tripId;
   const seatsQ = seatsOf(1, 4, 10);
   // Đặt với voucher hết hạn -> 400
   const bookExp = await call(p1, 'POST', '/api/bookings', {
-    tripId: tripB,
+    tripId: tripQ,
     seatIds: [seatsQ[0]],
     boardStopId: 1,
     alightStopId: 2,
@@ -1262,7 +1263,7 @@ try {
 
   // Đặt vé lượt 1 với voucher QA_VC10 (giảm 10%)
   const book1 = await call(p1, 'POST', '/api/bookings', {
-    tripId: tripB,
+    tripId: tripQ,
     seatIds: [seatsQ[0]],
     boardStopId: 1,
     alightStopId: 2,
@@ -1273,7 +1274,7 @@ try {
 
   // Đặt vé lượt 2 với voucher QA_VC10 (đạt giới hạn 2 lượt)
   const book2 = await call(p2, 'POST', '/api/bookings', {
-    tripId: tripB,
+    tripId: tripQ,
     seatIds: [seatsQ[1]],
     boardStopId: 1,
     alightStopId: 2,
@@ -1283,7 +1284,7 @@ try {
 
   // Đặt vé lượt 3 với voucher QA_VC10 -> phải bị chặn do hết lượt (UsageLimit = 2)
   const book3 = await call(p1, 'POST', '/api/bookings', {
-    tripId: tripB,
+    tripId: tripQ,
     seatIds: [seatsQ[2]],
     boardStopId: 1,
     alightStopId: 2,
@@ -1312,6 +1313,21 @@ try {
     endAt: new Date(nowMs + 86400000 * 14).toISOString()
   });
   is('cho phép tăng lượt dùng hoặc hạn dùng', updateOk.s, 200);
+
+  // ============================================================
+  sec('R. Thống kê lấp đầy theo chuyến (SCRUM-79)');
+  {
+    const st = (tok, q = '') => call(tok, 'GET', '/api/statistics/trips/occupancy' + q);
+    const all = await st(mg);
+    is('Thống kê: quản lý xem được', all.s, 200);
+    check('Thống kê: có dữ liệu chuyến', (all.j?.total ?? 0) > 0);
+    check('Thống kê: chuyến chưa gán xe có % rỗng, có xe thì trong 0-100', (all.j?.data ?? []).every((x) => x.occupancyPercent === null ? x.totalSeats === 0 : x.occupancyPercent >= 0 && x.occupancyPercent <= 100));
+    is('Thống kê: hành khách -> 403', (await st(p1)).s, 403);
+    is('Thống kê: không đăng nhập -> 401', (await st(null)).s, 401);
+    is('Thống kê: lọc tuyến 1 chỉ trả tuyến 1', (await st(mg, '?routeId=1')).j?.data?.every((x) => x.routeId === 1), true);
+    is('Thống kê: khoảng không có chuyến -> trang rỗng', (await st(mg, '?fromUtc=2031-01-01T00:00:00Z&toUtc=2031-02-01T00:00:00Z')).j?.total, 0);
+    is('Thống kê: khoảng ngược -> 400', (await st(mg, '?fromUtc=2031-02-01T00:00:00Z&toUtc=2031-01-01T00:00:00Z')).s, 400);
+  }
 } catch (e) {
   console.log('LỖI KHI CHẠY:', e);
   results.push({ section, name: 'chạy hết kịch bản', ok: false });
