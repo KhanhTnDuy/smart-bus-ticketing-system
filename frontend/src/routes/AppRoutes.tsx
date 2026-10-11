@@ -49,6 +49,8 @@ import { IncidentPage } from '../pages/incident/IncidentPage';
 // Common Pages
 import { AccessDeniedPage } from '../pages/common/AccessDeniedPage';
 import { NotFoundPage } from '../pages/common/NotFoundPage';
+import { FareTablePage } from '../pages/common/FareTablePage';
+import { DistanceFarePage } from '../pages/manager/DistanceFarePage';
 import { BankTransferConfirmPage } from '../pages/manager/BankTransferConfirmPage';
 import { TicketChangeRequestPage } from '../pages/manager/TicketChangeRequestPage';
 
@@ -71,6 +73,7 @@ export const AppRoutes: React.FC = () => {
 
         {/* COMMON SPRINT 2 OPERATIONAL ROUTES (All authenticated users) */}
         <Route path="/tracking" element={<BusTrackingPage />} />
+        <Route path="/fares" element={<FareTablePage />} />
         <Route path="/incident/report" element={<IncidentPage />} />
 
         {/* ADMIN ROUTES */}
@@ -85,6 +88,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/manager/routes" element={<RouteManagementPage />} />
           <Route path="/manager/stops" element={<StopManagementPage />} />
           <Route path="/manager/fares" element={<FareManagementPage />} />
+          <Route path="/manager/distance-fares" element={<DistanceFarePage />} />
           <Route path="/manager/complaints" element={<ComplaintManagementPage />} />
           {/* Sprint 2 Manager Features */}
           <Route path="/manager/buses" element={<BusManagementPage />} />

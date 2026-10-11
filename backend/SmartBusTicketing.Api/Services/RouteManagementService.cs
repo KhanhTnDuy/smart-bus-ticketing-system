@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using SmartBusTicketing.Api.Data;
 using SmartBusTicketing.Api.DTOs;
 using SmartBusTicketing.Api.Models;
+using SmartBusTicketing.Api.Services.Fares;
 
 namespace SmartBusTicketing.Api.Services;
 
@@ -111,9 +112,11 @@ public sealed class RouteManagementService(AppDbContext db) : IRouteManagementSe
         route.Name = request.Name.Trim();
         route.StartPoint = request.StartPoint.Trim();
         route.EndPoint = request.EndPoint.Trim();
+        var distanceChanged = route.DistanceKm != request.DistanceKm;
         route.DistanceKm = request.DistanceKm;
         route.Active = request.Active;
         await db.SaveChangesAsync(ct);
+        if (distanceChanged) await RouteDistances.RecalculateAsync(db, id, ct);
         return ServiceResult<RouteDto>.Success((await GetRouteAsync(id, ct))!);
     }
 
@@ -232,6 +235,8 @@ public sealed class RouteManagementService(AppDbContext db) : IRouteManagementSe
             RouteId = routeId, StopId = s.StopId, StopOrder = i + 1, MinutesFromStart = s.MinutesFromStart
         }));
         await db.SaveChangesAsync(ct);
+        // Km từng trạm phục vụ giá vé theo km hành trình: tính lại ngay khi danh sách trạm đổi.
+        await RouteDistances.RecalculateAsync(db, routeId, ct);
         await tx.CommitAsync(ct);
 
         return ServiceResult<IReadOnlyList<RouteStopDto>>.Success(await LoadRouteStopsAsync(routeId, ct));
@@ -242,7 +247,7 @@ public sealed class RouteManagementService(AppDbContext db) : IRouteManagementSe
             .Select(rs => new RouteStopDto
             {
                 StopId = rs.StopId, StopName = rs.Stop.Name, Latitude = rs.Stop.Latitude, Longitude = rs.Stop.Longitude,
-                StopOrder = rs.StopOrder, MinutesFromStart = rs.MinutesFromStart
+                StopOrder = rs.StopOrder, MinutesFromStart = rs.MinutesFromStart, DistanceFromStartKm = rs.DistanceFromStartKm
             }).ToListAsync(ct);
 
     // ===================== Đối tượng hành khách =====================

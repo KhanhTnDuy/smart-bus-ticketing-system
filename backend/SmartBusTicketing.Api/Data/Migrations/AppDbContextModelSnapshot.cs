@@ -272,6 +272,31 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.ToTable("routes", (string)null);
                 });
 
+            modelBuilder.Entity("SmartBusTicketing.Api.Models.DistanceFare", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("FromKm")
+                        .HasPrecision(7, 2)
+                        .HasColumnType("decimal(7,2)");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("decimal(12,2)");
+
+                    b.Property<decimal?>("ToKm")
+                        .HasPrecision(7, 2)
+                        .HasColumnType("decimal(7,2)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("distance_fares", (string)null);
+                });
+
             modelBuilder.Entity("SmartBusTicketing.Api.Models.Fare", b =>
                 {
                     b.Property<long>("Id")
@@ -830,6 +855,10 @@ namespace SmartBusTicketing.Api.Data.Migrations
 
                     b.Property<long>("StopId")
                         .HasColumnType("bigint");
+
+                    b.Property<decimal?>("DistanceFromStartKm")
+                        .HasPrecision(7, 2)
+                        .HasColumnType("decimal(7,2)");
 
                     b.Property<int>("MinutesFromStart")
                         .HasColumnType("int");

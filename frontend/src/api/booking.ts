@@ -43,6 +43,8 @@ export interface TripDto {
   driverName: string;
   assistantName: string | null;
   price: number;
+  /** Số km hành trình từ điểm đi đến điểm đến; giá vé tính theo bảng giá niêm yết theo km. Null nếu tuyến chưa có dữ liệu km. */
+  distanceKm: number | null;
   totalSeats: number;
   bookedSeats: string[];
   availableSeats: number;
