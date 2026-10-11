@@ -123,6 +123,10 @@ export interface RefundDto {
   processedByName: string | null;
   note: string | null;
   changeRequestId: number | null;
+  /** Số lần hệ thống đã thử hoàn qua cổng. */
+  attempts: number;
+  /** Đang chờ nhưng đã ngừng tự động (cổng từ chối hoặc quá số lần thử): quản lý phải đối soát và xử lý tay. */
+  needsManual: boolean;
 }
 
 export const payBooking = (bookingId: number, method: PaymentMethodCode) =>
@@ -177,8 +181,12 @@ export const listRefunds = (signal?: AbortSignal) => api.get<RefundDto[]>('/api/
 
 export const listMyRefunds = (signal?: AbortSignal) => api.get<RefundDto[]>('/api/refunds/my', undefined, signal);
 
-export const processRefund = (id: number, approve: boolean, note?: string) =>
-  api.patch<RefundDto>(`/api/refunds/${id}/process`, { approve, note });
+/**
+ * Duyệt hoặc từ chối một khoản hoàn. Duyệt khoản của giao dịch VNPay nghĩa là gọi API hoàn tiền của cổng; chỉ khi
+ * `confirmedExternally` (đã hoàn bằng đường khác, bắt buộc ghi mã đối soát trong `note`) mới ghi nhận mà không gọi cổng.
+ */
+export const processRefund = (id: number, approve: boolean, note?: string, confirmedExternally?: boolean) =>
+  api.patch<RefundDto>(`/api/refunds/${id}/process`, { approve, note, confirmedExternally: confirmedExternally || undefined });
 
 export const formatVnd = (value: number) => `${Math.round(value).toLocaleString('vi-VN')} đ`;
 
