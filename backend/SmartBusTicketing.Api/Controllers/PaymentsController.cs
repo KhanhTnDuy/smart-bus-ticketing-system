@@ -107,6 +107,7 @@ public class PaymentsController(
             Amount = booking.FinalAmount,
             Status = PaymentStatus.Pending,
             TxnRef = $"{prefix}{now:yyMMddHHmmss}{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
+            GatewayCreateDate = useVnPay ? VnPayClient.FormatVnTime(now) : null,
         };
         db.Payments.Add(payment);
         await db.SaveChangesAsync(ct);

@@ -20,6 +20,9 @@ public class Payment
     /// <summary>Thời điểm thanh toán theo cổng, dạng yyyyMMddHHmmss giờ Việt Nam. VNPay đòi lại giá trị này khi hoàn tiền.</summary>
     public string? GatewayPayDate { get; set; }
 
+    /// <summary>Thời điểm tạo thanh toán gửi cổng (vnp_CreateDate), dạng yyyyMMddHHmmss giờ Việt Nam. Có thể cần khi hoàn tiền.</summary>
+    public string? GatewayCreateDate { get; set; }
+
     /// <summary>Lý do giao dịch thất bại hoặc hết hạn, hiển thị cho khách và quản lý.</summary>
     public string? FailureReason { get; set; }
 
@@ -61,6 +64,14 @@ public class Refund
     public long? ProcessedBy { get; set; }
     public Account? Processor { get; set; }
     public string? Note { get; set; }
+
+    /// <summary>Số lần hệ thống đã thử hoàn qua cổng. Bằng RefundExecutor.MaxAttempts nghĩa là ngừng tự động, cần xử lý tay.</summary>
+    public int Attempts { get; set; }
+
+    public DateTime? LastAttemptAt { get; set; }
+
+    /// <summary>Mã giao dịch hoàn do cổng cấp (VNPay: vnp_TransactionNo của lần hoàn).</summary>
+    public string? GatewayRefId { get; set; }
 }
 
 public class MonthlyPass

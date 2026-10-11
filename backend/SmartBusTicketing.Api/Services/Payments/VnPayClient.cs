@@ -27,6 +27,16 @@ public sealed class VnPayOptions
     /// </summary>
     public string TxnRefPrefix { get; set; } = "SB";
 
+    /// <summary>Địa chỉ API hoàn tiền (merchant_webapi) của VNPay.</summary>
+    public string RefundUrl { get; set; } = "https://sandbox.vnpayment.vn/merchant_webapi/api/transaction";
+
+    /// <summary>
+    /// Giá trị gửi ở vnp_TransactionDate khi hoàn tiền: "Create" (vnp_CreateDate đã gửi lúc tạo thanh toán) hoặc "Pay"
+    /// (vnp_PayDate VNPay trả về). Tài liệu VNPay có chỗ chưa rõ nên để cấu hình được; nếu sandbox báo không tìm thấy giao
+    /// dịch gốc thì đổi sang giá trị còn lại.
+    /// </summary>
+    public string RefundDateSource { get; set; } = "Create";
+
     public bool IsConfigured => !string.IsNullOrWhiteSpace(TmnCode) && !string.IsNullOrWhiteSpace(HashSecret);
 }
 
@@ -117,6 +127,55 @@ public sealed class VnPayClient(IOptions<VnPayOptions> options)
 
         // IPN luôn có vnp_TransactionStatus; thiếu thì coi như theo ResponseCode để ReturnUrl cũ vẫn đọc được.
         return new VnPayCallback(txnRef, amountMinor / 100m, responseCode, txStatus ?? responseCode, txNo, payDate);
+    }
+
+    /// <summary>
+    /// Dựng thân yêu cầu API hoàn tiền (command "refund") kèm chữ ký. Chuỗi ký của API này nối các trường bằng dấu "|"
+    /// theo đúng thứ tự tài liệu VNPay, khác với chuỗi query của luồng thanh toán.
+    /// </summary>
+    public Dictionary<string, string> BuildRefundBody(
+        string requestId, string transactionType, string txnRef, decimal amountVnd, string transactionNo,
+        string transactionDate, string createBy, string orderInfo, string ipAddress, DateTime nowUtc)
+    {
+        var opt = options.Value;
+        var amount = ((long)Math.Round(amountVnd, 0, MidpointRounding.AwayFromZero) * 100).ToString();
+        var createDate = FormatVnTime(nowUtc);
+        var hashData = string.Join('|', requestId, "2.1.0", "refund", opt.TmnCode, transactionType, txnRef, amount,
+            transactionNo, transactionDate, createBy, createDate, ipAddress, orderInfo);
+
+        return new Dictionary<string, string>
+        {
+            ["vnp_RequestId"] = requestId,
+            ["vnp_Version"] = "2.1.0",
+            ["vnp_Command"] = "refund",
+            ["vnp_TmnCode"] = opt.TmnCode,
+            ["vnp_TransactionType"] = transactionType,
+            ["vnp_TxnRef"] = txnRef,
+            ["vnp_Amount"] = amount,
+            ["vnp_OrderInfo"] = orderInfo,
+            ["vnp_TransactionNo"] = transactionNo,
+            ["vnp_TransactionDate"] = transactionDate,
+            ["vnp_CreateBy"] = createBy,
+            ["vnp_CreateDate"] = createDate,
+            ["vnp_IpAddr"] = ipAddress,
+            ["vnp_SecureHash"] = Sign(hashData),
+        };
+    }
+
+    /// <summary>Kiểm chữ ký phản hồi của API hoàn tiền. Trường thiếu được tính là chuỗi rỗng.</summary>
+    public bool VerifyRefundResponse(IReadOnlyDictionary<string, string> response)
+    {
+        string G(string key) => response.TryGetValue(key, out var v) ? v : string.Empty;
+
+        if (!response.TryGetValue("vnp_SecureHash", out var received) || string.IsNullOrWhiteSpace(received)) return false;
+        var data = string.Join('|', G("vnp_ResponseId"), G("vnp_Command"), G("vnp_ResponseCode"), G("vnp_Message"),
+            G("vnp_TmnCode"), G("vnp_TxnRef"), G("vnp_Amount"), G("vnp_BankCode"), G("vnp_PayDate"),
+            G("vnp_TransactionNo"), G("vnp_TransactionType"), G("vnp_TransactionStatus"), G("vnp_OrderInfo"),
+            G("vnp_PromotionCode"), G("vnp_PromotionAmount"));
+
+        var expected = Encoding.ASCII.GetBytes(Sign(data));
+        var actual = Encoding.ASCII.GetBytes(received.Trim().ToLowerInvariant());
+        return expected.Length == actual.Length && CryptographicOperations.FixedTimeEquals(expected, actual);
     }
 
     /// <summary>Nối key=value đã URL-encode theo thứ tự khóa tăng dần, bỏ giá trị rỗng: đúng chuỗi VNPay ký.</summary>

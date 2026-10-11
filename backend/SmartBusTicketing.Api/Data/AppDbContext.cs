@@ -219,6 +219,7 @@ public class AppDbContext : DbContext
             e.Property(p => p.TxnRef).HasMaxLength(64);
             e.HasIndex(p => p.TxnRef).IsUnique();
             e.Property(p => p.GatewayPayDate).HasMaxLength(14);
+            e.Property(p => p.GatewayCreateDate).HasMaxLength(14);
             e.Property(p => p.FailureReason).HasMaxLength(255);
             e.HasOne(p => p.Booking).WithMany(b => b.Payments)
                 .HasForeignKey(p => p.BookingId).OnDelete(DeleteBehavior.Restrict);
@@ -246,6 +247,7 @@ public class AppDbContext : DbContext
             e.HasOne(r => r.Payment).WithMany(p => p.Refunds).HasForeignKey(r => r.PaymentId);
             e.HasOne(r => r.Processor).WithMany().HasForeignKey(r => r.ProcessedBy).OnDelete(DeleteBehavior.Restrict);
             e.Property(r => r.Note).HasColumnType("TEXT");
+            e.Property(r => r.GatewayRefId).HasMaxLength(64);
             e.HasOne(r => r.ChangeRequest).WithMany(c => c.Refunds)
                 .HasForeignKey(r => r.ChangeRequestId).OnDelete(DeleteBehavior.SetNull);
         });
