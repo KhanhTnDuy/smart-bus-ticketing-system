@@ -60,6 +60,20 @@ export interface RefundSummary {
   note: string | null;
 }
 
+/** Thông tin để khách chuyển khoản vào tài khoản ngân hàng của đơn vị. */
+export interface BankTransferInfo {
+  bankId: string;
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  amount: number;
+  /** Nội dung chuyển khoản bắt buộc, để hệ thống nhận ra khoản tiền thuộc lượt đặt nào. */
+  memo: string;
+  /** Ảnh mã VietQR đã điền sẵn tài khoản, số tiền và nội dung. */
+  qrUrl: string;
+  expiresAt: string;
+}
+
 export interface PaymentDto {
   id: number;
   bookingId: number;
@@ -70,6 +84,15 @@ export interface PaymentDto {
   amount: number;
   status: string;
   providerTxnId: string | null;
+  /** Lý do thất bại hoặc hết hạn, chỉ có khi status là Failed. */
+  failureReason: string | null;
+  /** Trang thanh toán của ngân hàng. Chỉ có ngay trong phản hồi khởi tạo thanh toán qua cổng (VNPay). */
+  paymentUrl: string | null;
+  /** Mã tham chiếu giao dịch; với chuyển khoản đây là nội dung chuyển khoản. */
+  reference: string | null;
+  holdExpiresAt: string;
+  /** Có khi giao dịch chuyển khoản còn chờ tiền. */
+  transfer: BankTransferInfo | null;
   paidAt: string | null;
   tripId: number;
   routeCode: string;
@@ -93,6 +116,10 @@ export interface InvoiceDto {
   total: number;
   method: string;
   paidAt: string | null;
+  /** Thời điểm email hóa đơn được gửi, null nếu chưa gửi. */
+  sentAt: string | null;
+  /** Sent: đã gửi · Pending: đang chờ/thử lại · Failed: quá số lần thử · NoAddress: tài khoản chưa có email. */
+  emailStatus: 'Sent' | 'Pending' | 'Failed' | 'NoAddress';
   routeCode: string;
   routeName: string;
   departureAt: string;
@@ -115,14 +142,64 @@ export interface RefundDto {
   processedByName: string | null;
   note: string | null;
   changeRequestId: number | null;
+  /** Số lần hệ thống đã thử hoàn qua cổng. */
+  attempts: number;
+  /** Đang chờ nhưng đã ngừng tự động (cổng từ chối hoặc quá số lần thử): quản lý phải đối soát và xử lý tay. */
+  needsManual: boolean;
 }
 
 export const payBooking = (bookingId: number, method: PaymentMethodCode) =>
   api.post<PaymentDto>('/api/payments', { bookingId, method });
 
+/**
+ * Bắt đầu thanh toán và, nếu cổng trả về trang của ngân hàng, chuyển trình duyệt sang đó. Trả về
+ * `redirected: true` khi đã chuyển trang (người gọi không cần làm gì thêm), `false` khi thanh toán xong ngay
+ * (bộ giả lập) kèm kết quả.
+ */
+export const startPayment = async (
+  bookingId: number,
+  method: PaymentMethodCode
+): Promise<{ redirected: true } | { redirected: false; payment: PaymentDto }> => {
+  const payment = await payBooking(bookingId, method);
+  if (payment.paymentUrl) {
+    window.location.assign(payment.paymentUrl);
+    return { redirected: true };
+  }
+  return { redirected: false, payment };
+};
+
+export interface PaymentResultDto {
+  success: boolean;
+  message: string;
+  payment: PaymentDto;
+}
+
+/**
+ * Gửi nguyên chuỗi query VNPay trả về (có chữ ký) cho máy chủ để kiểm chữ ký và chốt giao dịch. Không cần đăng
+ * nhập: chữ ký là bằng chứng, nên khách quay về từ ngân hàng ở tab khác vẫn xem được kết quả.
+ */
+export const confirmVnPayReturn = (search: string) =>
+  api.get<PaymentResultDto>(`/api/payments/vnpay/return${search.startsWith('?') ? search : `?${search}`}`);
+
+export const getPayment = (id: number, signal?: AbortSignal) => api.get<PaymentDto>(`/api/payments/${id}`, undefined, signal);
+
+/**
+ * Quản lý xác nhận đã nhận tiền chuyển khoản (đối chiếu sao kê). `bankTransactionId` là mã giao dịch trên sao kê, giúp chống xác
+ * nhận trùng một khoản tiền. Nếu lượt đặt đã hết hạn giữ chỗ thì `success` là false và khoản tiền được mở yêu cầu hoàn.
+ */
+export const confirmBankTransfer = (id: number, bankTransactionId?: string) =>
+  api.post<PaymentResultDto>(`/api/payments/${id}/confirm-transfer`, { bankTransactionId: bankTransactionId?.trim() || undefined });
+
 export const listMyPayments = (signal?: AbortSignal) => api.get<PaymentDto[]>('/api/payments/my', undefined, signal);
 
 export const listAllPayments = (signal?: AbortSignal) => api.get<PaymentDto[]>('/api/payments', undefined, signal);
+
+/**
+ * Gửi (lại) email hóa đơn. Máy chủ gửi trong nền nên trả về ngay với trạng thái hiện tại. `email` chỉ có tác dụng khi hóa đơn
+ * chưa có địa chỉ (tài khoản chưa khai email); có địa chỉ rồi thì thư luôn gửi tới địa chỉ đã lưu.
+ */
+export const sendInvoiceEmail = (id: number, email?: string) =>
+  api.post<InvoiceDto>(`/api/invoices/${id}/send`, { email: email?.trim() || undefined });
 
 export const listMyInvoices = (signal?: AbortSignal) => api.get<InvoiceDto[]>('/api/invoices/my', undefined, signal);
 
@@ -132,8 +209,12 @@ export const listRefunds = (signal?: AbortSignal) => api.get<RefundDto[]>('/api/
 
 export const listMyRefunds = (signal?: AbortSignal) => api.get<RefundDto[]>('/api/refunds/my', undefined, signal);
 
-export const processRefund = (id: number, approve: boolean, note?: string) =>
-  api.patch<RefundDto>(`/api/refunds/${id}/process`, { approve, note });
+/**
+ * Duyệt hoặc từ chối một khoản hoàn. Duyệt khoản của giao dịch VNPay nghĩa là gọi API hoàn tiền của cổng; chỉ khi
+ * `confirmedExternally` (đã hoàn bằng đường khác, bắt buộc ghi mã đối soát trong `note`) mới ghi nhận mà không gọi cổng.
+ */
+export const processRefund = (id: number, approve: boolean, note?: string, confirmedExternally?: boolean) =>
+  api.patch<RefundDto>(`/api/refunds/${id}/process`, { approve, note, confirmedExternally: confirmedExternally || undefined });
 
 export const formatVnd = (value: number) => `${Math.round(value).toLocaleString('vi-VN')} đ`;
 

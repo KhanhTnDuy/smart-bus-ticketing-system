@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using SmartBusTicketing.Api.Data;
 using SmartBusTicketing.Api.Services;
+using SmartBusTicketing.Api.Services.Email;
+using SmartBusTicketing.Api.Services.Payments;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,6 +22,20 @@ builder.Services.AddScoped<IScheduleManagementService, ScheduleManagementService
 builder.Services.AddScoped<ISeatHoldService, SeatHoldService>();
 builder.Services.AddScoped<ITicketExchangeValidator, TicketExchangeValidator>();
 builder.Services.AddScoped<AuditLogService>();
+builder.Services.Configure<VnPayOptions>(builder.Configuration.GetSection(VnPayOptions.Section));
+builder.Services.AddSingleton<VnPayClient>();
+builder.Services.Configure<BankTransferOptions>(builder.Configuration.GetSection(BankTransferOptions.Section));
+builder.Services.AddScoped<PaymentSettlementService>();
+builder.Services.Configure<RefundOptions>(builder.Configuration.GetSection(RefundOptions.Section));
+builder.Services.AddHttpClient<IVnPayRefundGateway, VnPayRefundGateway>(c => c.Timeout = TimeSpan.FromSeconds(20));
+builder.Services.AddScoped<RefundExecutor>();
+builder.Services.AddHostedService<RefundProcessingService>();
+builder.Services.AddHostedService<HoldExpiryService>();
+builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.Section));
+builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+builder.Services.AddSingleton<InvoiceEmailService>();
+builder.Services.AddSingleton<IInvoiceMailQueue>(sp => sp.GetRequiredService<InvoiceEmailService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<InvoiceEmailService>());
 builder.Services.AddSingleton<JwtTokenService>();
 
 // Xác thực là bắt buộc: thiếu khóa thì dừng ngay khi khởi động, thay vì để mọi

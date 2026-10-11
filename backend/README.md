@@ -177,3 +177,123 @@ cho `passenger_verifications`).
 - `GET /api/discount-applications` và `POST /{id}/review` chỉ cho Admin, Quản lý. Từ chối bắt buộc có lý do, ngày hết hạn không được ở quá
   khứ, xử lý lần hai trả 409. Hành khách và Quản lý đều nhận thông báo.
 - Hồ sơ đã duyệt và còn hạn là điều kiện để `BookingsController` tính giá ưu đãi khi đặt vé.
+
+## Thanh toán VNPay
+
+Thanh toán vé đi qua cổng VNPay (sandbox hoặc thật): `POST /api/payments` với `method = 1` tạo giao dịch `Pending` và trả
+`paymentUrl`; trình duyệt chuyển sang trang của ngân hàng; kết quả được chốt ở `PaymentSettlementService` qua
+`GET /api/payments/vnpay/ipn` (VNPay gọi máy chủ, nguồn xác nhận chính thức) hoặc `GET /api/payments/vnpay/return`
+(frontend gọi sau khi khách quay về, chạy được cả ở máy dev). Cả hai cùng đường, an toàn khi gọi lặp hoặc đồng thời.
+
+**Cấu hình** (không đặt khóa thật vào file trong git):
+
+```bash
+# đăng ký merchant sandbox tại https://sandbox.vnpayment.vn/devreg/ để nhận TmnCode và HashSecret
+cd SmartBusTicketing.Api
+dotnet user-secrets set "Payments:VnPay:TmnCode" "<TmnCode>"
+dotnet user-secrets set "Payments:VnPay:HashSecret" "<HashSecret>"
+dotnet user-secrets set "Payments:VnPay:TxnRefPrefix" "<tiền tố riêng của máy bạn>"   # tránh trùng mã khi dùng chung TmnCode
+```
+
+`Payments:VnPay:ReturnUrl` mặc định là `http://localhost:5173/passenger/payment-result`. Để VNPay gọi được IPN cần địa chỉ công khai
+(vd. ngrok) khai ở trang quản trị merchant: `https://<địa chỉ>/api/payments/vnpay/ipn`.
+
+Chưa cấu hình `TmnCode`/`HashSecret` thì thanh toán VNPay trả 503. MoMo, ZaloPay, chuyển khoản chưa nối cổng thật: chỉ chạy bằng
+bộ giả lập khi `Payments:Simulator:Enabled=true` (đã bật sẵn ở `appsettings.Development.json`, phải tắt ở môi trường thật).
+
+Thanh toán về sau khi hết hạn giữ chỗ, hoặc hai giao dịch cùng thanh toán thành công cho một lượt đặt, không xuất thêm vé: hệ thống tự mở
+yêu cầu hoàn tiền `PaymentFailed` cho khoản dư. `HoldExpiryService` chạy nền mỗi 60 giây để chuyển lượt đặt quá hạn sang `Expired` và nhả ghế.
+
+## Giữ ghế khi thanh toán
+
+Ghế được giữ **từ lúc khách bấm "Tiếp tục thanh toán"** (bước chọn ghế → thanh toán): `POST /api/bookings` tạo lượt đặt `Pending` với
+`HoldExpiresAt` = 10 phút sau, vé ở trạng thái `Held`. Trang thanh toán đếm ngược 10 phút. Ghế được nhả khi:
+
+- khách bấm **Hủy thanh toán, đổi ghế**: `POST /api/bookings/{id}/cancel` đặt lượt đặt và vé sang `Cancelled` ngay (gọi lặp lại an toàn; lượt đặt đã
+  thanh toán trả 409). Cố ý không đánh `Failed` các giao dịch đang chờ: nếu khách vẫn trả tiền ở trang ngân hàng sau khi hủy, hệ thống tự mở
+  yêu cầu hoàn tiền thay vì bỏ qua khoản đó;
+- hoặc **hết 10 phút** chưa thanh toán: `HoldExpiryService` chuyển lượt đặt sang `Expired` và vé sang `Expired` (chạy mỗi 60 giây; các truy vấn
+  ghế trống đã coi ghế quá hạn là trống ngay từ lúc hết hạn).
+
+## Email hóa đơn điện tử
+
+Sau mỗi thanh toán thành công, `PaymentSettlementService` tạo `Invoice` rồi báo `InvoiceEmailService` (dịch vụ nền) gửi email. Gửi trong nền nên
+lỗi SMTP không làm hỏng hay làm chậm việc chốt giao dịch. Mỗi hóa đơn thử tối đa 5 lần (vòng quét 60 giây, hoặc ngay khi có hóa đơn mới); lần thử
+được "nhận" bằng UPDATE có điều kiện nên không gửi trùng. Sau 5 lần thì ngừng tự thử và báo `Failed`, khách bấm **Gửi lại email** để thử lại.
+
+Trạng thái trả về ở `emailStatus` của `/api/invoices`: `Sent`, `Pending`, `Failed`, `NoAddress` (tài khoản chưa có email). `POST /api/invoices/{id}/send`
+gửi lại; với hóa đơn chưa có địa chỉ thì nhận `{ "email": "..." }`, còn đã có địa chỉ thì luôn gửi tới địa chỉ đã lưu (không thể dùng để gửi thư tới người khác).
+
+**Cấu hình** (không đặt mật khẩu thật vào file trong git):
+
+```bash
+cd SmartBusTicketing.Api
+dotnet user-secrets set "Email:Enabled" "true"
+dotnet user-secrets set "Email:Host" "smtp.gmail.com"
+dotnet user-secrets set "Email:Port" "587"
+dotnet user-secrets set "Email:User" "<tài khoản gửi>"
+dotnet user-secrets set "Email:Password" "<mật khẩu ứng dụng Gmail>"   # bật xác minh 2 bước rồi tạo App password
+dotnet user-secrets set "Email:FromAddress" "<tài khoản gửi>"
+```
+
+Chưa bật `Email:Enabled` thì hóa đơn vẫn được tạo nhưng chưa gửi (nằm chờ, không tính là thất bại) cho tới khi bật. Email không chứa mã QR hay mã vé,
+chỉ có liên kết tới mục Vé điện tử của tài khoản.
+
+## Hoàn tiền tự động (VNPay)
+
+Khoản hoàn (`Refund`, `Pending`) được tạo khi: quản lý duyệt hủy vé, chuyến bị hủy, hoặc tiền về sau khi hết hạn giữ chỗ / thanh toán trùng.
+Với giao dịch **VNPay**, `RefundProcessingService` (nền, quét 10 giây) tự gọi API hoàn tiền của VNPay qua `RefundExecutor`, không cần quản lý duyệt từng khoản.
+Giao dịch giả lập (MoMo/ZaloPay trong dev) vẫn do quản lý duyệt tay như trước.
+
+- **Mã yêu cầu cố định** `RF{id}` cho mỗi khoản hoàn để VNPay chặn yêu cầu trùng. Hoàn toàn bộ gửi loại `02`, hoàn một phần loại `03`.
+- **Lỗi tạm thời** (mạng, HTTP 5xx, mã 99): thử lại tối đa 5 lần, lần thứ n chờ n × 30 giây, ghi lý do vào `Note`.
+- **Cổng từ chối** (không tìm thấy giao dịch, số tiền sai, yêu cầu trùng 94...) hoặc **phản hồi sai chữ ký**: *không* coi là thành công và không thử lại, chuyển
+  "Cần xử lý tay" (`needsManual`), báo quản lý. Cố ý không đoán, vì không biết tiền đã về khách hay chưa.
+- **Quản lý xử lý tay** ở `/manager/refunds`: *Hoàn qua VNPay* gọi lại cổng (bỏ giới hạn số lần tự thử), hoặc *Đã hoàn bằng đường khác* (bắt buộc ghi mã đối soát, hệ thống không gọi cổng).
+- Hoàn đủ tiền giao dịch thì giao dịch chuyển `Refunded`; hoàn một phần thì giữ `Success`.
+
+**Cấu hình** (mục `Refunds` và `Payments:VnPay`):
+
+```json
+"Refunds": {
+  "AutoProcess": true,
+  "Tiers": [ { "HoursBefore": 24, "Percent": 100 }, { "HoursBefore": 2, "Percent": 50 } ]
+}
+```
+
+`Tiers` là chính sách hoàn theo giờ trước giờ chạy, **chỉ áp cho khách tự hủy vé** (hủy chuyến và thanh toán lỗi luôn hoàn 100%). Để trống thì hoàn 100%.
+Ví dụ trên: còn từ 24 giờ hoàn 100%, từ 2 giờ hoàn 50%, dưới 2 giờ không hoàn. `AutoProcess=false` tắt tự hoàn (quản lý duyệt tay).
+
+**Cần kiểm chứng với VNPay sandbox thật:** phần gọi API hoàn tiền (chuỗi ký nối bằng `|`, định dạng phản hồi) viết theo tài liệu VNPay 2.1.0 nhưng mới chỉ thử với máy chủ giả trong
+bộ hồi quy, chưa gọi sandbox thật. Nếu sandbox báo không tìm thấy giao dịch gốc, đổi `Payments:VnPay:RefundDateSource` giữa `Create` (mặc định, vnp_CreateDate lúc tạo thanh toán) và `Pay` (vnp_PayDate).
+Khoản chưa tự hoàn được sẽ rơi vào "Cần xử lý tay" chứ không mất tiền. VNPay chỉ cho hoàn trong thời hạn quy định của họ.
+
+## Chuyển khoản ngân hàng (VietQR)
+
+Phương thức "Chuyển khoản ngân hàng" nhận tiền thẳng vào **tài khoản ngân hàng của đơn vị**, không cần cổng thanh toán. `POST /api/payments` với `method = 4` tạo giao dịch `Pending`
+và trả `transfer`: mã VietQR (ảnh từ `img.vietqr.io`, quét bằng app ngân hàng sẽ điền sẵn tài khoản, số tiền, nội dung), thông tin tài khoản và **nội dung chuyển khoản duy nhất**
+(vd. `SBV7K3M9Q2X`, chính là `Payment.TxnRef`). Ghế được giữ 10 phút như các phương thức khác. Tiền vào tài khoản thì giao dịch được chốt qua đúng `PaymentSettlementService`
+(vé có hiệu lực, hóa đơn, email); tiền về sau khi hết hạn giữ chỗ thì không xuất vé và tự mở khoản hoàn (hoàn tay: quản lý chuyển khoản trả lại rồi bấm "Xác nhận đã hoàn" ở trang Hoàn tiền).
+
+**Cấu hình tài khoản nhận** (KHÔNG đặt vào file trong git; dùng user-secrets, `UserSecretsId` đã có trong csproj):
+
+```bash
+cd SmartBusTicketing.Api
+dotnet user-secrets set "BankTransfer:BankId" "970415"            # mã BIN hoặc mã VietQR của ngân hàng (970415 = VietinBank, MB, VCB, ACB...)
+dotnet user-secrets set "BankTransfer:BankName" "VietinBank"
+dotnet user-secrets set "BankTransfer:AccountNumber" "<số tài khoản>"
+dotnet user-secrets set "BankTransfer:AccountName" "<TÊN CHỦ TÀI KHOẢN KHÔNG DẤU>"
+```
+
+Chạy backend ở môi trường `Development` để đọc user-secrets. Chưa cấu hình thì chọn chuyển khoản trả 503.
+
+**Xác nhận đã nhận tiền** (hai cách, dùng được song song):
+
+1. **Tay**: quản lý mở `/manager/bank-transfers`, đối chiếu sao kê rồi bấm "Đã nhận tiền" (`POST /api/payments/{id}/confirm-transfer`, nên ghi mã giao dịch trên sao kê để chống xác nhận trùng một khoản tiền).
+2. **Tự động qua webhook** (định dạng SePay, `https://sepay.vn`): liên kết tài khoản ở SePay, tạo webhook tới `POST /api/payments/bank-transfer/webhook` kiểu xác thực **API Key**
+   (`Authorization: Apikey <khóa>`), cấu hình tiền tố mã thanh toán là `SBV`, rồi `dotnet user-secrets set "BankTransfer:WebhookApiKey" "<khóa>"`. Máy chạy local cần địa chỉ công khai (vd. ngrok).
+   Hệ thống tìm mã `SBV…` trong nội dung (chịu được ngân hàng chèn dấu cách), kiểm tra số tiền khớp và mã giao dịch chưa dùng rồi tự xác nhận; lệch số tiền thì báo quản lý đối soát.
+   Chưa đặt `WebhookApiKey` thì webhook bị tắt (404).
+
+**Cần kiểm chứng với dịch vụ thật:** định dạng webhook SePay viết theo tài liệu, mới thử với yêu cầu giả trong bộ hồi quy. Ảnh VietQR do `img.vietqr.io` tạo, số tài khoản nằm trong địa chỉ ảnh (là thông tin nhận tiền công khai).
+Giao dịch chuyển khoản chờ được giữ lâu hơn (2 ngày) trước khi đánh hết hạn, và quản lý vẫn xác nhận được sau đó vì tiền thật có thể về chậm.
