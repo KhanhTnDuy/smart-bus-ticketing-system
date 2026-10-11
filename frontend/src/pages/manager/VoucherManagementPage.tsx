@@ -37,6 +37,18 @@ import {
 import { voucherApi } from '../../api/voucherApi';
 import { ApiError } from '../../api/client';
 
+const getNowLocalDateTime = () => {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+};
+
+const getFutureLocalDateTime = (days = 30) => {
+  const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+};
+
 export const VoucherManagementPage: React.FC = () => {
   const { success, error, warning, info } = useToast();
 
@@ -54,19 +66,6 @@ export const VoucherManagementPage: React.FC = () => {
   const [isFormModalOpen, setIsFormModalOpen] = useState<boolean>(false);
   const [editingVoucher, setEditingVoucher] = useState<Voucher | null>(null);
   const [deleteConfirmVoucher, setDeleteConfirmVoucher] = useState<Voucher | null>(null);
-
-  // Form input state
-  const getNowLocalDateTime = () => {
-    const d = new Date();
-    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-    return d.toISOString().slice(0, 16);
-  };
-
-  const getFutureLocalDateTime = (days = 30) => {
-    const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
-    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-    return d.toISOString().slice(0, 16);
-  };
 
   const initialFormState = {
     code: '',
@@ -118,8 +117,10 @@ export const VoucherManagementPage: React.FC = () => {
   useEffect(() => {
     const trimmed = formData.code.trim();
     if (!trimmed || trimmed.length < 3) {
-      setCodeCheckStatus(null);
-      return;
+      const resetTimer = setTimeout(() => {
+        setCodeCheckStatus(null);
+      }, 0);
+      return () => clearTimeout(resetTimer);
     }
 
     const timer = setTimeout(async () => {
@@ -505,6 +506,22 @@ export const VoucherManagementPage: React.FC = () => {
             Làm mới
           </button>
         </div>
+
+        {errorMsg && (
+          <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 flex items-center justify-between text-rose-700 dark:text-rose-400 text-xs sm:text-sm">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
+              <span>{errorMsg}</span>
+            </div>
+            <button
+              type="button"
+              onClick={loadVouchers}
+              className="text-xs font-semibold underline hover:no-underline text-rose-800 dark:text-rose-300 ml-4 shrink-0"
+            >
+              Thử lại
+            </button>
+          </div>
+        )}
 
         {/* Bảng danh sách Voucher (SCRUM-66 & SCRUM-67) */}
         <div className="bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#223561] shadow-sm overflow-hidden">
