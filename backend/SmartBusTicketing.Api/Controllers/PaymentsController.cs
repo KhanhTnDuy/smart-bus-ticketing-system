@@ -5,6 +5,7 @@ using SmartBusTicketing.Api.Data;
 using SmartBusTicketing.Api.DTOs;
 using SmartBusTicketing.Api.Models;
 using SmartBusTicketing.Api.Services;
+using SmartBusTicketing.Api.Services.Email;
 using SmartBusTicketing.Api.Services.Payments;
 
 namespace SmartBusTicketing.Api.Controllers;
@@ -220,7 +221,7 @@ public class PaymentsController(
 [ApiController]
 [Route("api/invoices")]
 [Authorize]
-public class InvoicesController(AppDbContext db) : ControllerBase
+public class InvoicesController(AppDbContext db, IInvoiceMailQueue mailQueue) : ControllerBase
 {
     private static IQueryable<InvoiceDto> Project(IQueryable<Invoice> q) => q.Select(i => new InvoiceDto
     {
@@ -238,7 +239,49 @@ public class InvoicesController(AppDbContext db) : ControllerBase
         RouteName = i.Payment.Booking.Trip.BusRoute.Name,
         DepartureAt = i.Payment.Booking.Trip.DepartureAt,
         Seats = i.Payment.Booking.Tickets.Where(t => t.Status != TicketStatus.Exchanged).Select(t => t.Seat.SeatCode).ToList(),
+        SentAt = i.SentAt,
+        EmailStatus = i.SentAt != null ? "Sent"
+            : i.Email == "" ? "NoAddress"
+            : i.EmailAttempts >= InvoiceEmailService.MaxAttempts ? "Failed"
+            : "Pending",
     });
+
+    /// <summary>
+    /// Gửi (lại) email hóa đơn. Khách chỉ gửi được hóa đơn của mình; địa chỉ mới chỉ nhận khi hóa đơn chưa có địa chỉ
+    /// (tài khoản chưa có email), còn không thì gửi tới địa chỉ đã lưu, để không dùng chức năng này gửi thư rác tới
+    /// người khác. Việc gửi chạy nền nên phản hồi 202 kèm trạng thái hiện tại.
+    /// </summary>
+    [HttpPost("{id:long}/send")]
+    [Authorize(Roles = "Passenger,Admin,Manager")]
+    public async Task<ActionResult<InvoiceDto>> Send(long id, SendInvoiceEmailRequest request, CancellationToken ct)
+    {
+        var owner = await db.Invoices.AsNoTracking()
+            .Where(i => i.Id == id)
+            .Select(i => new { PassengerId = i.Payment.Booking!.PassengerId, i.Email })
+            .FirstOrDefaultAsync(ct);
+        if (owner is null) return NotFound();
+
+        var isStaff = User.IsInAppRole(AccountRole.Admin) || User.IsInAppRole(AccountRole.Manager);
+        if (!isStaff && owner.PassengerId != User.AccountId()) return NotFound();
+
+        var target = owner.Email;
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            target = request.Email?.Trim() ?? string.Empty;
+            if (string.IsNullOrEmpty(target))
+                return BadRequest(new { message = "Tài khoản chưa có email. Vui lòng nhập địa chỉ email để nhận hóa đơn." });
+        }
+
+        await db.Invoices.Where(i => i.Id == id).ExecuteUpdateAsync(s => s
+            .SetProperty(i => i.Email, target)
+            .SetProperty(i => i.SentAt, (DateTime?)null)
+            .SetProperty(i => i.EmailAttempts, 0)
+            .SetProperty(i => i.EmailError, (string?)null), ct);
+        mailQueue.Signal();
+
+        var dto = await Project(db.Invoices.AsNoTracking().Where(i => i.Id == id)).FirstAsync(ct);
+        return Accepted(dto);
+    }
 
     [HttpGet("my")]
     [Authorize(Roles = "Passenger")]

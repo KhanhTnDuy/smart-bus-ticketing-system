@@ -214,3 +214,27 @@ Ghế được giữ **từ lúc khách bấm "Tiếp tục thanh toán"** (bư�
   yêu cầu hoàn tiền thay vì bỏ qua khoản đó;
 - hoặc **hết 10 phút** chưa thanh toán: `HoldExpiryService` chuyển lượt đặt sang `Expired` và vé sang `Expired` (chạy mỗi 60 giây; các truy vấn
   ghế trống đã coi ghế quá hạn là trống ngay từ lúc hết hạn).
+
+## Email hóa đơn điện tử
+
+Sau mỗi thanh toán thành công, `PaymentSettlementService` tạo `Invoice` rồi báo `InvoiceEmailService` (dịch vụ nền) gửi email. Gửi trong nền nên
+lỗi SMTP không làm hỏng hay làm chậm việc chốt giao dịch. Mỗi hóa đơn thử tối đa 5 lần (vòng quét 60 giây, hoặc ngay khi có hóa đơn mới); lần thử
+được "nhận" bằng UPDATE có điều kiện nên không gửi trùng. Sau 5 lần thì ngừng tự thử và báo `Failed`, khách bấm **Gửi lại email** để thử lại.
+
+Trạng thái trả về ở `emailStatus` của `/api/invoices`: `Sent`, `Pending`, `Failed`, `NoAddress` (tài khoản chưa có email). `POST /api/invoices/{id}/send`
+gửi lại; với hóa đơn chưa có địa chỉ thì nhận `{ "email": "..." }`, còn đã có địa chỉ thì luôn gửi tới địa chỉ đã lưu (không thể dùng để gửi thư tới người khác).
+
+**Cấu hình** (không đặt mật khẩu thật vào file trong git):
+
+```bash
+cd SmartBusTicketing.Api
+dotnet user-secrets set "Email:Enabled" "true"
+dotnet user-secrets set "Email:Host" "smtp.gmail.com"
+dotnet user-secrets set "Email:Port" "587"
+dotnet user-secrets set "Email:User" "<tài khoản gửi>"
+dotnet user-secrets set "Email:Password" "<mật khẩu ứng dụng Gmail>"   # bật xác minh 2 bước rồi tạo App password
+dotnet user-secrets set "Email:FromAddress" "<tài khoản gửi>"
+```
+
+Chưa bật `Email:Enabled` thì hóa đơn vẫn được tạo nhưng chưa gửi (nằm chờ, không tính là thất bại) cho tới khi bật. Email không chứa mã QR hay mã vé,
+chỉ có liên kết tới mục Vé điện tử của tài khoản.
