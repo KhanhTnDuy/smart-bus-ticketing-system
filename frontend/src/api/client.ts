@@ -125,3 +125,44 @@ export const api = {
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body }),
   del: (path: string) => request<void>(path, { method: 'DELETE' }),
 };
+
+/** Tải một tệp (ảnh, PDF) cần đăng nhập về dạng Blob, vd giấy tờ minh chứng ở /api/uploads/{tên tệp}. */
+export async function fetchBlob(path: string, signal?: AbortSignal): Promise<Blob> {
+  const token = getToken();
+  let response: Response;
+  try {
+    response = await fetch(buildUrl(path), { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    throw new ApiError(0, 'Không kết nối được tới máy chủ. Kiểm tra backend đã chạy và VITE_API_URL.');
+  }
+  if (!response.ok) {
+    if (response.status === 401) throw new ApiError(401, 'Bạn cần đăng nhập lại để thực hiện thao tác này.');
+    if (response.status === 403) throw new ApiError(403, 'Bạn không có quyền xem tệp này.');
+    throw new ApiError(response.status, await extractMessage(response));
+  }
+  return response.blob();
+}
+
+/** Gửi một tệp lên máy chủ bằng multipart/form-data (trường `file`). */
+export async function uploadFile<T>(path: string, file: File): Promise<T> {
+  const token = getToken();
+  const form = new FormData();
+  form.append('file', file);
+  let response: Response;
+  try {
+    response = await fetch(buildUrl(path), {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+  } catch {
+    throw new ApiError(0, 'Không kết nối được tới máy chủ. Kiểm tra backend đã chạy và VITE_API_URL.');
+  }
+  if (!response.ok) {
+    if (response.status === 401) throw new ApiError(401, 'Bạn cần đăng nhập lại để thực hiện thao tác này.');
+    if (response.status === 413) throw new ApiError(413, 'Tệp quá lớn, tối đa 5 MB.');
+    throw new ApiError(response.status, await extractMessage(response));
+  }
+  return (await response.json()) as T;
+}
