@@ -5,23 +5,28 @@ using SmartBusTicketing.Api.Data;
 using SmartBusTicketing.Api.DTOs;
 using SmartBusTicketing.Api.Models;
 using SmartBusTicketing.Api.Services;
+using SmartBusTicketing.Api.Services.Payments;
 
 namespace SmartBusTicketing.Api.Controllers;
 
 /// <summary>
-/// Thanh toán vé.
-///
-/// Chưa nối cổng thanh toán thật: lệnh thanh toán luôn thành công và sinh mã giao dịch giả lập, nhưng toàn bộ
-/// phần còn lại chạy thật. Số tiền lấy từ Booking.FinalAmount ở máy chủ, không nhận từ client. Lượt đặt chuyển
-/// Pending sang Confirmed bằng một câu UPDATE có điều kiện (còn trong thời hạn giữ chỗ) nên hai lần bấm thanh
-/// toán cùng lúc, hoặc thanh toán sau khi hết hạn giữ chỗ, không thể cùng thành công. Thanh toán xong, các vé Held
-/// của lượt đặt chuyển sang Valid (có thể quét QR) và hóa đơn được tạo.
+/// Thanh toán vé qua cổng VNPay (sandbox hoặc thật): giao dịch tạo ở trạng thái Pending, khách sang trang của
+/// ngân hàng, rồi IPN/ReturnUrl chốt kết quả ở PaymentSettlementService. Số tiền lấy từ Booking.FinalAmount ở máy
+/// chủ, không nhận từ client. Các phương thức khác (MoMo, ZaloPay...) chỉ chạy bằng bộ giả lập khi bật cấu hình
+/// Payments:Simulator:Enabled, và dùng cùng đường chốt giao dịch với VNPay.
 /// </summary>
 [ApiController]
 [Route("api/payments")]
 [Authorize]
-public class PaymentsController(AppDbContext db, AuditLogService audit) : ControllerBase
+public class PaymentsController(
+    AppDbContext db, PaymentSettlementService settlement, VnPayClient vnPay, IConfiguration config) : ControllerBase
 {
+    /// <summary>Bộ giả lập cho các phương thức chưa nối cổng thật. Phải tắt ở môi trường thật.</summary>
+    private readonly bool simulatorEnabled = config.GetValue<bool>("Payments:Simulator:Enabled");
+
+    private Dictionary<string, string> QueryToDictionary() =>
+        Request.Query.ToDictionary(kv => kv.Key, kv => kv.Value.ToString(), StringComparer.Ordinal);
+
     private static IQueryable<PaymentDto> Project(IQueryable<Payment> q) => q.Select(p => new PaymentDto
     {
         Id = p.Id,
@@ -33,6 +38,7 @@ public class PaymentsController(AppDbContext db, AuditLogService audit) : Contro
         Amount = p.Amount,
         Status = p.Status.ToString(),
         ProviderTxnId = p.ProviderTxnId,
+        FailureReason = p.FailureReason,
         PaidAt = p.PaidAt,
         TripId = p.Booking.TripId,
         RouteCode = p.Booking.Trip.BusRoute.Code,
@@ -54,7 +60,12 @@ public class PaymentsController(AppDbContext db, AuditLogService audit) : Contro
         }).ToList(),
     });
 
-    /// <summary>Thanh toán một lượt đặt đang giữ chỗ của chính hành khách đăng nhập.</summary>
+    /// <summary>
+    /// Bắt đầu thanh toán một lượt đặt đang giữ chỗ của chính hành khách đăng nhập. Với VNPay, tạo giao dịch ở
+    /// trạng thái Pending và trả về PaymentUrl để trình duyệt chuyển sang trang thanh toán của ngân hàng; lượt
+    /// đặt chỉ được xác nhận khi VNPay báo thành công (IPN hoặc ReturnUrl). Khách có thể gọi lại để thử lại sau
+    /// khi một lần thanh toán thất bại, miễn là còn trong thời hạn giữ chỗ.
+    /// </summary>
     [HttpPost]
     [Authorize(Roles = "Passenger")]
     public async Task<ActionResult<PaymentDto>> Pay(PayBookingRequest request, CancellationToken ct)
@@ -64,8 +75,14 @@ public class PaymentsController(AppDbContext db, AuditLogService audit) : Contro
         if (!Enum.IsDefined(request.Method))
             return BadRequest(new { message = "Phương thức thanh toán không hợp lệ." });
 
+        var useVnPay = request.Method == PaymentMethod.VnPay;
+        if (useVnPay && !vnPay.Options.IsConfigured)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new { message = "Cổng VNPay chưa được cấu hình trên máy chủ (thiếu Payments:VnPay:TmnCode/HashSecret)." });
+        if (!useVnPay && !simulatorEnabled)
+            return BadRequest(new { message = "Phương thức này chưa được hỗ trợ. Vui lòng chọn VNPay." });
+
         var booking = await db.Bookings.AsNoTracking()
-            .Include(b => b.Passenger)
             .FirstOrDefaultAsync(b => b.Id == request.BookingId && b.PassengerId == actorId, ct);
         if (booking is null) return NotFound(new { message = "Không tìm thấy lượt đặt vé của bạn." });
 
@@ -77,53 +94,91 @@ public class PaymentsController(AppDbContext db, AuditLogService audit) : Contro
             return BadRequest(new { message = "Lượt đặt không có số tiền cần thanh toán." });
 
         var now = DateTime.UtcNow;
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // Cần tối thiểu vài phút để khách kịp nhập thẻ; gần hết hạn thì bắt đặt lại thay vì để thanh toán dở dang.
+        if (booking.HoldExpiresAt <= now.AddMinutes(1))
+            return Conflict(new { message = "Lượt đặt sắp hết thời gian giữ chỗ, vui lòng đặt vé lại." });
 
-        // Chốt lượt đặt trước: chỉ một yêu cầu thấy 1 dòng bị đổi.
-        var confirmed = await db.Bookings
-            .Where(b => b.Id == booking.Id && b.Status == BookingStatus.Pending && b.HoldExpiresAt > now)
-            .ExecuteUpdateAsync(s => s.SetProperty(b => b.Status, BookingStatus.Confirmed), ct);
-        if (confirmed != 1)
-        {
-            await tx.RollbackAsync(ct);
-            return Conflict(new { message = "Đã hết thời gian giữ chỗ (10 phút) hoặc lượt đặt vừa được xử lý. Vui lòng đặt vé lại." });
-        }
-
+        var prefix = useVnPay ? vnPay.Options.TxnRefPrefix : "SIM";
         var payment = new Payment
         {
             BookingId = booking.Id,
             Method = request.Method,
             Amount = booking.FinalAmount,
-            Status = PaymentStatus.Success,
-            ProviderTxnId = $"SIM-{request.Method.ToString().ToUpperInvariant()}-{Guid.NewGuid().ToString("N")[..12].ToUpperInvariant()}",
-            PaidAt = now,
+            Status = PaymentStatus.Pending,
+            TxnRef = $"{prefix}{now:yyMMddHHmmss}{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
         };
         db.Payments.Add(payment);
         await db.SaveChangesAsync(ct);
 
-        db.Invoices.Add(new Invoice
+        string? paymentUrl = null;
+        if (useVnPay)
         {
-            PaymentId = payment.Id,
-            InvoiceNo = $"INV-{now:yyyyMMdd}-{payment.Id:D6}",
-            Email = booking.Passenger.Email ?? string.Empty,
-            Total = payment.Amount,
-        });
-
-        await db.Tickets
-            .Where(t => t.BookingId == booking.Id && t.Status == TicketStatus.Held)
-            .ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, TicketStatus.Valid), ct);
-        NotificationRules.Notify(db, actorId.Value, NotificationType.Other, "Thanh toán thành công",
-            $"Đã thanh toán {payment.Amount:N0} đ cho lượt đặt {booking.BookingCode}. Vé điện tử đã sẵn sàng.",
-            "/passenger/tickets", booking.TripId);
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
-
-        await audit.WriteAsync(actorId, User.Username() ?? "passenger", $"Thanh toán {booking.BookingCode}",
-            AuditActionType.Payment, $"PAYMENT-{payment.Id}", AuditStatus.Success,
-            $"{request.Method}, {payment.Amount:N0} VND, giao dịch {payment.ProviderTxnId}", ct);
+            var expire = booking.HoldExpiresAt < now.AddMinutes(15) ? booking.HoldExpiresAt : now.AddMinutes(15);
+            paymentUrl = vnPay.BuildPaymentUrl(
+                payment.TxnRef!, payment.Amount, $"Thanh toan ve {booking.BookingCode}",
+                HttpContext.Connection.RemoteIpAddress?.MapToIPv4().ToString() ?? "127.0.0.1", now, expire);
+        }
+        else
+        {
+            // Bộ giả lập (chỉ dùng khi dev): thanh toán luôn thành công, đi qua đúng đường chốt giao dịch thật.
+            var simulated = await settlement.SettleSuccessAsync(payment.Id,
+                $"SIM-{request.Method.ToString().ToUpperInvariant()}-{Guid.NewGuid().ToString("N")[..12].ToUpperInvariant()}",
+                VnPayClient.FormatVnTime(now), ct);
+            if (simulated.Outcome != SettlementOutcome.Confirmed)
+                return Conflict(new { message = simulated.Message });
+        }
 
         var dto = await Project(db.Payments.AsNoTracking().Where(p => p.Id == payment.Id)).FirstAsync(ct);
+        dto.PaymentUrl = paymentUrl;
         return CreatedAtAction(nameof(Get), new { id = payment.Id }, dto);
+    }
+
+    /// <summary>
+    /// IPN: VNPay gọi máy chủ → máy chủ để báo kết quả (cần địa chỉ công khai, cấu hình ở trang quản trị merchant
+    /// VNPay). Đây là nguồn xác nhận chính thức. Phản hồi theo đúng đặc tả IPN của VNPay (RspCode/Message).
+    /// </summary>
+    [HttpGet("vnpay/ipn")]
+    [AllowAnonymous]
+    public async Task<IActionResult> VnPayIpn(CancellationToken ct)
+    {
+        var result = await settlement.SettleVnPayCallbackAsync(QueryToDictionary(), ct);
+        var (code, message) = result.Outcome switch
+        {
+            SettlementOutcome.Confirmed or SettlementOutcome.RefundQueued or SettlementOutcome.Failed => ("00", "Confirm Success"),
+            SettlementOutcome.AlreadyProcessed => ("02", "Order already confirmed"),
+            SettlementOutcome.NotFound => ("01", "Order not found"),
+            SettlementOutcome.AmountMismatch => ("04", "Invalid amount"),
+            _ => ("97", "Invalid signature"),
+        };
+        // VNPay đòi đúng tên trường "RspCode"/"Message"; JsonResult mặc định đổi sang camelCase nên phải tắt.
+        return new JsonResult(new { RspCode = code, Message = message },
+            new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = null });
+    }
+
+    /// <summary>
+    /// ReturnUrl: trình duyệt của khách quay về trang frontend rồi frontend gọi endpoint này với nguyên query
+    /// VNPay gửi. Endpoint kiểm chữ ký và cũng chốt giao dịch (idempotent, cùng đường với IPN) để luồng chạy được
+    /// cả ở máy dev, nơi VNPay không gọi được IPN vào localhost.
+    /// </summary>
+    [HttpGet("vnpay/return")]
+    [AllowAnonymous]
+    public async Task<ActionResult<PaymentResultDto>> VnPayReturn(CancellationToken ct)
+    {
+        var result = await settlement.SettleVnPayCallbackAsync(QueryToDictionary(), ct);
+        if (result.Outcome is SettlementOutcome.InvalidSignature or SettlementOutcome.NotFound or SettlementOutcome.AmountMismatch)
+            return BadRequest(new { message = result.Message });
+
+        // Dù lời gọi này hay IPN là bên chốt, trạng thái thật là trạng thái hiện tại của giao dịch.
+        var dto = await Project(db.Payments.AsNoTracking().Where(p => p.Id == result.Payment!.Id)).FirstAsync(ct);
+        var (success, message) = dto.Status switch
+        {
+            nameof(PaymentStatus.Success) or nameof(PaymentStatus.Refunded) => (true, "Thanh toán thành công."),
+            nameof(PaymentStatus.Failed) => (false, dto.FailureReason ?? "Thanh toán không thành công."),
+            _ => (false, "Giao dịch đang được xử lý."),
+        };
+        // Tiền đã thu nhưng lượt đặt hết hạn: khách phải biết khoản này sẽ được hoàn chứ không phải đã có vé.
+        if (result.Outcome == SettlementOutcome.RefundQueued) (success, message) = (false, result.Message);
+        return Ok(new PaymentResultDto { Success = success, Message = message, Payment = dto });
     }
 
     /// <summary>Lịch sử thanh toán của chính hành khách, mới nhất trước.</summary>
@@ -134,7 +189,7 @@ public class PaymentsController(AppDbContext db, AuditLogService audit) : Contro
         var me = User.AccountId();
         return Ok(await Project(db.Payments.AsNoTracking()
                 .Where(p => p.Booking!.PassengerId == me)
-                .OrderByDescending(p => p.PaidAt).ThenByDescending(p => p.Id))
+                .OrderByDescending(p => p.Id))
             .ToListAsync(ct));
     }
 
@@ -147,7 +202,7 @@ public class PaymentsController(AppDbContext db, AuditLogService audit) : Contro
         var q = db.Payments.AsNoTracking().Where(p => p.BookingId != null);
         if (status.HasValue) q = q.Where(p => p.Status == status.Value);
         if (method.HasValue) q = q.Where(p => p.Method == method.Value);
-        return Ok(await Project(q.OrderByDescending(p => p.PaidAt).ThenByDescending(p => p.Id)).ToListAsync(ct));
+        return Ok(await Project(q.OrderByDescending(p => p.Id)).ToListAsync(ct));
     }
 
     [HttpGet("{id:long}")]

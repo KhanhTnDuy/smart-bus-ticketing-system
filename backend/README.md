@@ -177,3 +177,40 @@ cho `passenger_verifications`).
 - `GET /api/discount-applications` và `POST /{id}/review` chỉ cho Admin, Quản lý. Từ chối bắt buộc có lý do, ngày hết hạn không được ở quá
   khứ, xử lý lần hai trả 409. Hành khách và Quản lý đều nhận thông báo.
 - Hồ sơ đã duyệt và còn hạn là điều kiện để `BookingsController` tính giá ưu đãi khi đặt vé.
+
+## Thanh toán VNPay
+
+Thanh toán vé đi qua cổng VNPay (sandbox hoặc thật): `POST /api/payments` với `method = 1` tạo giao dịch `Pending` và trả
+`paymentUrl`; trình duyệt chuyển sang trang của ngân hàng; kết quả được chốt ở `PaymentSettlementService` qua
+`GET /api/payments/vnpay/ipn` (VNPay gọi máy chủ, nguồn xác nhận chính thức) hoặc `GET /api/payments/vnpay/return`
+(frontend gọi sau khi khách quay về, chạy được cả ở máy dev). Cả hai cùng đường, an toàn khi gọi lặp hoặc đồng thời.
+
+**Cấu hình** (không đặt khóa thật vào file trong git):
+
+```bash
+# đăng ký merchant sandbox tại https://sandbox.vnpayment.vn/devreg/ để nhận TmnCode và HashSecret
+cd SmartBusTicketing.Api
+dotnet user-secrets set "Payments:VnPay:TmnCode" "<TmnCode>"
+dotnet user-secrets set "Payments:VnPay:HashSecret" "<HashSecret>"
+dotnet user-secrets set "Payments:VnPay:TxnRefPrefix" "<tiền tố riêng của máy bạn>"   # tránh trùng mã khi dùng chung TmnCode
+```
+
+`Payments:VnPay:ReturnUrl` mặc định là `http://localhost:5173/passenger/payment-result`. Để VNPay gọi được IPN cần địa chỉ công khai
+(vd. ngrok) khai ở trang quản trị merchant: `https://<địa chỉ>/api/payments/vnpay/ipn`.
+
+Chưa cấu hình `TmnCode`/`HashSecret` thì thanh toán VNPay trả 503. MoMo, ZaloPay, chuyển khoản chưa nối cổng thật: chỉ chạy bằng
+bộ giả lập khi `Payments:Simulator:Enabled=true` (đã bật sẵn ở `appsettings.Development.json`, phải tắt ở môi trường thật).
+
+Thanh toán về sau khi hết hạn giữ chỗ, hoặc hai giao dịch cùng thanh toán thành công cho một lượt đặt, không xuất thêm vé: hệ thống tự mở
+yêu cầu hoàn tiền `PaymentFailed` cho khoản dư. `HoldExpiryService` chạy nền mỗi 60 giây để chuyển lượt đặt quá hạn sang `Expired` và nhả ghế.
+
+## Giữ ghế khi thanh toán
+
+Ghế được giữ **từ lúc khách bấm "Tiếp tục thanh toán"** (bước chọn ghế → thanh toán): `POST /api/bookings` tạo lượt đặt `Pending` với
+`HoldExpiresAt` = 10 phút sau, vé ở trạng thái `Held`. Trang thanh toán đếm ngược 10 phút. Ghế được nhả khi:
+
+- khách bấm **Hủy thanh toán, đổi ghế**: `POST /api/bookings/{id}/cancel` đặt lượt đặt và vé sang `Cancelled` ngay (gọi lặp lại an toàn; lượt đặt đã
+  thanh toán trả 409). Cố ý không đánh `Failed` các giao dịch đang chờ: nếu khách vẫn trả tiền ở trang ngân hàng sau khi hủy, hệ thống tự mở
+  yêu cầu hoàn tiền thay vì bỏ qua khoản đó;
+- hoặc **hết 10 phút** chưa thanh toán: `HoldExpiryService` chuyển lượt đặt sang `Expired` và vé sang `Expired` (chạy mỗi 60 giây; các truy vấn
+  ghế trống đã coi ghế quá hạn là trống ngay từ lúc hết hạn).
