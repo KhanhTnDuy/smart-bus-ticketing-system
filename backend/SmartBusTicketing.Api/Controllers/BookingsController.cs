@@ -5,6 +5,7 @@ using SmartBusTicketing.Api.Data;
 using SmartBusTicketing.Api.DTOs;
 using SmartBusTicketing.Api.Models;
 using SmartBusTicketing.Api.Services;
+using SmartBusTicketing.Api.Services.Fares;
 
 namespace SmartBusTicketing.Api.Controllers;
 
@@ -275,7 +276,7 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
                 TripId = dto.TripId,
                 Status = BookingStatus.Pending,
                 HoldExpiresAt = DateTime.UtcNow.AddMinutes(10),
-                FinalAmount = await CalculateFinalAmountAsync(trip, passengerId.Value, seats.Count, ct)
+                FinalAmount = await CalculateFinalAmountAsync(trip, passengerId.Value, seats.Count, dto.BoardStopId, dto.AlightStopId, ct)
             };
 
             db.Bookings.Add(booking);
@@ -331,7 +332,8 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
     /// nhân số ghế đã chọn. Cách chọn giá giữ giống TripService (SCRUM-55) để số tiền ở bước
     /// xác nhận khớp với giá hành khách đã thấy lúc tra cứu.
     /// </summary>
-    private async Task<decimal> CalculateFinalAmountAsync(Trip trip, long passengerId, int seatCount, CancellationToken ct)
+    private async Task<decimal> CalculateFinalAmountAsync(
+        Trip trip, long passengerId, int seatCount, long boardStopId, long alightStopId, CancellationToken ct)
     {
         // Ngày đi theo góc nhìn hành khách: DepartureAt lưu UTC nên phải đổi sang giờ Việt Nam
         // trước khi so với Fare.EffectiveFrom.
@@ -348,6 +350,24 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
             .OrderByDescending(v => v.Id)
             .Select(v => (int?)v.PassengerTypeId)
             .FirstOrDefaultAsync(ct) ?? StandardPassengerTypeId;
+
+        // Bảng giá niêm yết theo km hành trình (nếu đã lập) là giá chính thức: tra theo km từ trạm lên đến trạm xuống, rồi giảm theo đối tượng.
+        // Chặng chưa có km hoặc không rơi vào bậc nào thì dùng cách cũ bên dưới.
+        var bands = await db.DistanceFares.AsNoTracking().OrderBy(b => b.FromKm).ToListAsync(ct);
+        if (bands.Count > 0)
+        {
+            var legStops = await db.RouteStops.AsNoTracking()
+                .Where(rs => rs.RouteId == trip.RouteId && (rs.StopId == boardStopId || rs.StopId == alightStopId))
+                .ToListAsync(ct);
+            var bandPrice = FareCalculator.BandPrice(bands, FareCalculator.LegKm(
+                legStops.FirstOrDefault(s => s.StopId == boardStopId), legStops.FirstOrDefault(s => s.StopId == alightStopId)));
+            if (bandPrice is not null)
+            {
+                var discount = await db.PassengerTypes.AsNoTracking()
+                    .Where(p => p.Id == passengerTypeId).Select(p => p.DiscountPercent).FirstOrDefaultAsync(ct);
+                return FareCalculator.ApplyDiscount(bandPrice.Value, discount) * seatCount;
+            }
+        }
 
         var routeFares = await db.Fares
             .AsNoTracking()

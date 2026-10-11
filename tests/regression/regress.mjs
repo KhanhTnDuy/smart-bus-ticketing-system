@@ -168,7 +168,7 @@ const sql = (q) => {
 };
 
 // Mốc id lớn nhất trước khi chạy: mọi dòng do kịch bản tạo ra đều có id lớn hơn mốc nên dọn được chính xác.
-const TABLES = ['refunds', 'invoices', 'payments', 'ticket_scans', 'notifications', 'incidents', 'ticket_change_requests', 'feedback_history', 'feedbacks', 'passenger_verifications', 'tickets', 'bookings', 'trips', 'schedules', 'accounts', 'routes', 'buses', 'stops'];
+const TABLES = ['distance_fares', 'refunds', 'invoices', 'payments', 'ticket_scans', 'notifications', 'incidents', 'ticket_change_requests', 'feedback_history', 'feedbacks', 'passenger_verifications', 'tickets', 'bookings', 'trips', 'schedules', 'accounts', 'routes', 'buses', 'stops'];
 const baseline = {};
 for (const t of TABLES) baseline[t] = Number(sql(`select coalesce(max(Id),0) from ${t}`));
 
@@ -1086,6 +1086,118 @@ try {
     const late6 = await call(mg, 'POST', `/api/payments/${t6.j?.id}/confirm-transfer`, { bankTransactionId: 'FT26285777006' });
     is('Chuyển khoản: quản lý vẫn xác nhận được sau khi lượt đặt hết hạn', late6.j?.success, false);
     is('Chuyển khoản: tiền về sau hết hạn được mở khoản hoàn', sql(`select count(*) from refunds where PaymentId=${t6.j?.id}`), '1');
+  }
+
+  // ============================================================
+  sec('G6. Bảng giá vé niêm yết theo km hành trình');
+  {
+    const bandOf = (list, km) => list.find((b) => km > Number(b.fromKm) && (b.toKm === null || km <= Number(b.toKm)))?.price;
+    const stopsKm = (routeId) => sql(`select concat(StopId,':',ifnull(DistanceFromStartKm,'null')) from route_stops where RouteId=${routeId} order by StopOrder`).split('\n');
+
+    // 0. Chưa lập bảng giá; km từng trạm đã được hệ thống tính sẵn từ tọa độ và độ dài tuyến.
+    is('Giá km: chưa lập bảng giá thì danh sách rỗng', (await call(null, 'GET', '/api/distance-fares')).j?.length, 0);
+    const k1 = stopsKm(1).map((x) => Number(x.split(':')[1]));
+    check('Giá km: trạm đầu tuyến ở km 0', k1[0] === 0);
+    check('Giá km: km tăng dần theo thứ tự trạm', k1.every((v, i) => i === 0 || v > k1[i - 1]));
+    is('Giá km: trạm cuối đúng độ dài tuyến', k1[k1.length - 1], Number(sql('select DistanceKm from routes where Id=1')));
+    const m0 = await call(null, 'GET', '/api/distance-fares/routes/1');
+    is('Giá km: xem bảng giá chặng không cần đăng nhập', m0.s, 200);
+    is('Giá km: tuyến 4 trạm có 6 chặng', m0.j?.legs?.length, 6);
+    check('Giá km: chưa có bảng giá thì chặng chưa có giá', m0.j?.legs?.every((l) => l.prices.length === 0));
+    is('Giá km: tuyến không tồn tại -> 404', (await call(null, 'GET', '/api/distance-fares/routes/99999')).s, 404);
+
+    // 1. Quyền và dữ liệu hợp lệ.
+    const body = (fromKm, toKm, price) => ({ fromKm, toKm, price });
+    is('Giá km: không đăng nhập tạo bậc -> 401', (await call(null, 'POST', '/api/distance-fares', body(0, 3, 5000))).s, 401);
+    is('Giá km: hành khách tạo bậc -> 403', (await call(p1, 'POST', '/api/distance-fares', body(0, 3, 5000))).s, 403);
+    is('Giá km: tài xế tạo bậc -> 403', (await call(d1, 'POST', '/api/distance-fares', body(0, 3, 5000))).s, 403);
+    is('Giá km: km kết thúc nhỏ hơn km bắt đầu -> 400', (await call(mg, 'POST', '/api/distance-fares', body(5, 3, 5000))).s, 400);
+    is('Giá km: km kết thúc bằng km bắt đầu -> 400', (await call(mg, 'POST', '/api/distance-fares', body(3, 3, 5000))).s, 400);
+    is('Giá km: giá bằng 0 -> 400', (await call(mg, 'POST', '/api/distance-fares', body(0, 3, 0))).s, 400);
+    is('Giá km: km âm -> 400', (await call(mg, 'POST', '/api/distance-fares', body(-1, 3, 5000))).s, 400);
+
+    // 2. Lập bảng giá mẫu 6 bậc, chống chồng lấn.
+    const plan = [[0, 3, 5000], [3, 8, 7000], [8, 12, 9000], [12, 16, 11000], [16, 20, 13000], [20, null, 16000]];
+    const ids = [];
+    for (const [f, t, pr] of plan) {
+      const r = await call(mg, 'POST', '/api/distance-fares', body(f, t, pr));
+      is(`Giá km: tạo bậc ${f}-${t ?? '∞'} km -> 201`, r.s, 201);
+      ids.push(r.j?.id);
+    }
+    is('Giá km: bậc chồng lấn -> 409', (await call(mg, 'POST', '/api/distance-fares', body(2, 5, 8000))).s, 409);
+    is('Giá km: bậc cuối không giới hạn chồng lấn -> 409', (await call(mg, 'POST', '/api/distance-fares', body(25, null, 18000))).s, 409);
+    is('Giá km: bậc nằm trọn trong bậc khác -> 409', (await call(mg, 'POST', '/api/distance-fares', body(4, 6, 8000))).s, 409);
+    const upd = await call(mg, 'PUT', `/api/distance-fares/${ids[1]}`, body(3, 8, 7500));
+    is('Giá km: sửa giá một bậc -> 200', upd.s, 200);
+    is('Giá km: sửa không tự chồng lấn với chính nó', (await call(mg, 'PUT', `/api/distance-fares/${ids[1]}`, body(3, 8, 7000))).s, 200);
+    is('Giá km: sửa lấn sang bậc khác -> 409', (await call(mg, 'PUT', `/api/distance-fares/${ids[1]}`, body(3, 9, 7000))).s, 409);
+    is('Giá km: sửa bậc không tồn tại -> 404', (await call(mg, 'PUT', '/api/distance-fares/99999999', body(0, 1, 1000))).s, 404);
+    const list = (await call(null, 'GET', '/api/distance-fares')).j ?? [];
+    is('Giá km: danh sách có 6 bậc', list.length, 6);
+    check('Giá km: danh sách xếp theo km tăng dần', list.every((b, i) => i === 0 || Number(b.fromKm) > Number(list[i - 1].fromKm)));
+    check('Giá km: nhật ký ghi thêm, sửa bậc giá', Number(sql("select count(*) from audit_logs where Action in ('Thêm bậc giá theo km','Sửa bậc giá theo km')")) >= 7);
+
+    // 3. Mốc km: bậc là (từ, đến]: đúng 8 km thuộc bậc 3-8, trên 8 km mới sang bậc kế.
+    const matrix = (await call(null, 'GET', '/api/distance-fares/routes/1')).j;
+    const bad = matrix.legs.filter((l) => Number(l.prices.find((x) => x.passengerTypeCode === 'STANDARD')?.price) !== Number(bandOf(list, l.distanceKm)));
+    is('Giá km: giá mọi chặng của tuyến khớp bậc km', bad.length, 0);
+    const stuLeg = matrix.legs[0];
+    is('Giá km: học sinh/sinh viên giảm 50% theo đối tượng', stuLeg.prices.find((x) => x.passengerTypeCode === 'STUDENT')?.price,
+      Math.round(Number(bandOf(list, stuLeg.distanceKm)) * 0.5));
+    const longest = matrix.legs.reduce((a, b) => (b.distanceKm > a.distanceKm ? b : a));
+    is('Giá km: chặng dài nhất là cả tuyến', longest.distanceKm, Number(sql('select DistanceKm from routes where Id=1')));
+    const km2 = stopsKm(2).map((x) => Number(x.split(':')[1]));
+    is('Giá km: tuyến 2 dài đúng 12 km (mốc ranh giới)', km2[km2.length - 1], 12);
+    const m2 = (await call(null, 'GET', '/api/distance-fares/routes/2')).j;
+    const full2 = m2.legs.find((l) => l.distanceKm === 12);
+    is('Giá km: đúng 12 km tính bậc 8-12 (9.000), không phải bậc sau', full2?.prices.find((x) => x.passengerTypeCode === 'STANDARD')?.price, 9000);
+
+    // 4. Tìm chuyến hiện km và giá theo km (tuyến 1 trạm 1 -> 2).
+    const leg12 = matrix.legs.find((l) => l.fromStopId === 1 && l.toStopId === 2);
+    const priceStd12 = Number(leg12.prices.find((x) => x.passengerTypeCode === 'STANDARD').price);
+    const srch = await call(p1, 'GET', '/api/trips/search?from=1&to=2&date=2026-11-10');
+    const trip = srch.j?.find?.((x) => x.id === tripA) ?? (srch.j?.data ?? []).find((x) => x.id === tripA);
+    is('Giá km: tìm chuyến trả giá theo km', trip?.price, priceStd12);
+    is('Giá km: tìm chuyến trả số km hành trình', trip?.distanceKm, leg12.distanceKm);
+    is('Giá km: giá đối tượng trong kết quả tìm chuyến', trip?.prices?.find((x) => x.passengerTypeCode === 'STUDENT')?.price,
+      Math.round(priceStd12 * 0.5));
+
+    // 5. Đặt vé tính tiền theo km của chặng khách chọn, không theo giá cố định của tuyến.
+    sql("insert into trips (RouteId, ScheduleId, BusId, DepartureAt, Status, DelayMinutes) values (2, NULL, 3, DATE_ADD(UTC_TIMESTAMP(), interval 5 day), 'Scheduled', 0)");
+    const tid2 = Number(sql('select max(Id) from trips'));
+    const seats3 = seatsOf(3, 6, 12);
+    const stops2 = sql('select StopId from route_stops where RouteId=2 order by StopOrder').split('\n').map(Number);
+    const bookKm = async (seats, a, b) => (await call(p1, 'POST', '/api/bookings', { tripId: tid2, seatIds: seats, boardStopId: a, alightStopId: b })).j;
+    const legPrice = (a, b) => Number(m2.legs.find((l) => l.fromStopId === a && l.toStopId === b).prices.find((x) => x.passengerTypeCode === 'STANDARD').price);
+    const bFull = await bookKm([seats3[0]], stops2[0], stops2[2]);
+    is('Giá km: đặt 1 ghế cả tuyến 12 km tính 9.000', bFull?.finalAmount, 9000);
+    const bShort = await bookKm([seats3[1], seats3[2]], stops2[0], stops2[1]);
+    is('Giá km: đặt 2 ghế chặng ngắn = 2 x giá bậc của chặng', bShort?.finalAmount, 2 * legPrice(stops2[0], stops2[1]));
+    check('Giá km: chặng ngắn rẻ hơn cả tuyến', legPrice(stops2[0], stops2[1]) < 9000);
+    const bTail = await bookKm([seats3[3]], stops2[1], stops2[2]);
+    is('Giá km: chặng cuối tính theo km của chính chặng đó', bTail?.finalAmount, legPrice(stops2[1], stops2[2]));
+
+    // 6. Xóa hết bậc: quay về cách tính cũ (giá cố định theo tuyến, dự phòng 7.000).
+    for (const id of ids) is(`Giá km: xóa bậc ${id} -> 204`, (await call(mg, 'DELETE', `/api/distance-fares/${id}`)).s, 204);
+    is('Giá km: xóa bậc không tồn tại -> 404', (await call(mg, 'DELETE', '/api/distance-fares/99999999')).s, 404);
+    is('Giá km: hành khách xóa bậc -> 403', (await call(p1, 'DELETE', '/api/distance-fares/1')).s, 403);
+    const bOld = await bookKm([seats3[4]], stops2[0], stops2[2]);
+    // Giá cũ của tuyến 2 là giá cố định trong bảng fares (seed_sprint2); tuyến không có giá thì mới dùng giá dự phòng 7.000 đ.
+    const oldFare = Number(sql("select Price from fares where RouteId=2 and PassengerTypeId=1 and TicketType='Single' order by EffectiveFrom desc limit 1") || 7000);
+    is('Giá km: hết bảng giá thì quay về giá cố định cũ của tuyến', bOld?.finalAmount, oldFare);
+    is('Giá km: bảng giá rỗng lại', (await call(null, 'GET', '/api/distance-fares')).j?.length, 0);
+
+    // 7. Tuyến mới: km từng trạm tự tính khi lưu danh sách trạm, trạm cuối bằng độ dài tuyến.
+    const nr = await call(mg, 'POST', '/api/routes', { code: 'QAKM', name: 'Tuyen thu km', startPoint: 'A', endPoint: 'B', distanceKm: 10, active: true });
+    const rid = nr.j?.id;
+    const put = await call(mg, 'PUT', `/api/routes/${rid}/stops`, { stops: [{ stopId: 1, minutesFromStart: 0 }, { stopId: 3, minutesFromStart: 15 }, { stopId: 4, minutesFromStart: 30 }] });
+    is('Giá km: lưu danh sách trạm của tuyến mới -> 200', put.s, 200);
+    const kn = (put.j ?? []).map((x) => Number(x.distanceFromStartKm));
+    check('Giá km: tuyến mới có km từng trạm, đầu 0, tăng dần', kn[0] === 0 && kn.every((v, i) => i === 0 || v > kn[i - 1]));
+    is('Giá km: trạm cuối của tuyến mới bằng độ dài tuyến', kn[kn.length - 1], 10);
+    is('Giá km: sửa độ dài tuyến thì km trạm tính lại', (await call(mg, 'PUT', `/api/routes/${rid}`, { code: 'QAKM', name: 'Tuyen thu km', startPoint: 'A', endPoint: 'B', distanceKm: 20, active: true })).s, 200);
+    is('Giá km: trạm cuối cập nhật theo độ dài mới', Number(sql(`select DistanceFromStartKm from route_stops where RouteId=${rid} order by StopOrder desc limit 1`)), 20);
+    await call(mg, 'DELETE', `/api/routes/${rid}`);
   }
 
 } catch (e) {

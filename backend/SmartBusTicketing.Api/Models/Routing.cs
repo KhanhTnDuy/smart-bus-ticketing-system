@@ -36,6 +36,21 @@ public class RouteStop
     public Stop Stop { get; set; } = null!;
     public int StopOrder { get; set; }
     public int MinutesFromStart { get; set; }
+
+    /// <summary>Km từ trạm đầu tuyến tới trạm này, dùng tính giá vé theo km hành trình. Null nếu chưa tính.</summary>
+    public decimal? DistanceFromStartKm { get; set; }
+}
+
+/// <summary>
+/// Một bậc của bảng giá vé niêm yết theo km hành trình: hành trình trên <see cref="FromKm"/> và không quá <see cref="ToKm"/>
+/// (rỗng = không giới hạn) thì giá vé lượt của hành khách thường là <see cref="Price"/>.
+/// </summary>
+public class DistanceFare
+{
+    public long Id { get; set; }
+    public decimal FromKm { get; set; }
+    public decimal? ToKm { get; set; }
+    public decimal Price { get; set; }
 }
 
 public class Fare

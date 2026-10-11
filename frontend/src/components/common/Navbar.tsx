@@ -32,6 +32,8 @@ import {
   TicketPercent,
   BarChart3,
   Landmark,
+  Ruler,
+  BadgeDollarSign,
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
@@ -69,7 +71,8 @@ export const Navbar: React.FC = () => {
   const isManagerInfraActive =
     location.pathname.startsWith('/manager/routes') ||
     location.pathname.startsWith('/manager/stops') ||
-    location.pathname.startsWith('/manager/fares');
+    location.pathname.startsWith('/manager/fares') ||
+    location.pathname.startsWith('/manager/distance-fares');
 
   const isManagerScheduleActive =
     location.pathname.startsWith('/manager/buses') ||
@@ -350,6 +353,20 @@ export const Navbar: React.FC = () => {
                       >
                         <CreditCard className="w-4 h-4 text-emerald-400" />
                         <span>Giá vé</span>
+                      </NavLink>
+                      <NavLink
+                        to="/manager/distance-fares"
+                        onClick={() => setActiveDropdown(null)}
+                        className={({ isActive }) =>
+                          `flex items-center gap-2.5 px-4 py-2 text-xs font-medium transition-colors ${
+                            isActive
+                              ? 'bg-blue-800/80 text-amber-300 font-semibold'
+                              : 'text-slate-200 hover:bg-blue-800/50 hover:text-white'
+                          }`
+                        }
+                      >
+                        <Ruler className="w-4 h-4 text-emerald-400" />
+                        <span>Giá vé theo km</span>
                       </NavLink>
                     </div>
                   )}
@@ -693,6 +710,20 @@ export const Navbar: React.FC = () => {
                   <span>Tìm & Đặt vé</span>
                 </NavLink>
 
+                <NavLink
+                  to="/fares"
+                  className={({ isActive }) =>
+                    `flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold uppercase tracking-wider transition-colors ${
+                      isActive
+                        ? 'bg-institutional-800 text-amber-300 shadow-inner'
+                        : 'text-slate-100 hover:bg-white/10 hover:text-white'
+                    }`
+                  }
+                >
+                  <BadgeDollarSign className="w-3.5 h-3.5 text-sky-300" />
+                  <span>Bảng giá vé</span>
+                </NavLink>
+
                 {/* 2. Vé điện tử */}
                 <NavLink
                   to="/passenger/tickets"
@@ -1034,6 +1065,13 @@ export const Navbar: React.FC = () => {
                 <CreditCard className="w-4 h-4 text-emerald-400" />
                 <span>Giá vé</span>
               </NavLink>
+              <NavLink
+                to="/manager/distance-fares"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <Ruler className="w-4 h-4 text-emerald-400" />
+                <span>Giá vé theo km</span>
+              </NavLink>
 
               <div className="pt-2 pb-1 px-3 text-[10px] font-bold text-amber-400 uppercase tracking-wider">
                 Lịch & Phân công
@@ -1179,6 +1217,14 @@ export const Navbar: React.FC = () => {
               >
                 <Search className="w-4 h-4 text-sky-400" />
                 <span>Tìm & Đặt vé xe buýt</span>
+              </NavLink>
+
+              <NavLink
+                to="/fares"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <BadgeDollarSign className="w-4 h-4 text-sky-400" />
+                <span>Bảng giá vé</span>
               </NavLink>
               <NavLink
                 to="/passenger/tickets"

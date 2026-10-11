@@ -791,6 +791,11 @@ export const RouteBookingPage: React.FC = () => {
                           </td>
                           <td className="px-4 py-3 font-mono font-extrabold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                             {trip.price.toLocaleString('vi-VN')} VNĐ
+                            {trip.distanceKm != null && (
+                              <div className="text-[10px] text-slate-400 font-normal font-sans">
+                                {trip.distanceKm.toLocaleString('vi-VN')} km hành trình
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-center">
                             <span
