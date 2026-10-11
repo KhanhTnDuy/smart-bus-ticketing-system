@@ -13,10 +13,11 @@ import {
   Armchair,
   RefreshCw,
   Clock,
+  Tag,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { PaymentMethod } from '../../types';
+import { PaymentMethod, ValidateVoucherResult } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Badge } from '../../components/common/Badge';
 import { ApiError } from '../../api/client';
@@ -26,6 +27,7 @@ import { startPayment, parseUtc, PaymentMethodCode, PaymentDto } from '../../api
 import { PaidTicketQrs } from '../../components/passenger/PaidTicketQrs';
 import { BankTransferPanel } from '../../components/passenger/BankTransferPanel';
 import { Modal } from '../../components/common/Modal';
+import { voucherApi } from '../../api/voucherApi';
 
 const PAYMENT_METHOD_CODE: Record<string, PaymentMethodCode> = {
   MOMO: PaymentMethodCode.Momo,
@@ -119,6 +121,44 @@ export const RouteBookingPage: React.FC = () => {
   /** Giao dịch chuyển khoản đang chờ tiền: hiện mã VietQR cho khách quét. */
   const [transferPay, setTransferPay] = useState<PaymentDto | null>(null);
   const [holdNow, setHoldNow] = useState(() => Date.now());
+
+  // Voucher & Discount (SCRUM-66 & SCRUM-67)
+  const [voucherCodeInput, setVoucherCodeInput] = useState('');
+  const [appliedVoucher, setAppliedVoucher] = useState<ValidateVoucherResult | null>(null);
+  const [isValidatingVoucher, setIsValidatingVoucher] = useState(false);
+
+  const voucherDiscount = appliedVoucher?.discountAmount ?? 0;
+  const finalCalculatedAmount = Math.max(0, totalCalculatedAmount - voucherDiscount);
+
+  const handleApplyVoucher = async () => {
+    const code = voucherCodeInput.trim();
+    if (!code) {
+      warning('Vui lòng nhập mã giảm giá.');
+      return;
+    }
+    setIsValidatingVoucher(true);
+    try {
+      const res = await voucherApi.validateVoucher(code, totalCalculatedAmount);
+      if (res.isValid) {
+        setAppliedVoucher(res);
+        success(res.message);
+      } else {
+        setAppliedVoucher(null);
+        error(res.message);
+      }
+    } catch (err) {
+      setAppliedVoucher(null);
+      error(err instanceof ApiError ? err.message : 'Không kiểm tra được mã giảm giá.');
+    } finally {
+      setIsValidatingVoucher(false);
+    }
+  };
+
+  const handleRemoveVoucher = () => {
+    setAppliedVoucher(null);
+    setVoucherCodeInput('');
+    info('Đã hủy áp dụng mã giảm giá.');
+  };
 
   // Nạp tuyến và trạm của từng tuyến một lần khi vào trang.
   useEffect(() => {
@@ -326,6 +366,7 @@ export const RouteBookingPage: React.FC = () => {
         seatIds: selectedSeatIds,
         boardStopId,
         alightStopId,
+        voucherCode: appliedVoucher?.voucher?.code || undefined,
       });
 
       // Số tiền hiển thị lấy theo máy chủ: backend tính theo hồ sơ đối tượng ưu đãi đã
@@ -408,8 +449,8 @@ export const RouteBookingPage: React.FC = () => {
 
   const holdSecondsLeft = hold ? Math.max(0, Math.ceil((hold.expiresAt - holdNow) / 1000)) : 0;
   const holdClock = `${String(Math.floor(holdSecondsLeft / 60)).padStart(2, '0')}:${String(holdSecondsLeft % 60).padStart(2, '0')}`;
-  /** Tiền cần trả: ưu tiên số máy chủ đã chốt lúc giữ chỗ, chưa giữ thì dùng số tạm tính. */
-  const displayAmount = serverFinalAmount ?? totalCalculatedAmount;
+  /** Tiền cần trả: ưu tiên số máy chủ đã chốt lúc giữ chỗ, chưa giữ thì dùng số sau khi áp voucher. */
+  const displayAmount = serverFinalAmount ?? finalCalculatedAmount;
 
   // Chuyển khoản: máy chủ báo đã nhận tiền (webhook ngân hàng hoặc quản lý xác nhận) thì sang bước hoàn tất.
   const handleTransferPaid = useCallback(
@@ -475,6 +516,8 @@ export const RouteBookingPage: React.FC = () => {
     setCreatedTicketId('');
     setPaidInfo(null);
     setServerFinalAmount(null);
+    setAppliedVoucher(null);
+    setVoucherCodeInput('');
   };
 
   const handleResetSearch = () => {
@@ -1219,12 +1262,82 @@ export const RouteBookingPage: React.FC = () => {
                 {selectedSeatCodes.join(', ')} ({selectedSeatIds.length} ghế)
               </span>
             </div>
+            <div className="flex justify-between text-slate-700 dark:text-slate-300">
+              <span>Tạm tính cước vé:</span>
+              <span className="font-semibold font-mono">
+                {totalCalculatedAmount === 0 ? '0 VNĐ' : `${totalCalculatedAmount.toLocaleString('vi-VN')} VNĐ`}
+              </span>
+            </div>
+            {appliedVoucher && (
+              <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-semibold">
+                <span>Voucher giảm giá ({appliedVoucher.voucher?.code}):</span>
+                <span className="font-mono">-{voucherDiscount.toLocaleString('vi-VN')} VNĐ</span>
+              </div>
+            )}
             <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center text-sm font-bold text-emerald-600 dark:text-emerald-400">
               <span>Tổng số tiền cần thanh toán:</span>
               <span className="text-base font-black font-mono">
                 {displayAmount === 0 ? '0 VNĐ (Miễn phí)' : `${displayAmount.toLocaleString('vi-VN')} VNĐ`}
               </span>
             </div>
+          </div>
+
+          {/* Mã giảm giá / Voucher Section (SCRUM-66 & SCRUM-67) */}
+          <div className="p-4 rounded-xl border border-sky-100 dark:border-sky-900/40 bg-gradient-to-r from-sky-50/50 to-indigo-50/40 dark:from-sky-950/20 dark:to-indigo-950/20 space-y-3">
+            <div className="flex items-center gap-2">
+              <Tag className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                Mã giảm giá (Voucher)
+              </label>
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={voucherCodeInput}
+                onChange={(e) => setVoucherCodeInput(e.target.value.toUpperCase())}
+                placeholder="Nhập mã voucher (VD: HE2026, CHAOHEXANH...)"
+                disabled={Boolean(appliedVoucher) || isValidatingVoucher}
+                className="flex-1 px-3 py-2 text-xs uppercase font-mono font-bold tracking-wider rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-60"
+              />
+              {appliedVoucher ? (
+                <button
+                  type="button"
+                  onClick={handleRemoveVoucher}
+                  className="px-3.5 py-2 rounded-lg border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-xs font-bold hover:bg-rose-100 transition-colors"
+                >
+                  Hủy áp dụng
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleApplyVoucher}
+                  disabled={isValidatingVoucher || !voucherCodeInput.trim()}
+                  className="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm"
+                >
+                  {isValidatingVoucher ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Đang kiểm tra...</span>
+                    </>
+                  ) : (
+                    <span>Áp dụng</span>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {appliedVoucher && (
+              <div className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    Đã áp dụng mã <strong>{appliedVoucher.voucher?.code}</strong>: giảm{' '}
+                    <strong>{voucherDiscount.toLocaleString('vi-VN')} VNĐ</strong> ({appliedVoucher.voucher?.discountType === 'Percent' ? `${appliedVoucher.voucher?.discountValue}%` : 'Số tiền cố định'}).
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
 
