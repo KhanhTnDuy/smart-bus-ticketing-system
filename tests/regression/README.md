@@ -79,3 +79,10 @@ chuyển xử lý tay, phản hồi sai chữ ký, quản lý duyệt tay qua c�
 
 Đặt thêm `REFUND_TIERS=1` khi backend chạy với `Refunds__Tiers__0__HoursBefore=24 Refunds__Tiers__0__Percent=100 Refunds__Tiers__1__HoursBefore=2 Refunds__Tiers__1__Percent=50`
 để kiểm chính sách hoàn theo giờ (còn 5 giờ hoàn 50%, dưới 2 giờ không hoàn, còn 30 giờ hoàn 100%).
+
+## Nhóm G5 – chuyển khoản ngân hàng (VietQR)
+
+Đặt `BANK_WEBHOOK_KEY` và chạy backend với `BankTransfer__BankId=MB BankTransfer__BankName="MB Bank" BankTransfer__AccountNumber=0123456789 BankTransfer__AccountName="NGUYEN VAN TEST" BankTransfer__WebhookApiKey=<khóa>`
+(tài khoản giả, không dùng tài khoản thật). Nhóm kiểm: mã VietQR và nội dung chuyển khoản, quyền xem và xác nhận, xác nhận tay, chống dùng lại mã giao dịch ngân hàng,
+tiền về trễ mở khoản hoàn, webhook (khóa API, lệch số tiền, nội dung bị chèn dấu cách, gửi trùng, gọi đồng thời, giao dịch quá hạn được mở lại) và job nhả giữ chỗ (mất tới ~80 giây).
+Dùng chuyến riêng trên xe 4 để không tranh ghế với nhóm khác.
