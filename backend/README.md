@@ -267,3 +267,33 @@ Ví dụ trên: còn từ 24 giờ hoàn 100%, từ 2 giờ hoàn 50%, dưới 2
 **Cần kiểm chứng với VNPay sandbox thật:** phần gọi API hoàn tiền (chuỗi ký nối bằng `|`, định dạng phản hồi) viết theo tài liệu VNPay 2.1.0 nhưng mới chỉ thử với máy chủ giả trong
 bộ hồi quy, chưa gọi sandbox thật. Nếu sandbox báo không tìm thấy giao dịch gốc, đổi `Payments:VnPay:RefundDateSource` giữa `Create` (mặc định, vnp_CreateDate lúc tạo thanh toán) và `Pay` (vnp_PayDate).
 Khoản chưa tự hoàn được sẽ rơi vào "Cần xử lý tay" chứ không mất tiền. VNPay chỉ cho hoàn trong thời hạn quy định của họ.
+
+## Chuyển khoản ngân hàng (VietQR)
+
+Phương thức "Chuyển khoản ngân hàng" nhận tiền thẳng vào **tài khoản ngân hàng của đơn vị**, không cần cổng thanh toán. `POST /api/payments` với `method = 4` tạo giao dịch `Pending`
+và trả `transfer`: mã VietQR (ảnh từ `img.vietqr.io`, quét bằng app ngân hàng sẽ điền sẵn tài khoản, số tiền, nội dung), thông tin tài khoản và **nội dung chuyển khoản duy nhất**
+(vd. `SBV7K3M9Q2X`, chính là `Payment.TxnRef`). Ghế được giữ 10 phút như các phương thức khác. Tiền vào tài khoản thì giao dịch được chốt qua đúng `PaymentSettlementService`
+(vé có hiệu lực, hóa đơn, email); tiền về sau khi hết hạn giữ chỗ thì không xuất vé và tự mở khoản hoàn (hoàn tay: quản lý chuyển khoản trả lại rồi bấm "Xác nhận đã hoàn" ở trang Hoàn tiền).
+
+**Cấu hình tài khoản nhận** (KHÔNG đặt vào file trong git; dùng user-secrets, `UserSecretsId` đã có trong csproj):
+
+```bash
+cd SmartBusTicketing.Api
+dotnet user-secrets set "BankTransfer:BankId" "970415"            # mã BIN hoặc mã VietQR của ngân hàng (970415 = VietinBank, MB, VCB, ACB...)
+dotnet user-secrets set "BankTransfer:BankName" "VietinBank"
+dotnet user-secrets set "BankTransfer:AccountNumber" "<số tài khoản>"
+dotnet user-secrets set "BankTransfer:AccountName" "<TÊN CHỦ TÀI KHOẢN KHÔNG DẤU>"
+```
+
+Chạy backend ở môi trường `Development` để đọc user-secrets. Chưa cấu hình thì chọn chuyển khoản trả 503.
+
+**Xác nhận đã nhận tiền** (hai cách, dùng được song song):
+
+1. **Tay**: quản lý mở `/manager/bank-transfers`, đối chiếu sao kê rồi bấm "Đã nhận tiền" (`POST /api/payments/{id}/confirm-transfer`, nên ghi mã giao dịch trên sao kê để chống xác nhận trùng một khoản tiền).
+2. **Tự động qua webhook** (định dạng SePay, `https://sepay.vn`): liên kết tài khoản ở SePay, tạo webhook tới `POST /api/payments/bank-transfer/webhook` kiểu xác thực **API Key**
+   (`Authorization: Apikey <khóa>`), cấu hình tiền tố mã thanh toán là `SBV`, rồi `dotnet user-secrets set "BankTransfer:WebhookApiKey" "<khóa>"`. Máy chạy local cần địa chỉ công khai (vd. ngrok).
+   Hệ thống tìm mã `SBV…` trong nội dung (chịu được ngân hàng chèn dấu cách), kiểm tra số tiền khớp và mã giao dịch chưa dùng rồi tự xác nhận; lệch số tiền thì báo quản lý đối soát.
+   Chưa đặt `WebhookApiKey` thì webhook bị tắt (404).
+
+**Cần kiểm chứng với dịch vụ thật:** định dạng webhook SePay viết theo tài liệu, mới thử với yêu cầu giả trong bộ hồi quy. Ảnh VietQR do `img.vietqr.io` tạo, số tài khoản nằm trong địa chỉ ảnh (là thông tin nhận tiền công khai).
+Giao dịch chuyển khoản chờ được giữ lâu hơn (2 ngày) trước khi đánh hết hạn, và quản lý vẫn xác nhận được sau đó vì tiền thật có thể về chậm.

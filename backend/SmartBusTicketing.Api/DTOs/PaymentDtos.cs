@@ -40,6 +40,12 @@ public sealed class PaymentDto
     public string? FailureReason { get; init; }
     /// <summary>Địa chỉ trang thanh toán của ngân hàng. Chỉ có ngay trong phản hồi khởi tạo thanh toán qua cổng.</summary>
     public string? PaymentUrl { get; set; }
+    /// <summary>Mã tham chiếu của giao dịch. Với chuyển khoản đây là nội dung chuyển khoản khách phải ghi.</summary>
+    public string? Reference { get; init; }
+    /// <summary>Hết thời điểm này mà chưa thanh toán thì chỗ được nhả.</summary>
+    public DateTime HoldExpiresAt { get; init; }
+    /// <summary>Thông tin chuyển khoản (mã VietQR, tài khoản nhận, nội dung). Chỉ có khi giao dịch chuyển khoản còn chờ.</summary>
+    public BankTransferInfoDto? Transfer { get; set; }
     public DateTime? PaidAt { get; init; }
     public long TripId { get; init; }
     public string RouteCode { get; init; } = string.Empty;
@@ -50,6 +56,29 @@ public sealed class PaymentDto
     public string? InvoiceNo { get; init; }
     public decimal RefundedAmount { get; init; }
     public IReadOnlyList<RefundSummaryDto> Refunds { get; init; } = [];
+}
+
+/// <summary>Thông tin để khách chuyển khoản vào tài khoản ngân hàng của đơn vị.</summary>
+public sealed class BankTransferInfoDto
+{
+    public string BankId { get; init; } = string.Empty;
+    public string BankName { get; init; } = string.Empty;
+    public string AccountNumber { get; init; } = string.Empty;
+    public string AccountName { get; init; } = string.Empty;
+    public decimal Amount { get; init; }
+    /// <summary>Nội dung chuyển khoản bắt buộc, dùng để hệ thống nhận ra khoản tiền thuộc lượt đặt nào.</summary>
+    public string Memo { get; init; } = string.Empty;
+    /// <summary>Ảnh mã VietQR đã điền sẵn tài khoản, số tiền và nội dung.</summary>
+    public string QrUrl { get; init; } = string.Empty;
+    public DateTime ExpiresAt { get; init; }
+}
+
+/// <summary>Quản lý xác nhận đã nhận tiền chuyển khoản.</summary>
+public sealed class ConfirmTransferRequest
+{
+    /// <summary>Mã giao dịch trên sao kê ngân hàng (nếu có), dùng để chống xác nhận trùng một khoản tiền.</summary>
+    [StringLength(64)]
+    public string? BankTransactionId { get; init; }
 }
 
 /// <summary>Yêu cầu gửi (lại) email hóa đơn. Email chỉ nhận được khi hóa đơn chưa có địa chỉ.</summary>
