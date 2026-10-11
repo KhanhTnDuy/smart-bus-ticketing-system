@@ -4,6 +4,78 @@
 // Xem tests/regression/README.md để biết điều kiện chạy và các biến môi trường.
 import { spawnSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
+import net from 'node:net';
+
+// Cổng máy chủ SMTP giả mà kịch bản tự mở để nhận email hóa đơn. Phải trùng Email__Port của backend (backend chạy với
+// Email__Enabled=true Email__Host=127.0.0.1 Email__UseSsl=false Email__FromAddress=...). Bỏ trống thì nhóm G3 bị bỏ qua.
+const SMTP_SINK_PORT = Number(process.env.SMTP_SINK_PORT || 0);
+
+// SMTP tối thiểu: đủ để System.Net.Mail gửi tới (EHLO, MAIL, RCPT, DATA, QUIT). `failNext` > 0 thì từ chối vài thư đầu bằng 554.
+function startSmtpSink(port) {
+  const sink = { mails: [], failNext: 0, server: null };
+  sink.server = net.createServer((sock) => {
+    let buf = '';
+    let inData = false;
+    let data = '';
+    let rcpt = [];
+    let rejected = false;
+    sock.setEncoding('utf8');
+    sock.write('220 sink ESMTP\r\n');
+    sock.on('error', () => {});
+    sock.on('data', (chunk) => {
+      buf += chunk;
+      for (;;) {
+        if (inData) {
+          const end = buf.indexOf('\r\n.\r\n');
+          if (end < 0) { data += buf; buf = ''; return; }
+          data += buf.slice(0, end);
+          buf = buf.slice(end + 5);
+          inData = false;
+          if (rejected) { sock.write('554 rejected\r\n'); }
+          else { sink.mails.push({ to: rcpt, raw: data }); sock.write('250 queued\r\n'); }
+          data = ''; rcpt = []; rejected = false;
+          continue;
+        }
+        const nl = buf.indexOf('\r\n');
+        if (nl < 0) return;
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 2);
+        const cmd = line.slice(0, 4).toUpperCase();
+        if (cmd === 'EHLO' || cmd === 'HELO') sock.write('250-sink\r\n250 SIZE 10485760\r\n');
+        else if (cmd === 'MAIL') sock.write('250 OK\r\n');
+        else if (cmd === 'RCPT') { rcpt.push(line.replace(/^RCPT TO:\s*<?/i, '').replace(/>.*$/, '')); sock.write('250 OK\r\n'); }
+        else if (cmd === 'DATA') {
+          if (sink.failNext > 0) { sink.failNext--; rejected = true; }
+          inData = true; data = ''; sock.write('354 go\r\n');
+        }
+        else if (cmd === 'QUIT') { sock.write('221 bye\r\n'); sock.end(); return; }
+        else sock.write('250 OK\r\n');
+      }
+    });
+  });
+  return new Promise((resolve, reject) => { sink.server.once('error', reject); sink.server.listen(port, '127.0.0.1', () => resolve(sink)); });
+}
+
+// Giải mã một thư thô (tiêu đề encoded-word, thân base64 hoặc quoted-printable) thành chữ đọc được.
+function decodeMail(raw) {
+  const [head, ...rest] = raw.split('\r\n\r\n');
+  const body = rest.join('\r\n\r\n');
+  const header = (name) => head.replace(/\r\n[ \t]+/g, ' ').match(new RegExp(`^${name}:\\s*(.*)$`, 'im'))?.[1] ?? '';
+  // Tiêu đề dài bị gập thành nhiều encoded-word liền nhau; một ký tự UTF-8 có thể nằm vắt qua hai từ, nên phải ghép
+  // byte của các từ B liền kề rồi mới giải mã.
+  const words = (v) => v
+    .replace(/(?:=\?utf-8\?b\?[^?]*\?=\s*)+/gi, (group) =>
+      Buffer.concat([...group.matchAll(/=\?utf-8\?b\?([^?]*)\?=/gi)].map((m) => Buffer.from(m[1], 'base64'))).toString('utf8'))
+    .replace(/=\?utf-8\?q\?([^?]*)\?=/gi, (_, t) =>
+      Buffer.from(t.replace(/_/g, ' ').replace(/=([0-9A-F]{2})/gi, (_m, h) => String.fromCharCode(parseInt(h, 16))), 'latin1').toString('utf8'));
+  const cte = header('Content-Transfer-Encoding').toLowerCase();
+  const text = cte === 'base64'
+    ? Buffer.from(body.replace(/\s+/g, ''), 'base64').toString('utf8')
+    : cte.includes('quoted')
+      ? Buffer.from(body.replace(/=\r\n/g, '').replace(/=([0-9A-F]{2})/gi, (_m, h) => String.fromCharCode(parseInt(h, 16))), 'latin1').toString('utf8')
+      : body;
+  return { to: header('To'), subject: words(header('Subject')), body: text };
+}
 
 // Khóa ký thử của cổng VNPay: phải trùng Payments__VnPay__HashSecret mà backend đang chạy. Bỏ trống thì nhóm G2 bị bỏ qua.
 const VNPAY_SECRET = process.env.VNPAY_SECRET || '';
@@ -535,6 +607,93 @@ try {
     is('Hủy giữ chỗ: trả tiền sau khi hủy không báo thành công', late7.j?.success, false);
     is('Hủy giữ chỗ: không có vé Valid cho lượt đặt đã hủy', sql(`select count(*) from tickets where BookingId=${v7.bookingId} and Status='Valid'`), '0');
     is('Hủy giữ chỗ: tiền về sau khi hủy được mở hoàn tiền', sql(`select concat(Amount,'/',Status) from refunds where PaymentId=${pv7.j?.id}`), '7000.00/Pending');
+  }
+
+  // ============================================================
+  sec('G3. Email hóa đơn điện tử');
+  if (!SMTP_SINK_PORT) {
+    console.log('  (bỏ qua: chưa đặt SMTP_SINK_PORT)');
+  } else {
+    const sink = await startSmtpSink(SMTP_SINK_PORT);
+    try {
+      const seatsM = seatsOf(6, 4, 16);
+      const bookM = async (tok, seat) => (await call(tok, 'POST', '/api/bookings', { tripId: tripA, seatIds: [seat], boardStopId: 1, alightStopId: 2 })).j;
+      const payM = (tok, id) => call(tok, 'POST', '/api/payments', { bookingId: id, method: 0 });
+      const waitFor = async (cond, ms = 20000) => { for (let t = 0; t < ms; t += 250) { if (cond()) return true; await new Promise((r) => setTimeout(r, 250)); } return false; };
+      const p1mail = sql('select Email from accounts where Id=7');
+      // Backend bật email từ đầu nên hóa đơn của các nhóm trước đã thử gửi (và thất bại vì chưa có máy chủ SMTP giả) rồi
+      // sẽ được thử lại vào hộp thư giả này. Đánh dấu chúng đã gửi để nhóm này chỉ thấy thư của chính nó.
+      sql('update invoices set SentAt=UTC_TIMESTAMP() where SentAt is null');
+
+      // 1. Thanh toán xong: email hóa đơn gửi tự động trong nền.
+      const m1 = await bookM(p1, seatsM[0]);
+      const pay1 = await payM(p1, m1.bookingId);
+      is('Email: thanh toán thành công', pay1.s, 201);
+      check('Email: thư hóa đơn tới máy chủ SMTP', await waitFor(() => sink.mails.length >= 1));
+      const mail1 = sink.mails[0] ? decodeMail(sink.mails[0].raw) : { to: '', subject: '', body: '' };
+      check('Email: gửi đúng địa chỉ của hành khách', sink.mails[0]?.to.includes(p1mail));
+      check('Email: tiêu đề có số hóa đơn', mail1.subject.includes(pay1.j?.invoiceNo ?? '@@'));
+      check('Email: nội dung có số hóa đơn', mail1.body.includes(pay1.j?.invoiceNo ?? '@@'));
+      check('Email: nội dung có mã đặt chỗ', mail1.body.includes(pay1.j?.bookingCode ?? '@@'));
+      check('Email: nội dung có số tiền', mail1.body.includes('7.000'));
+      check('Email: có liên kết xem vé', mail1.body.includes('/passenger/tickets'));
+      check('Email: không chứa mã QR hay chuỗi mã vé', !/[0-9a-f]{32}/.test(mail1.body));
+      check('Email: hóa đơn đánh dấu đã gửi', await waitFor(() => sql(`select SentAt is not null from invoices where Id=${pay1.j?.invoiceId}`) === '1'));
+      is('Email: ghi nhận 1 lần thử', sql(`select EmailAttempts from invoices where Id=${pay1.j?.invoiceId}`), '1');
+      const list1 = (await call(p1, 'GET', '/api/invoices/my')).j?.find((x) => x.id === pay1.j?.invoiceId);
+      is('Email: API báo trạng thái Sent', list1?.emailStatus, 'Sent');
+      check('Email: API có thời điểm gửi', !!list1?.sentAt);
+      check('Email: API không lộ lỗi SMTP', !('emailError' in (list1 ?? {})));
+
+      // 2. SMTP từ chối: thanh toán vẫn thành công, hóa đơn ở trạng thái chờ, bấm gửi lại thì gửi được.
+      sink.failNext = 1;
+      const before = sink.mails.length;
+      const m2 = await bookM(p1, seatsM[1]);
+      const pay2 = await payM(p1, m2.bookingId);
+      is('Email: SMTP lỗi không làm hỏng thanh toán', pay2.s, 201);
+      check('Email: ghi nhận lần thử thất bại', await waitFor(() => sql(`select EmailAttempts from invoices where Id=${pay2.j?.invoiceId}`) === '1'));
+      is('Email: lượt đặt vẫn Confirmed khi gửi mail lỗi', sql(`select Status from bookings where Id=${m2.bookingId}`), 'Confirmed');
+      is('Email: chưa có thư mới sau khi bị từ chối', sink.mails.length, before);
+      check('Email: lưu lý do lỗi để quản trị xem', await waitFor(() => (sql(`select ifnull(EmailError,'') from invoices where Id=${pay2.j?.invoiceId}`) || '').length > 0));
+      const list2 = (await call(p1, 'GET', '/api/invoices/my')).j?.find((x) => x.id === pay2.j?.invoiceId);
+      is('Email: trạng thái Pending khi chưa gửi được', list2?.emailStatus, 'Pending');
+      is('Email: SentAt rỗng khi chưa gửi được', sql(`select SentAt is null from invoices where Id=${pay2.j?.invoiceId}`), '1');
+
+      // 3. Gửi lại: quyền và địa chỉ.
+      is('Gửi lại email: không đăng nhập -> 401', (await call(null, 'POST', `/api/invoices/${pay2.j?.invoiceId}/send`, {})).s, 401);
+      is('Gửi lại email: p2 gửi hóa đơn của p1 -> 404', (await call(p2, 'POST', `/api/invoices/${pay2.j?.invoiceId}/send`, {})).s, 404);
+      is('Gửi lại email: hóa đơn không tồn tại -> 404', (await call(p1, 'POST', '/api/invoices/99999999/send', {})).s, 404);
+      const re2 = await call(p1, 'POST', `/api/invoices/${pay2.j?.invoiceId}/send`, { email: 'ke-xau@example.com' });
+      is('Gửi lại email: p1 gửi lại -> 202', re2.s, 202);
+      check('Email: gửi lại thành công', await waitFor(() => sink.mails.length === before + 1));
+      check('Email: địa chỉ mới bị bỏ qua khi hóa đơn đã có địa chỉ', sink.mails[before]?.to.includes(p1mail) && !sink.mails[before]?.to.includes('ke-xau'));
+      check('Email: gửi lại xong có SentAt', await waitFor(() => sql(`select SentAt is not null from invoices where Id=${pay2.j?.invoiceId}`) === '1'));
+      const reSent = await call(mg, 'POST', `/api/invoices/${pay2.j?.invoiceId}/send`, {});
+      is('Gửi lại email: quản lý được phép -> 202', reSent.s, 202);
+      check('Email: quản lý gửi lại cũng tới đúng địa chỉ khách', await waitFor(() => sink.mails.length === before + 2) && sink.mails[before + 1]?.to.includes(p1mail));
+
+      // 4. Quá số lần thử: báo Failed; gửi lại đặt về 0 và gửi được.
+      sql(`update invoices set SentAt=NULL, EmailAttempts=5 where Id=${pay1.j?.invoiceId}`);
+      is('Email: quá số lần thử báo Failed', (await call(p1, 'GET', '/api/invoices/my')).j?.find((x) => x.id === pay1.j?.invoiceId)?.emailStatus, 'Failed');
+      await new Promise((r) => setTimeout(r, 1500));
+      is('Email: hóa đơn quá số lần thử không bị tự gửi', sink.mails.length, before + 2);
+
+      // 5. Tài khoản chưa có email: hóa đơn NoAddress, nhập địa chỉ rồi mới gửi được.
+      sql(`update accounts set Email=NULL where Id=${T.p2id}`);
+      const m3 = await bookM(p2, seatsM[2]);
+      const pay3 = await payM(p2, m3.bookingId);
+      is('Email: tài khoản không email vẫn thanh toán được', pay3.s, 201);
+      is('Email: hóa đơn báo NoAddress', (await call(p2, 'GET', '/api/invoices/my')).j?.find((x) => x.id === pay3.j?.invoiceId)?.emailStatus, 'NoAddress');
+      is('Gửi lại email: thiếu địa chỉ -> 400', (await call(p2, 'POST', `/api/invoices/${pay3.j?.invoiceId}/send`, {})).s, 400);
+      is('Gửi lại email: địa chỉ sai định dạng -> 400', (await call(p2, 'POST', `/api/invoices/${pay3.j?.invoiceId}/send`, { email: 'khong-phai-email' })).s, 400);
+      const count3 = sink.mails.length;
+      const ok3 = await call(p2, 'POST', `/api/invoices/${pay3.j?.invoiceId}/send`, { email: 'qa_p2_new@example.com' });
+      is('Gửi lại email: nhập địa chỉ hợp lệ -> 202', ok3.s, 202);
+      check('Email: thư tới địa chỉ vừa nhập', await waitFor(() => sink.mails.length === count3 + 1) && sink.mails[count3]?.to.includes('qa_p2_new@example.com'));
+      is('Email: hóa đơn lưu địa chỉ vừa nhập', sql(`select Email from invoices where Id=${pay3.j?.invoiceId}`), 'qa_p2_new@example.com');
+    } finally {
+      sink.server.close();
+    }
   }
 
 } catch (e) {
