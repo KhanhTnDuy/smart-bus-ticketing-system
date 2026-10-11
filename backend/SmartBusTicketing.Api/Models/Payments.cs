@@ -10,8 +10,21 @@ public class Payment
     public PaymentMethod Method { get; set; }
     public decimal Amount { get; set; }
     public PaymentStatus Status { get; set; } = PaymentStatus.Pending;
+    /// <summary>Mã giao dịch do cổng thanh toán cấp (VNPay: vnp_TransactionNo). Chỉ có sau khi thanh toán xong.</summary>
     public string? ProviderTxnId { get; set; }
     public DateTime? PaidAt { get; set; }
+
+    /// <summary>Mã tham chiếu hệ thống gửi cổng thanh toán cho mỗi lần thanh toán (VNPay: vnp_TxnRef), duy nhất.</summary>
+    public string? TxnRef { get; set; }
+
+    /// <summary>Thời điểm thanh toán theo cổng, dạng yyyyMMddHHmmss giờ Việt Nam. VNPay đòi lại giá trị này khi hoàn tiền.</summary>
+    public string? GatewayPayDate { get; set; }
+
+    /// <summary>Thời điểm tạo thanh toán gửi cổng (vnp_CreateDate), dạng yyyyMMddHHmmss giờ Việt Nam. Có thể cần khi hoàn tiền.</summary>
+    public string? GatewayCreateDate { get; set; }
+
+    /// <summary>Lý do giao dịch thất bại hoặc hết hạn, hiển thị cho khách và quản lý.</summary>
+    public string? FailureReason { get; set; }
 
     public Invoice? Invoice { get; set; }
     public ICollection<Refund> Refunds { get; set; } = new List<Refund>();
@@ -25,7 +38,15 @@ public class Invoice
     public string InvoiceNo { get; set; } = null!;
     public string Email { get; set; } = null!;
     public decimal Total { get; set; }
+
+    /// <summary>Thời điểm gửi email hóa đơn thành công. Rỗng nghĩa là chưa gửi (chờ gửi, thất bại hoặc chưa có địa chỉ).</summary>
     public DateTime? SentAt { get; set; }
+
+    /// <summary>Số lần đã thử gửi. Tới InvoiceEmailService.MaxAttempts thì ngừng tự thử lại; khách bấm gửi lại sẽ đặt về 0.</summary>
+    public int EmailAttempts { get; set; }
+
+    /// <summary>Lý do lần gửi gần nhất thất bại (cắt ngắn), chỉ để quản trị xem, không trả ra API.</summary>
+    public string? EmailError { get; set; }
 }
 
 public class Refund
@@ -43,6 +64,14 @@ public class Refund
     public long? ProcessedBy { get; set; }
     public Account? Processor { get; set; }
     public string? Note { get; set; }
+
+    /// <summary>Số lần hệ thống đã thử hoàn qua cổng. Bằng RefundExecutor.MaxAttempts nghĩa là ngừng tự động, cần xử lý tay.</summary>
+    public int Attempts { get; set; }
+
+    public DateTime? LastAttemptAt { get; set; }
+
+    /// <summary>Mã giao dịch hoàn do cổng cấp (VNPay: vnp_TransactionNo của lần hoàn).</summary>
+    public string? GatewayRefId { get; set; }
 }
 
 public class MonthlyPass

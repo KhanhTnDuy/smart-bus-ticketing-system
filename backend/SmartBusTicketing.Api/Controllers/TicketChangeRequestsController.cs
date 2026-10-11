@@ -5,6 +5,8 @@ using SmartBusTicketing.Api.Data;
 using SmartBusTicketing.Api.DTOs;
 using SmartBusTicketing.Api.Models;
 using SmartBusTicketing.Api.Services;
+using SmartBusTicketing.Api.Services.Payments;
+using Microsoft.Extensions.Options;
 
 namespace SmartBusTicketing.Api.Controllers;
 
@@ -24,7 +26,8 @@ public class TicketChangeRequestsController(
     AppDbContext db,
     AuditLogService audit,
     ISeatHoldService seatHolds,
-    ITicketExchangeValidator exchangeValidator) : ControllerBase
+    ITicketExchangeValidator exchangeValidator,
+    IOptions<RefundOptions> refundOptions) : ControllerBase
 {
     private long? GetActorId() => User.AccountId();
     private string GetActorName() => User.Username() ?? "system";
@@ -255,7 +258,7 @@ public class TicketChangeRequestsController(
                 ticket.Status = TicketStatus.Cancelled;
 
                 // Vé đã thanh toán thì tạo yêu cầu hoàn tiền để quản lý xử lý ở mục Hoàn tiền.
-                await PaymentRules.CreateTicketRefundAsync(db, ticket, request.Id, RefundReason.TicketCancelled, now, ct);
+                await PaymentRules.CreateTicketRefundAsync(db, ticket, request.Id, RefundReason.TicketCancelled, now, ct, refundOptions.Value);
 
                 // Lượt đặt không còn vé nào còn hiệu lực thì đóng luôn, nếu không nó treo ở
                 // Pending vĩnh viễn và vẫn bị tính vào các báo cáo "đang chờ".
