@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   TicketPercent,
@@ -16,8 +16,10 @@ import {
   Percent,
   Sparkles,
   Zap,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
-import { useData } from '../../context/DataContext';
+import { voucherApi } from '../../api/voucherApi';
 import { useToast } from '../../context/ToastContext';
 import { Voucher } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -25,10 +27,47 @@ import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 import { EmptyState } from '../../components/common/EmptyState';
 
+const isPercent = (type?: string) => type?.toLowerCase() === 'percent';
+const isFixed = (type?: string) => type?.toLowerCase() === 'fixed';
+
+const formatVnDate = (isoString?: string) => {
+  if (!isoString) return '';
+  try {
+    return new Date(isoString).toLocaleDateString('vi-VN', {
+      timeZone: 'Asia/Bangkok',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+  } catch {
+    return isoString.split('T')[0] || isoString;
+  }
+};
+
+const formatVnDateTime = (isoString?: string) => {
+  if (!isoString) return '';
+  try {
+    return new Date(isoString).toLocaleString('vi-VN', {
+      timeZone: 'Asia/Bangkok',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return isoString;
+  }
+};
+
 export const PassengerVouchersPage: React.FC = () => {
-  const { vouchers } = useData();
-  const { success } = useToast();
+  const { success, error: toastError } = useToast();
   const navigate = useNavigate();
+
+  // Remote data state
+  const [vouchers, setVouchers] = useState<Voucher[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -39,42 +78,62 @@ export const PassengerVouchersPage: React.FC = () => {
   const [selectedVoucher, setSelectedVoucher] = useState<Voucher | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
-  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const fetchVouchers = async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const data = await voucherApi.getVouchers();
+      setVouchers(data || []);
+    } catch (err: any) {
+      const msg = err?.message || 'Không thể kết nối đến máy chủ lấy danh sách voucher';
+      setLoadError(msg);
+      toastError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchVouchers();
+  }, []);
 
   // Compute statistics
   const stats = useMemo(() => {
+    const now = Date.now();
     const activeValid = vouchers.filter((v) => {
-      const isExpired = v.endAt.split('T')[0] < todayStr;
-      const isStarted = v.startAt.split('T')[0] <= todayStr;
+      const isExpired = new Date(v.endAt).getTime() < now;
+      const isStarted = new Date(v.startAt).getTime() <= now;
       const hasQuota = !v.usageLimit || v.usedCount < v.usageLimit;
-      return v.active && isStarted && !isExpired && hasQuota;
+      const isActive = v.isActive ?? v.active ?? (v.status === 'ACTIVE');
+      return isActive && isStarted && !isExpired && hasQuota;
     });
 
     const maxPercent = vouchers
-      .filter((v) => v.active && v.discountType === 'PERCENT')
-      .reduce((max, v) => Math.max(max, v.discountValue), 0);
+      .filter((v) => (v.isActive ?? v.active ?? true) && isPercent(v.discountType))
+      .reduce((max, v) => Math.max(max, v.discountValue || 0), 0);
 
     const maxFixed = vouchers
-      .filter((v) => v.active && v.discountType === 'FIXED')
-      .reduce((max, v) => Math.max(max, v.discountValue), 0);
+      .filter((v) => (v.isActive ?? v.active ?? true) && isFixed(v.discountType))
+      .reduce((max, v) => Math.max(max, v.discountValue || 0), 0);
 
     return {
       activeCount: activeValid.length,
       maxPercent,
       maxFixed,
     };
-  }, [vouchers, todayStr]);
+  }, [vouchers]);
 
   // Filter vouchers
   const filteredVouchers = useMemo(() => {
     return vouchers.filter((v) => {
-      // Must match search
       const matchSearch =
         v.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        v.description.toLowerCase().includes(searchTerm.toLowerCase());
+        (v.description || '').toLowerCase().includes(searchTerm.toLowerCase());
 
-      // Match type
-      const matchType = filterType === 'ALL' || v.discountType === filterType;
+      const matchType =
+        filterType === 'ALL' ||
+        (filterType === 'PERCENT' && isPercent(v.discountType)) ||
+        (filterType === 'FIXED' && isFixed(v.discountType));
 
       return matchSearch && matchType;
     });
@@ -103,14 +162,25 @@ export const PassengerVouchersPage: React.FC = () => {
         title="Ưu Đãi & Mã Giảm Giá"
         description="Khám phá các chương trình trợ giá, mã khuyến mãi và chiến dịch kích cầu xe buýt thông minh đô thị."
         action={
-          <button
-            onClick={() => navigate('/passenger/booking')}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider text-white bg-institutional-700 hover:bg-institutional-800 rounded-lg shadow-sm transition-colors"
-          >
-            <Sparkles className="w-4 h-4 text-amber-300" />
-            <span>Đặt vé ngay</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={fetchVouchers}
+              disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+              title="Làm mới danh sách"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Làm mới</span>
+            </button>
+            <button
+              onClick={() => navigate('/passenger/booking')}
+              className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider text-white bg-institutional-700 hover:bg-institutional-800 rounded-lg shadow-sm transition-colors"
+            >
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>Đặt vé ngay</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         }
       />
 
@@ -221,8 +291,24 @@ export const PassengerVouchersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Voucher Grid */}
-      {filteredVouchers.length === 0 ? (
+      {/* Loading state */}
+      {loading ? (
+        <div className="p-12 text-center bg-white dark:bg-[#131e3a] rounded-2xl border border-slate-200 dark:border-[#1e2f57] flex flex-col items-center justify-center gap-3">
+          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+          <p className="text-xs text-slate-500">Đang tải danh sách voucher từ hệ thống...</p>
+        </div>
+      ) : loadError ? (
+        <div className="p-8 text-center bg-rose-50 dark:bg-rose-950/20 rounded-2xl border border-rose-200 dark:border-rose-900 flex flex-col items-center justify-center gap-3">
+          <AlertCircle className="w-8 h-8 text-rose-600" />
+          <p className="text-sm font-semibold text-rose-700 dark:text-rose-300">{loadError}</p>
+          <button
+            onClick={fetchVouchers}
+            className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors"
+          >
+            Thử lại
+          </button>
+        </div>
+      ) : filteredVouchers.length === 0 ? (
         <EmptyState
           title="Không tìm thấy voucher phù hợp"
           description="Thử tìm kiếm với từ khóa khác hoặc quay lại danh mục tất cả voucher."
@@ -235,14 +321,18 @@ export const PassengerVouchersPage: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredVouchers.map((v) => {
-            const isExpired = v.endAt.split('T')[0] < todayStr;
-            const isNotStarted = v.startAt.split('T')[0] > todayStr;
+            const now = Date.now();
+            const isExpired = new Date(v.endAt).getTime() < now;
+            const isNotStarted = new Date(v.startAt).getTime() > now;
             const isOutOfStock = v.usageLimit ? v.usedCount >= v.usageLimit : false;
-            const isUsable = v.active && !isExpired && !isNotStarted && !isOutOfStock;
+            const isActive = v.isActive ?? v.active ?? (v.status === 'ACTIVE');
+            const isUsable = isActive && !isExpired && !isNotStarted && !isOutOfStock;
 
             const usagePercent = v.usageLimit
               ? Math.min(100, Math.round((v.usedCount / v.usageLimit) * 100))
               : 0;
+
+            const isPct = isPercent(v.discountType);
 
             return (
               <div
@@ -256,7 +346,7 @@ export const PassengerVouchersPage: React.FC = () => {
                 {/* Top Ticket Header Banner */}
                 <div
                   className={`px-5 py-4 border-b flex items-center justify-between ${
-                    v.discountType === 'PERCENT'
+                    isPct
                       ? 'bg-gradient-to-r from-blue-50/80 to-indigo-50/80 dark:from-blue-950/40 dark:to-indigo-950/40 border-blue-100 dark:border-blue-900/40'
                       : 'bg-gradient-to-r from-amber-50/80 to-orange-50/80 dark:from-amber-950/40 dark:to-orange-950/40 border-amber-100 dark:border-amber-900/40'
                   }`}
@@ -264,19 +354,19 @@ export const PassengerVouchersPage: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <div
                       className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm shadow-sm ${
-                        v.discountType === 'PERCENT'
+                        isPct
                           ? 'bg-blue-600 text-white'
                           : 'bg-amber-500 text-slate-950'
                       }`}
                     >
-                      {v.discountType === 'PERCENT' ? '%' : 'VNĐ'}
+                      {isPct ? '%' : 'VNĐ'}
                     </div>
                     <div>
                       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        {v.discountType === 'PERCENT' ? 'Giảm theo tỷ lệ' : 'Trợ giá trực tiếp'}
+                        {isPct ? 'Giảm theo tỷ lệ' : 'Trợ giá trực tiếp'}
                       </div>
                       <div className="text-base font-black text-slate-900 dark:text-white">
-                        {v.discountType === 'PERCENT'
+                        {isPct
                           ? `Giảm ${v.discountValue}%`
                           : `Giảm ${v.discountValue.toLocaleString('vi-VN')} đ`}
                       </div>
@@ -285,7 +375,7 @@ export const PassengerVouchersPage: React.FC = () => {
 
                   {/* Status Badge */}
                   <div>
-                    {!v.active ? (
+                    {!isActive ? (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
                         Tạm ngưng
                       </span>
@@ -342,7 +432,7 @@ export const PassengerVouchersPage: React.FC = () => {
                     </div>
 
                     <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 leading-relaxed">
-                      {v.description}
+                      {v.description || 'Ưu đãi chuyến đi xe buýt thông minh đô thị'}
                     </p>
                   </div>
 
@@ -350,15 +440,15 @@ export const PassengerVouchersPage: React.FC = () => {
                     <div className="flex justify-between items-center">
                       <span>Đơn tối thiểu:</span>
                       <strong className="text-slate-700 dark:text-slate-200">
-                        {v.minOrder > 0 ? `${v.minOrder.toLocaleString('vi-VN')} đ` : 'Không yêu cầu'}
+                        {(v.minOrder ?? 0) > 0 ? `${(v.minOrder ?? 0).toLocaleString('vi-VN')} đ` : 'Không yêu cầu'}
                       </strong>
                     </div>
 
-                    {v.discountType === 'PERCENT' && v.maxDiscount && (
+                    {isPct && (v.maxDiscount ?? 0) > 0 && (
                       <div className="flex justify-between items-center">
                         <span>Giảm tối đa:</span>
                         <strong className="text-emerald-600 dark:text-emerald-400">
-                          {v.maxDiscount.toLocaleString('vi-VN')} đ
+                          {(v.maxDiscount ?? 0).toLocaleString('vi-VN')} đ
                         </strong>
                       </div>
                     )}
@@ -366,11 +456,11 @@ export const PassengerVouchersPage: React.FC = () => {
                     <div className="flex justify-between items-center">
                       <span>Hiệu lực đến:</span>
                       <strong className="text-slate-700 dark:text-slate-200">
-                        {v.endAt.split('T')[0]}
+                        {formatVnDate(v.endAt)}
                       </strong>
                     </div>
 
-                    {v.usageLimit && (
+                    {v.usageLimit ? (
                       <div className="space-y-1 pt-1">
                         <div className="flex justify-between items-center text-[10px]">
                           <span>Lượt dùng hệ thống:</span>
@@ -391,7 +481,7 @@ export const PassengerVouchersPage: React.FC = () => {
                           />
                         </div>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </div>
 
@@ -435,7 +525,7 @@ export const PassengerVouchersPage: React.FC = () => {
                 {selectedVoucher.code}
               </span>
               <p className="text-slate-800 dark:text-slate-200 font-medium">
-                {selectedVoucher.description}
+                {selectedVoucher.description || 'Ưu đãi chuyến đi xe buýt thông minh đô thị'}
               </p>
             </div>
 
@@ -443,17 +533,17 @@ export const PassengerVouchersPage: React.FC = () => {
               <div className="flex justify-between pt-2">
                 <span className="text-slate-500">Hình thức ưu đãi:</span>
                 <span className="font-bold">
-                  {selectedVoucher.discountType === 'PERCENT'
+                  {isPercent(selectedVoucher.discountType)
                     ? `Giảm ${selectedVoucher.discountValue}%`
                     : `Giảm ${selectedVoucher.discountValue.toLocaleString('vi-VN')} VNĐ`}
                 </span>
               </div>
 
-              {selectedVoucher.maxDiscount && (
+              {isPercent(selectedVoucher.discountType) && (selectedVoucher.maxDiscount ?? 0) > 0 && (
                 <div className="flex justify-between pt-2">
                   <span className="text-slate-500">Mức giảm tối đa:</span>
                   <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                    {selectedVoucher.maxDiscount.toLocaleString('vi-VN')} VNĐ
+                    {(selectedVoucher.maxDiscount ?? 0).toLocaleString('vi-VN')} VNĐ
                   </span>
                 </div>
               )}
@@ -461,20 +551,20 @@ export const PassengerVouchersPage: React.FC = () => {
               <div className="flex justify-between pt-2">
                 <span className="text-slate-500">Giá trị đơn vé tối thiểu:</span>
                 <span className="font-bold">
-                  {selectedVoucher.minOrder > 0
-                    ? `${selectedVoucher.minOrder.toLocaleString('vi-VN')} VNĐ`
+                  {(selectedVoucher.minOrder ?? 0) > 0
+                    ? `${(selectedVoucher.minOrder ?? 0).toLocaleString('vi-VN')} VNĐ`
                     : 'Không yêu cầu đơn tối thiểu'}
                 </span>
               </div>
 
               <div className="flex justify-between pt-2">
                 <span className="text-slate-500">Thời gian bắt đầu:</span>
-                <span className="font-mono">{selectedVoucher.startAt}</span>
+                <span className="font-mono">{formatVnDateTime(selectedVoucher.startAt)}</span>
               </div>
 
               <div className="flex justify-between pt-2">
                 <span className="text-slate-500">Hạn chót áp dụng:</span>
-                <span className="font-mono">{selectedVoucher.endAt}</span>
+                <span className="font-mono">{formatVnDateTime(selectedVoucher.endAt)}</span>
               </div>
 
               <div className="flex justify-between pt-2">

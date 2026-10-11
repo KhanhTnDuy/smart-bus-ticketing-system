@@ -89,6 +89,7 @@ await DbSeeder.SeedAdminAsync(app);
 if (app.Environment.IsDevelopment())
 {
     await DbSeeder.SeedAssignmentSampleDataAsync(app);
+    await DbSeeder.SeedVouchersSampleDataAsync(app);
 }
 
 app.Run();

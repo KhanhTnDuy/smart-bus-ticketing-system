@@ -23,7 +23,6 @@ import {
   TicketPercent,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { useData } from '../../context/DataContext';
 import { useDashboardData } from '../../hooks/useDashboardData';
 import { toAuditLog } from '../../api/mappers';
 import { formatDateTime } from '../../api/datetime';
@@ -33,7 +32,6 @@ export const DashboardPage: React.FC = () => {
   const { currentUser, role } = useAuth();
   // Số liệu thật từ backend theo quyền của vai trò. Không còn dữ liệu mẫu ở trang này.
   const data = useDashboardData(role);
-  const { vouchers } = useData();
   const navigate = useNavigate();
 
   /** " (3 chờ)" khi có số liệu; chuỗi rỗng khi null, để không khoe một con số 0 sai. */
@@ -190,7 +188,7 @@ export const DashboardPage: React.FC = () => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-pink-600 dark:group-hover:text-pink-400 flex items-center justify-between">
-                        <span>Kho Khuyến Mãi & Voucher Giảm Giá ({vouchers.filter((v) => v.active).length} mã)</span>
+                        <span>Kho Khuyến Mãi & Voucher Giảm Giá</span>
                         <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">

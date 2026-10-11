@@ -206,18 +206,10 @@ interface DataContextType {
 
   // Vouchers (Mã giảm giá Marketing)
   vouchers: Voucher[];
-  addVoucher: (data: Omit<Voucher, 'id' | 'createdAt' | 'usedCount'>) => { success: boolean; message?: string; voucher?: Voucher };
-  updateVoucher: (id: string, updates: Partial<Voucher>) => { success: boolean; message?: string };
-  deleteVoucher: (id: string) => { success: boolean; message?: string };
-  toggleVoucherStatus: (id: string) => { success: boolean; message?: string };
-  validateVoucher: (code: string, currentTotal: number) => {
-    valid: boolean;
-    discountAmount: number;
-    finalTotal: number;
-    message: string;
-    voucher?: Voucher;
-  };
-  recordVoucherUsage: (code: string) => { success: boolean };
+  addVoucher: (data: Omit<Voucher, 'id' | 'createdAt' | 'usedCount' | 'remainingCount' | 'isActive' | 'status'>) => { success: boolean; message?: string; voucher?: Voucher };
+  updateVoucher: (id: number, updates: Partial<Voucher>) => { success: boolean; message?: string };
+  deleteVoucher: (id: number) => { success: boolean; message?: string };
+  toggleVoucherStatus: (id: number) => { success: boolean; message?: string };
 }
 
 
@@ -237,13 +229,13 @@ const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
 
 // Safe ID generator that finds the maximum numeric suffix to prevent collision on deleted records
 const generateNextSequentialId = (
-  items: Array<{ id: string }>,
+  items: Array<{ id: string | number }>,
   prefix: string,
   padLength: number = 2
 ): string => {
   const maxNum = items.reduce((max, item) => {
     const regex = new RegExp(`^${prefix}-?(\\d+)`, 'i');
-    const match = item.id.match(regex);
+    const match = String(item.id).match(regex);
     if (match) {
       const num = parseInt(match[1], 10);
       return !isNaN(num) ? Math.max(max, num) : max;
@@ -2214,36 +2206,41 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // 10. VOUCHER / PROMOTION OPERATIONS (Sprint 2 / US18)
-  const addVoucher = (data: Omit<Voucher, 'id' | 'createdAt' | 'usedCount'>) => {
+  const addVoucher = (data: Omit<Voucher, 'id' | 'createdAt' | 'usedCount' | 'remainingCount' | 'isActive' | 'status'>) => {
     const upperCode = data.code.trim().toUpperCase();
     if (vouchers.some((v) => v.code.toUpperCase() === upperCode)) {
       return { success: false, message: `Mã giảm giá "${upperCode}" đã tồn tại trên hệ thống.` };
     }
 
-    const newId = generateNextSequentialId(vouchers, 'VOU', 3);
+    const newId = vouchers.reduce((max, v) => Math.max(max, Number(v.id) || 0), 0) + 1;
     const newVoucher: Voucher = {
       ...data,
       id: newId,
       code: upperCode,
       usedCount: 0,
+      remainingCount: data.usageLimit,
+      isActive: true,
+      active: true,
+      status: 'ACTIVE',
       createdAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
     };
 
     setVouchers((prev) => [newVoucher, ...prev]);
 
+    const isPercent = data.discountType === 'Percent';
     addAuditLog({
       user: getActorName(),
       action: 'Tạo mã giảm giá mới',
       module: 'VOUCHER',
-      description: `Tạo voucher ${upperCode} (${data.discountType === 'PERCENT' ? `${data.discountValue}%` : `${data.discountValue.toLocaleString()} VNĐ`})`,
+      description: `Tạo voucher ${upperCode} (${isPercent ? `${data.discountValue}%` : `${data.discountValue.toLocaleString()} VNĐ`})`,
       status: 'SUCCESS',
-      targetId: newId,
+      targetId: String(newId),
     });
 
     return { success: true, voucher: newVoucher };
   };
 
-  const updateVoucher = (id: string, updates: Partial<Voucher>) => {
+  const updateVoucher = (id: number, updates: Partial<Voucher>) => {
     const target = vouchers.find((v) => v.id === id);
     if (!target) {
       return { success: false, message: 'Không tìm thấy mã giảm giá.' };
@@ -2267,13 +2264,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       module: 'VOUCHER',
       description: `Cập nhật thông tin voucher [${target.code}]`,
       status: 'SUCCESS',
-      targetId: id,
+      targetId: String(id),
     });
 
     return { success: true };
   };
 
-  const deleteVoucher = (id: string) => {
+  const deleteVoucher = (id: number) => {
     const target = vouchers.find((v) => v.id === id);
     setVouchers((prev) => prev.filter((v) => v.id !== id));
 
@@ -2283,21 +2280,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       module: 'VOUCHER',
       description: `Đã xóa mã voucher [${target ? target.code : id}]`,
       status: 'SUCCESS',
-      targetId: id,
+      targetId: String(id),
     });
 
     return { success: true };
   };
 
-  const toggleVoucherStatus = (id: string) => {
+  const toggleVoucherStatus = (id: number) => {
     const target = vouchers.find((v) => v.id === id);
     if (!target) {
       return { success: false, message: 'Không tìm thấy voucher.' };
     }
 
-    const nextState = !target.active;
+    const nextState = !(target.active ?? target.isActive);
     setVouchers((prev) =>
-      prev.map((v) => (v.id === id ? { ...v, active: nextState } : v))
+      prev.map((v) => (v.id === id ? { ...v, active: nextState, isActive: nextState, status: nextState ? 'ACTIVE' : 'EXPIRED' } : v))
     );
 
     addAuditLog({
@@ -2306,84 +2303,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       module: 'VOUCHER',
       description: `Đã ${nextState ? 'kích hoạt' : 'tắt kích hoạt'} mã giảm giá [${target.code}]`,
       status: 'SUCCESS',
-      targetId: id,
+      targetId: String(id),
     });
-
-    return { success: true };
-  };
-
-  const validateVoucher = (code: string, currentTotal: number) => {
-    const cleanCode = code.trim().toUpperCase();
-    if (!cleanCode) {
-      return { valid: false, discountAmount: 0, finalTotal: currentTotal, message: 'Vui lòng nhập mã giảm giá.' };
-    }
-
-    const voucher = vouchers.find((v) => v.code.toUpperCase() === cleanCode);
-    if (!voucher) {
-      return { valid: false, discountAmount: 0, finalTotal: currentTotal, message: 'Mã giảm giá không tồn tại hoặc đã hết hiệu lực.' };
-    }
-
-    if (!voucher.active) {
-      return { valid: false, discountAmount: 0, finalTotal: currentTotal, message: 'Mã giảm giá này hiện đang tạm ngưng áp dụng.' };
-    }
-
-    const todayStr = new Date().toISOString().split('T')[0];
-    const startDateStr = voucher.startAt.split('T')[0];
-    const endDateStr = voucher.endAt.split('T')[0];
-
-    if (todayStr < startDateStr) {
-      return { valid: false, discountAmount: 0, finalTotal: currentTotal, message: `Mã giảm giá chỉ có hiệu lực từ ngày ${startDateStr}.` };
-    }
-
-    if (todayStr > endDateStr) {
-      return { valid: false, discountAmount: 0, finalTotal: currentTotal, message: `Mã giảm giá đã hết hạn sử dụng vào ngày ${endDateStr}.` };
-    }
-
-    if (voucher.usageLimit && voucher.usageLimit > 0 && voucher.usedCount >= voucher.usageLimit) {
-      return { valid: false, discountAmount: 0, finalTotal: currentTotal, message: 'Mã giảm giá đã hết lượt sử dụng cho toàn hệ thống.' };
-    }
-
-    if (voucher.minOrder > 0 && currentTotal < voucher.minOrder) {
-      return {
-        valid: false,
-        discountAmount: 0,
-        finalTotal: currentTotal,
-        message: `Đơn hàng tối thiểu để áp dụng mã này là ${voucher.minOrder.toLocaleString('vi-VN')} VNĐ (Hiện tại: ${currentTotal.toLocaleString('vi-VN')} VNĐ).`,
-      };
-    }
-
-    let discount = 0;
-    if (voucher.discountType === 'PERCENT') {
-      discount = Math.round((currentTotal * voucher.discountValue) / 100);
-      if (voucher.maxDiscount && voucher.maxDiscount > 0) {
-        discount = Math.min(discount, voucher.maxDiscount);
-      }
-    } else {
-      discount = Math.min(voucher.discountValue, currentTotal);
-    }
-
-    discount = Math.min(discount, currentTotal);
-    const finalTotal = Math.max(0, currentTotal - discount);
-
-    return {
-      valid: true,
-      discountAmount: discount,
-      finalTotal,
-      message: `Áp dụng thành công! Tiết kiệm được ${discount.toLocaleString('vi-VN')} VNĐ.`,
-      voucher,
-    };
-  };
-
-  const recordVoucherUsage = (code: string) => {
-    const cleanCode = code.trim().toUpperCase();
-    const target = vouchers.find((v) => v.code.toUpperCase() === cleanCode);
-    if (!target) return { success: false };
-
-    setVouchers((prev) =>
-      prev.map((v) =>
-        v.code.toUpperCase() === cleanCode ? { ...v, usedCount: (v.usedCount || 0) + 1 } : v
-      )
-    );
 
     return { success: true };
   };
@@ -2489,8 +2410,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateVoucher,
         deleteVoucher,
         toggleVoucherStatus,
-        validateVoucher,
-        recordVoucherUsage,
       }}
 
     >
