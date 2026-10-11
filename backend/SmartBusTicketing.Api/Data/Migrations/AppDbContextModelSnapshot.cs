@@ -466,6 +466,12 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
+                    b.Property<int>("EmailAttempts")
+                        .HasColumnType("int");
+
+                    b.Property<string>("EmailError")
+                        .HasColumnType("longtext");
+
                     b.Property<string>("InvoiceNo")
                         .IsRequired()
                         .HasColumnType("varchar(255)");

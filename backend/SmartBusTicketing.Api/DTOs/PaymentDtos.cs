@@ -52,6 +52,14 @@ public sealed class PaymentDto
     public IReadOnlyList<RefundSummaryDto> Refunds { get; init; } = [];
 }
 
+/// <summary>Yêu cầu gửi (lại) email hóa đơn. Email chỉ nhận được khi hóa đơn chưa có địa chỉ.</summary>
+public sealed class SendInvoiceEmailRequest
+{
+    [EmailAddress(ErrorMessage = "Địa chỉ email không hợp lệ.")]
+    [StringLength(254, ErrorMessage = "Địa chỉ email quá dài.")]
+    public string? Email { get; init; }
+}
+
 /// <summary>Kết quả khách thấy sau khi quay về từ trang thanh toán của ngân hàng.</summary>
 public sealed class PaymentResultDto
 {
@@ -72,6 +80,10 @@ public sealed class InvoiceDto
     public decimal Total { get; init; }
     public string Method { get; init; } = string.Empty;
     public DateTime? PaidAt { get; init; }
+    /// <summary>Thời điểm email hóa đơn được gửi, rỗng nếu chưa gửi.</summary>
+    public DateTime? SentAt { get; init; }
+    /// <summary>Sent (đã gửi), Pending (đang chờ gửi hoặc đang thử lại), Failed (quá số lần thử), NoAddress (tài khoản chưa có email).</summary>
+    public string EmailStatus { get; init; } = string.Empty;
     public string RouteCode { get; init; } = string.Empty;
     public string RouteName { get; init; } = string.Empty;
     public DateTime DepartureAt { get; init; }

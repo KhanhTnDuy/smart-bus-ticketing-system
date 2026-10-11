@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SmartBusTicketing.Api.Data;
 using SmartBusTicketing.Api.Models;
+using SmartBusTicketing.Api.Services.Email;
 
 namespace SmartBusTicketing.Api.Services.Payments;
 
@@ -33,7 +34,8 @@ public sealed record SettlementResult(SettlementOutcome Outcome, Payment? Paymen
 /// về cùng lúc hoặc lặp lại: mỗi bước chuyển trạng thái là một câu UPDATE có điều kiện, chỉ một lời gọi thấy 1 dòng
 /// bị đổi nên chỉ một lời gọi được làm bước tiếp theo.
 /// </summary>
-public sealed class PaymentSettlementService(AppDbContext db, VnPayClient vnPay, AuditLogService audit, ILogger<PaymentSettlementService> logger)
+public sealed class PaymentSettlementService(
+    AppDbContext db, VnPayClient vnPay, AuditLogService audit, IInvoiceMailQueue invoiceMail, ILogger<PaymentSettlementService> logger)
 {
     /// <summary>Xử lý lời gọi từ VNPay (đã gồm bước kiểm chữ ký và đối chiếu số tiền).</summary>
     public async Task<SettlementResult> SettleVnPayCallbackAsync(IReadOnlyDictionary<string, string> query, CancellationToken ct)
@@ -133,6 +135,8 @@ public sealed class PaymentSettlementService(AppDbContext db, VnPayClient vnPay,
             "/passenger/tickets", booking.TripId);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
+        // Gửi email hóa đơn trong nền: lỗi SMTP không ảnh hưởng giao dịch đã chốt.
+        invoiceMail.Signal();
 
         await audit.WriteAsync(booking.PassengerId, booking.Passenger.Username, $"Thanh toán {booking.BookingCode}",
             AuditActionType.Payment, $"PAYMENT-{payment.Id}", AuditStatus.Success,
