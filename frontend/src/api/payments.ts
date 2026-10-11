@@ -70,6 +70,10 @@ export interface PaymentDto {
   amount: number;
   status: string;
   providerTxnId: string | null;
+  /** Lý do thất bại hoặc hết hạn, chỉ có khi status là Failed. */
+  failureReason: string | null;
+  /** Trang thanh toán của ngân hàng. Chỉ có ngay trong phản hồi khởi tạo thanh toán qua cổng (VNPay). */
+  paymentUrl: string | null;
   paidAt: string | null;
   tripId: number;
   routeCode: string;
@@ -119,6 +123,36 @@ export interface RefundDto {
 
 export const payBooking = (bookingId: number, method: PaymentMethodCode) =>
   api.post<PaymentDto>('/api/payments', { bookingId, method });
+
+/**
+ * Bắt đầu thanh toán và, nếu cổng trả về trang của ngân hàng, chuyển trình duyệt sang đó. Trả về
+ * `redirected: true` khi đã chuyển trang (người gọi không cần làm gì thêm), `false` khi thanh toán xong ngay
+ * (bộ giả lập) kèm kết quả.
+ */
+export const startPayment = async (
+  bookingId: number,
+  method: PaymentMethodCode
+): Promise<{ redirected: true } | { redirected: false; payment: PaymentDto }> => {
+  const payment = await payBooking(bookingId, method);
+  if (payment.paymentUrl) {
+    window.location.assign(payment.paymentUrl);
+    return { redirected: true };
+  }
+  return { redirected: false, payment };
+};
+
+export interface PaymentResultDto {
+  success: boolean;
+  message: string;
+  payment: PaymentDto;
+}
+
+/**
+ * Gửi nguyên chuỗi query VNPay trả về (có chữ ký) cho máy chủ để kiểm chữ ký và chốt giao dịch. Không cần đăng
+ * nhập: chữ ký là bằng chứng, nên khách quay về từ ngân hàng ở tab khác vẫn xem được kết quả.
+ */
+export const confirmVnPayReturn = (search: string) =>
+  api.get<PaymentResultDto>(`/api/payments/vnpay/return${search.startsWith('?') ? search : `?${search}`}`);
 
 export const listMyPayments = (signal?: AbortSignal) => api.get<PaymentDto[]>('/api/payments/my', undefined, signal);
 

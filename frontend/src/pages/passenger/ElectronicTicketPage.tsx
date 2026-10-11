@@ -31,6 +31,7 @@ import { EmptyState } from '../../components/common/EmptyState';
 import { Ticket, TicketStatus } from '../../types';
 import { ApiError } from '../../api/client';
 import { UnpaidBookingsPanel } from '../../components/passenger/UnpaidBookingsPanel';
+import { TicketQr } from '../../components/passenger/TicketQr';
 import {
   requestCancelTicket,
   requestExchangeTicket,
@@ -556,10 +557,14 @@ export const ElectronicTicketPage: React.FC = () => {
                     <div className="flex items-center justify-between p-2 rounded bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40">
                       <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
                         <QrCode className="w-4 h-4 text-institutional-600 dark:text-sky-400" />
-                        <span className="text-[11px] font-mono">{ticket.qrCodeData}</span>
+                        <span className="text-[11px] font-mono">{ticket.id}</span>
                       </div>
                       <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">
-                        Sẵn sàng quét
+                        {ticketStatus === 'PAID'
+                          ? 'Sẵn sàng quét'
+                          : ticketStatus === 'PENDING'
+                            ? 'Chờ thanh toán'
+                            : 'Không còn hiệu lực'}
                       </span>
                     </div>
                   </div>
@@ -820,17 +825,14 @@ export const ElectronicTicketPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Simulated QR Box */}
+                {/* Mã QR thật: máy quét của tài xế/phụ xe đọc đúng chuỗi này */}
                 <div className="flex flex-col items-center bg-white p-3 rounded-lg shadow-inner text-slate-900 shrink-0">
-                  <div className="w-28 h-28 border-2 border-dashed border-slate-400 rounded flex flex-col items-center justify-center bg-slate-50 relative">
-                    <QrCode className="w-20 h-20 text-institutional-900" />
-                    <span className="text-[9px] font-bold text-institutional-800 bg-white px-1 rounded absolute bottom-1">
-                      CHÍNH THỨC
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-mono font-bold mt-1.5 text-slate-600">
-                    {selectedTicket.qrCodeData}
-                  </span>
+                  <TicketQr
+                    value={selectedTicket.qrCodeValue ?? selectedTicket.qrCodeData ?? ''}
+                    status={selectedTicket.ticketStatus || selectedTicket.status || 'PAID'}
+                    size={128}
+                  />
+                  <span className="text-[10px] font-mono font-bold mt-1.5 text-slate-600">{selectedTicket.id}</span>
                 </div>
               </div>
 
@@ -933,8 +935,14 @@ export const ElectronicTicketPage: React.FC = () => {
 
               <div className="flex justify-center pt-2">
                 <div className="text-center">
-                  <QrCode className="w-24 h-24 mx-auto text-slate-800" />
-                  <span className="text-[9px] font-mono text-slate-500">{selectedTicket.qrCodeData}</span>
+                  <div className="flex justify-center">
+                    <TicketQr
+                      value={selectedTicket.qrCodeValue ?? selectedTicket.qrCodeData ?? ''}
+                      status={selectedTicket.ticketStatus || selectedTicket.status || 'PAID'}
+                      size={144}
+                    />
+                  </div>
+                  <span className="text-[9px] font-mono text-slate-500">{selectedTicket.id}</span>
                 </div>
               </div>
             </div>
