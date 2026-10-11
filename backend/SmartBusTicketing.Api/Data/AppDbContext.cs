@@ -216,6 +216,10 @@ public class AppDbContext : DbContext
             e.ToTable("payments");
             e.Property(p => p.Amount).HasPrecision(12, 2);
             e.HasIndex(p => p.ProviderTxnId).IsUnique();
+            e.Property(p => p.TxnRef).HasMaxLength(64);
+            e.HasIndex(p => p.TxnRef).IsUnique();
+            e.Property(p => p.GatewayPayDate).HasMaxLength(14);
+            e.Property(p => p.FailureReason).HasMaxLength(255);
             e.HasOne(p => p.Booking).WithMany(b => b.Payments)
                 .HasForeignKey(p => p.BookingId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(p => p.MonthlyPass).WithMany(m => m.Payments)

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using SmartBusTicketing.Api.Data;
 using SmartBusTicketing.Api.Services;
+using SmartBusTicketing.Api.Services.Payments;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,6 +21,10 @@ builder.Services.AddScoped<IScheduleManagementService, ScheduleManagementService
 builder.Services.AddScoped<ISeatHoldService, SeatHoldService>();
 builder.Services.AddScoped<ITicketExchangeValidator, TicketExchangeValidator>();
 builder.Services.AddScoped<AuditLogService>();
+builder.Services.Configure<VnPayOptions>(builder.Configuration.GetSection(VnPayOptions.Section));
+builder.Services.AddSingleton<VnPayClient>();
+builder.Services.AddScoped<PaymentSettlementService>();
+builder.Services.AddHostedService<HoldExpiryService>();
 builder.Services.AddSingleton<JwtTokenService>();
 
 // Xác thực là bắt buộc: thiếu khóa thì dừng ngay khi khởi động, thay vì để mọi

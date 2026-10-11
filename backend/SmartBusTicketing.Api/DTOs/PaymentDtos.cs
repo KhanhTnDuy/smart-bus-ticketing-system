@@ -36,6 +36,10 @@ public sealed class PaymentDto
     /// <summary>Pending, Success, Failed hoặc Refunded.</summary>
     public string Status { get; init; } = string.Empty;
     public string? ProviderTxnId { get; init; }
+    /// <summary>Lý do thất bại hoặc hết hạn, chỉ có khi Status là Failed.</summary>
+    public string? FailureReason { get; init; }
+    /// <summary>Địa chỉ trang thanh toán của ngân hàng. Chỉ có ngay trong phản hồi khởi tạo thanh toán qua cổng.</summary>
+    public string? PaymentUrl { get; set; }
     public DateTime? PaidAt { get; init; }
     public long TripId { get; init; }
     public string RouteCode { get; init; } = string.Empty;
@@ -46,6 +50,14 @@ public sealed class PaymentDto
     public string? InvoiceNo { get; init; }
     public decimal RefundedAmount { get; init; }
     public IReadOnlyList<RefundSummaryDto> Refunds { get; init; } = [];
+}
+
+/// <summary>Kết quả khách thấy sau khi quay về từ trang thanh toán của ngân hàng.</summary>
+public sealed class PaymentResultDto
+{
+    public bool Success { get; init; }
+    public string Message { get; init; } = string.Empty;
+    public PaymentDto Payment { get; init; } = null!;
 }
 
 public sealed class InvoiceDto

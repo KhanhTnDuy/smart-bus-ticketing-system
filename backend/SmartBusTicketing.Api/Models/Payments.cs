@@ -10,8 +10,18 @@ public class Payment
     public PaymentMethod Method { get; set; }
     public decimal Amount { get; set; }
     public PaymentStatus Status { get; set; } = PaymentStatus.Pending;
+    /// <summary>Mã giao dịch do cổng thanh toán cấp (VNPay: vnp_TransactionNo). Chỉ có sau khi thanh toán xong.</summary>
     public string? ProviderTxnId { get; set; }
     public DateTime? PaidAt { get; set; }
+
+    /// <summary>Mã tham chiếu hệ thống gửi cổng thanh toán cho mỗi lần thanh toán (VNPay: vnp_TxnRef), duy nhất.</summary>
+    public string? TxnRef { get; set; }
+
+    /// <summary>Thời điểm thanh toán theo cổng, dạng yyyyMMddHHmmss giờ Việt Nam. VNPay đòi lại giá trị này khi hoàn tiền.</summary>
+    public string? GatewayPayDate { get; set; }
+
+    /// <summary>Lý do giao dịch thất bại hoặc hết hạn, hiển thị cho khách và quản lý.</summary>
+    public string? FailureReason { get; set; }
 
     public Invoice? Invoice { get; set; }
     public ICollection<Refund> Refunds { get; set; } = new List<Refund>();
