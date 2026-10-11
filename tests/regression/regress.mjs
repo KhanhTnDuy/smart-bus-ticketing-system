@@ -30,7 +30,7 @@ const sql = (q) => {
 };
 
 // Mốc id lớn nhất trước khi chạy: mọi dòng do kịch bản tạo ra đều có id lớn hơn mốc nên dọn được chính xác.
-const TABLES = ['refunds', 'invoices', 'payments', 'ticket_scans', 'notifications', 'incidents', 'ticket_change_requests', 'feedback_history', 'feedbacks', 'passenger_verifications', 'tickets', 'bookings', 'trips', 'schedules', 'accounts', 'routes', 'buses', 'stops'];
+const TABLES = ['refunds', 'invoices', 'payments', 'ticket_scans', 'notifications', 'incidents', 'ticket_change_requests', 'feedback_history', 'feedbacks', 'passenger_verifications', 'tickets', 'bookings', 'vouchers', 'trip_staff', 'bus_locations', 'trips', 'schedules', 'accounts', 'routes', 'buses', 'stops'];
 const baseline = {};
 for (const t of TABLES) baseline[t] = Number(sql(`select coalesce(max(Id),0) from ${t}`));
 
@@ -360,6 +360,119 @@ try {
     check(`nhật ký có "${k}"`, logs.includes(k));
   is('quản lý xem nhật ký -> 403', (await call(mg, 'GET', '/api/audit-logs')).s, 403);
   is('hành khách xem nhật ký -> 403', (await call(p1, 'GET', '/api/audit-logs')).s, 403);
+  // ============================================================
+  sec('Q. Quản lý và kiểm tra voucher (SCRUM-66, SCRUM-67)');
+  // 1. Phân quyền và validate
+  is('validate không có token -> 401', (await call(null, 'POST', '/api/vouchers/validate', { code: 'TEST' })).s, 401);
+  const valNonExist = await call(p1, 'POST', '/api/vouchers/validate', { code: 'KHONGTONTAI' });
+  is('validate voucher không tồn tại -> 200', valNonExist.s, 200);
+  check('kết quả không hợp lệ', valNonExist.j?.isValid === false);
+
+  // 2. Quyền tạo voucher
+  const nowMs = Date.now();
+  const vcPayload = {
+    code: 'QA_VC10',
+    discountType: 0, // Percent
+    discountValue: 10,
+    startAt: new Date(nowMs - 3600000).toISOString(),
+    endAt: new Date(nowMs + 86400000 * 7).toISOString(),
+    usageLimit: 2,
+  };
+  is('tài xế tạo voucher -> 403', (await call(d1, 'POST', '/api/vouchers', vcPayload)).s, 403);
+  is('hành khách tạo voucher -> 403', (await call(p1, 'POST', '/api/vouchers', vcPayload)).s, 403);
+
+  // Quản lý tạo voucher hợp lệ
+  const createVc = await call(mg, 'POST', '/api/vouchers', vcPayload);
+  is('quản lý tạo voucher', createVc.s, 201);
+  const vcId = createVc.j?.id;
+  check('có id voucher', !!vcId);
+
+  // Chặn trùng mã (SCRUM-67)
+  is('tạo trùng mã voucher -> 409', (await call(mg, 'POST', '/api/vouchers', vcPayload)).s, 409);
+
+  // Validate voucher vừa tạo
+  const valOk = await call(p1, 'POST', '/api/vouchers/validate', { code: 'QA_VC10', orderAmount: 20000 });
+  is('hành khách validate mã thành công', valOk.s, 200);
+  check('voucher hợp lệ', valOk.j?.isValid === true);
+  is('mức giảm 10% của 20000 = 2000', valOk.j?.discountAmount, 2000);
+
+  // Tạo voucher đã hết hạn
+  const expVcPayload = {
+    code: 'QA_EXPIRED',
+    discountType: 1, // Fixed
+    discountValue: 5000,
+    startAt: new Date(nowMs - 86400000 * 10).toISOString(),
+    endAt: new Date(nowMs - 86400000 * 2).toISOString(),
+    usageLimit: 10,
+  };
+  await call(adm, 'POST', '/api/vouchers', expVcPayload);
+  const valExp = await call(p1, 'POST', '/api/vouchers/validate', { code: 'QA_EXPIRED' });
+  check('voucher hết hạn không hợp lệ', valExp.j?.isValid === false);
+
+  // 3. Đặt vé áp dụng voucher (SCRUM-67)
+  const seatsQ = seatsOf(1, 4, 10);
+  // Đặt với voucher hết hạn -> 400
+  const bookExp = await call(p1, 'POST', '/api/bookings', {
+    tripId: tripB,
+    seatIds: [seatsQ[0]],
+    boardStopId: 1,
+    alightStopId: 2,
+    voucherCode: 'QA_EXPIRED'
+  });
+  is('đặt vé với voucher hết hạn -> 400', bookExp.s, 400);
+
+  // Đặt vé lượt 1 với voucher QA_VC10 (giảm 10%)
+  const book1 = await call(p1, 'POST', '/api/bookings', {
+    tripId: tripB,
+    seatIds: [seatsQ[0]],
+    boardStopId: 1,
+    alightStopId: 2,
+    voucherCode: 'QA_VC10'
+  });
+  is('đặt vé lượt 1 thành công', book1.s, 200);
+  check('có giảm giá', (book1.j?.discountAmount || 0) > 0);
+
+  // Đặt vé lượt 2 với voucher QA_VC10 (đạt giới hạn 2 lượt)
+  const book2 = await call(p2, 'POST', '/api/bookings', {
+    tripId: tripB,
+    seatIds: [seatsQ[1]],
+    boardStopId: 1,
+    alightStopId: 2,
+    voucherCode: 'QA_VC10'
+  });
+  is('đặt vé lượt 2 thành công (đạt giới hạn 2 lượt)', book2.s, 200);
+
+  // Đặt vé lượt 3 với voucher QA_VC10 -> phải bị chặn do hết lượt (UsageLimit = 2)
+  const book3 = await call(p1, 'POST', '/api/bookings', {
+    tripId: tripB,
+    seatIds: [seatsQ[2]],
+    boardStopId: 1,
+    alightStopId: 2,
+    voucherCode: 'QA_VC10'
+  });
+  is('đặt vé lượt 3 vượt UsageLimit -> 400', book3.s, 400);
+
+  // 4. Kiểm tra an toàn cập nhật và xóa voucher đã sử dụng
+  is('chặn xóa voucher đã có lượt dùng -> 400', (await call(mg, 'DELETE', `/api/vouchers/${vcId}`)).s, 400);
+  const updateCodeFail = await call(mg, 'PUT', `/api/vouchers/${vcId}`, {
+    ...vcPayload,
+    code: 'QA_VC10_NEW'
+  });
+  is('chặn sửa mã voucher đã có lượt dùng -> 400', updateCodeFail.s, 400);
+
+  const updateDiscountFail = await call(mg, 'PUT', `/api/vouchers/${vcId}`, {
+    ...vcPayload,
+    discountValue: 20
+  });
+  is('chặn sửa mức giảm voucher đã có lượt dùng -> 400', updateDiscountFail.s, 400);
+
+  // Cập nhật gia hạn endAt hoặc tăng usageLimit -> thành công
+  const updateOk = await call(mg, 'PUT', `/api/vouchers/${vcId}`, {
+    ...vcPayload,
+    usageLimit: 5,
+    endAt: new Date(nowMs + 86400000 * 14).toISOString()
+  });
+  is('cho phép tăng lượt dùng hoặc hạn dùng', updateOk.s, 200);
 } catch (e) {
   console.log('LỖI KHI CHẠY:', e);
   results.push({ section, name: 'chạy hết kịch bản', ok: false });
@@ -388,6 +501,7 @@ try {
       `delete from passenger_verifications where Id>${b.passenger_verifications}`,
       `delete from tickets where Id>${b.tickets}`,
       `delete from bookings where Id>${b.bookings}`,
+      `delete from vouchers where Id>${b.vouchers}`,
       `delete from trip_staff where TripId>${b.trips}`,
       `delete from bus_locations where TripId>${b.trips}`,
       `delete from trips where Id>${b.trips}`,

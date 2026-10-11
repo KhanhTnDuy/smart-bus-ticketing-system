@@ -104,78 +104,7 @@ export const VoucherManagementPage: React.FC = () => {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Không thể tải danh sách voucher';
       setErrorMsg(msg);
-      // Fallback dữ liệu mẫu nếu API đang ngắt kết nối
-      setVouchers((prev) =>
-        prev.length > 0
-          ? prev
-          : [
-              {
-                id: 1,
-                code: 'HE2026',
-                discountType: 'Percent',
-                discountValue: 20,
-                startAt: new Date(Date.now() - 7 * 86400000).toISOString(),
-                endAt: new Date(Date.now() + 30 * 86400000).toISOString(),
-                usageLimit: 100,
-                usedCount: 15,
-                remainingCount: 85,
-                isActive: true,
-                status: 'ACTIVE',
-              },
-              {
-                id: 2,
-                code: 'CHAOHEXANH',
-                discountType: 'Fixed',
-                discountValue: 10000,
-                startAt: new Date(Date.now() - 5 * 86400000).toISOString(),
-                endAt: new Date(Date.now() + 45 * 86400000).toISOString(),
-                usageLimit: 50,
-                usedCount: 22,
-                remainingCount: 28,
-                isActive: true,
-                status: 'ACTIVE',
-              },
-              {
-                id: 3,
-                code: 'HETHAN2025',
-                discountType: 'Percent',
-                discountValue: 15,
-                startAt: new Date(Date.now() - 60 * 86400000).toISOString(),
-                endAt: new Date(Date.now() - 5 * 86400000).toISOString(),
-                usageLimit: 200,
-                usedCount: 40,
-                remainingCount: 160,
-                isActive: false,
-                status: 'EXPIRED',
-              },
-              {
-                id: 4,
-                code: 'HETLUOT',
-                discountType: 'Percent',
-                discountValue: 50,
-                startAt: new Date(Date.now() - 10 * 86400000).toISOString(),
-                endAt: new Date(Date.now() + 20 * 86400000).toISOString(),
-                usageLimit: 1,
-                usedCount: 1,
-                remainingCount: 0,
-                isActive: false,
-                status: 'OUT_OF_STOCK',
-              },
-              {
-                id: 5,
-                code: 'VIPKHACHHANG',
-                discountType: 'Fixed',
-                discountValue: 25000,
-                startAt: new Date(Date.now() + 3 * 86400000).toISOString(),
-                endAt: new Date(Date.now() + 30 * 86400000).toISOString(),
-                usageLimit: 500,
-                usedCount: 0,
-                remainingCount: 500,
-                isActive: false,
-                status: 'UPCOMING',
-              },
-            ]
-      );
+      setVouchers([]);
     } finally {
       setIsLoading(false);
     }

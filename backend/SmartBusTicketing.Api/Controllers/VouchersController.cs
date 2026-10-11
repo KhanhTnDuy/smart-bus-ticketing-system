@@ -31,9 +31,7 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
         CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        var query = db.Vouchers
-            .Include(v => v.Bookings)
-            .AsNoTracking();
+        var query = db.Vouchers.AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -48,14 +46,15 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
 
         var list = await query
             .OrderByDescending(v => v.Id)
+            .Select(v => new
+            {
+                Voucher = v,
+                UsedCount = v.Bookings.Count(b => b.Status == BookingStatus.Confirmed || (b.Status == BookingStatus.Pending && b.HoldExpiresAt > now))
+            })
             .ToListAsync(ct);
 
         var result = list
-            .Select(v =>
-            {
-                var usedCount = v.Bookings.Count(b => b.Status == BookingStatus.Confirmed || (b.Status == BookingStatus.Pending && b.HoldExpiresAt > now));
-                return ToDto(v, usedCount, now);
-            })
+            .Select(x => ToDto(x.Voucher, x.UsedCount, now))
             .Where(v =>
             {
                 if (string.IsNullOrWhiteSpace(status) || status.Equals("ALL", StringComparison.OrdinalIgnoreCase))
@@ -74,21 +73,25 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
     [Authorize(Roles = "Admin,Manager")]
     public async Task<ActionResult<VoucherDto>> GetById(long id, CancellationToken ct)
     {
-        var voucher = await db.Vouchers
-            .Include(v => v.Bookings)
+        var now = DateTime.UtcNow;
+        var item = await db.Vouchers
             .AsNoTracking()
-            .FirstOrDefaultAsync(v => v.Id == id, ct);
+            .Where(v => v.Id == id)
+            .Select(v => new
+            {
+                Voucher = v,
+                UsedCount = v.Bookings.Count(b => b.Status == BookingStatus.Confirmed || (b.Status == BookingStatus.Pending && b.HoldExpiresAt > now))
+            })
+            .FirstOrDefaultAsync(ct);
 
-        if (voucher is null) return NotFound(new ProblemDetails
+        if (item is null) return NotFound(new ProblemDetails
         {
             Status = StatusCodes.Status404NotFound,
             Title = "Không tìm thấy voucher",
             Detail = $"Voucher có ID {id} không tồn tại trong hệ thống."
         });
 
-        var now = DateTime.UtcNow;
-        var usedCount = voucher.Bookings.Count(b => b.Status == BookingStatus.Confirmed || (b.Status == BookingStatus.Pending && b.HoldExpiresAt > now));
-        return Ok(ToDto(voucher, usedCount, now));
+        return Ok(ToDto(item.Voucher, item.UsedCount, now));
     }
 
     /// <summary>
@@ -142,9 +145,7 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
     [Authorize(Roles = "Admin,Manager")]
     public async Task<ActionResult<VoucherDto>> Update(long id, VoucherRequest request, CancellationToken ct)
     {
-        var voucher = await db.Vouchers
-            .Include(v => v.Bookings)
-            .FirstOrDefaultAsync(v => v.Id == id, ct);
+        var voucher = await db.Vouchers.FirstOrDefaultAsync(v => v.Id == id, ct);
 
         if (voucher is null)
         {
@@ -169,6 +170,44 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
             });
         }
 
+        var now = DateTime.UtcNow;
+        var usedCount = await db.Bookings.CountAsync(b => b.VoucherId == id &&
+            (b.Status == BookingStatus.Confirmed || (b.Status == BookingStatus.Pending && b.HoldExpiresAt > now)), ct);
+
+        // Bảo vệ tính toàn vẹn dữ liệu: Chặn sửa mã hoặc mức giảm giá khi đã có booking áp dụng voucher
+        if (usedCount > 0)
+        {
+            if (!string.Equals(voucher.Code, code, StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new ProblemDetails
+                {
+                    Status = StatusCodes.Status400BadRequest,
+                    Title = "Không thể đổi mã voucher đã sử dụng",
+                    Detail = $"Voucher đã có {usedCount} lượt đặt vé sử dụng; không thể đổi mã để đảm bảo tính toàn vẹn dữ liệu."
+                });
+            }
+
+            if (voucher.DiscountType != request.DiscountType || voucher.DiscountValue != request.DiscountValue)
+            {
+                return BadRequest(new ProblemDetails
+                {
+                    Status = StatusCodes.Status400BadRequest,
+                    Title = "Không thể đổi mức giảm giá của voucher đã sử dụng",
+                    Detail = $"Voucher đã có {usedCount} lượt đặt vé sử dụng; không thể đổi loại hoặc mức giảm giá."
+                });
+            }
+
+            if (request.UsageLimit > 0 && request.UsageLimit < usedCount)
+            {
+                return BadRequest(new ProblemDetails
+                {
+                    Status = StatusCodes.Status400BadRequest,
+                    Title = "Số lượt dùng tối đa không hợp lệ",
+                    Detail = $"Số lượt dùng tối đa ({request.UsageLimit}) không thể nhỏ hơn số lượt đã được sử dụng ({usedCount} lượt)."
+                });
+            }
+        }
+
         var before = Describe(voucher);
 
         voucher.Code = code;
@@ -184,8 +223,6 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
         await audit.LogAsync(this, $"Cập nhật voucher {voucher.Code}", AuditActionType.Update,
             $"VOUCHER-{id}", ct, details: $"Trước: {before}; Sau: {after}");
 
-        var now = DateTime.UtcNow;
-        var usedCount = voucher.Bookings.Count(b => b.Status == BookingStatus.Confirmed || (b.Status == BookingStatus.Pending && b.HoldExpiresAt > now));
         return Ok(ToDto(voucher, usedCount, now));
     }
 
@@ -196,9 +233,7 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
     [Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> Delete(long id, CancellationToken ct)
     {
-        var voucher = await db.Vouchers
-            .Include(v => v.Bookings)
-            .FirstOrDefaultAsync(v => v.Id == id, ct);
+        var voucher = await db.Vouchers.FirstOrDefaultAsync(v => v.Id == id, ct);
 
         if (voucher is null)
         {
@@ -211,8 +246,8 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
         }
 
         var nowUtc = DateTime.UtcNow;
-        var confirmedCount = voucher.Bookings.Count(b => b.Status == BookingStatus.Confirmed);
-        var activePendingCount = voucher.Bookings.Count(b => b.Status == BookingStatus.Pending && b.HoldExpiresAt > nowUtc);
+        var confirmedCount = await db.Bookings.CountAsync(b => b.VoucherId == id && b.Status == BookingStatus.Confirmed, ct);
+        var activePendingCount = await db.Bookings.CountAsync(b => b.VoucherId == id && b.Status == BookingStatus.Pending && b.HoldExpiresAt > nowUtc, ct);
 
         if (confirmedCount > 0 || activePendingCount > 0)
         {
@@ -288,12 +323,19 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
         }
 
         var code = rawCode.ToUpperInvariant();
-        var voucher = await db.Vouchers
-            .Include(v => v.Bookings)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(v => v.Code == code, ct);
+        var now = DateTime.UtcNow;
 
-        if (voucher is null)
+        var item = await db.Vouchers
+            .AsNoTracking()
+            .Where(v => v.Code == code)
+            .Select(v => new
+            {
+                Voucher = v,
+                UsedCount = v.Bookings.Count(b => b.Status == BookingStatus.Confirmed || (b.Status == BookingStatus.Pending && b.HoldExpiresAt > now))
+            })
+            .FirstOrDefaultAsync(ct);
+
+        if (item is null)
         {
             return Ok(new ValidateVoucherResultDto(
                 false,
@@ -303,8 +345,8 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
                 orderAmount));
         }
 
-        var now = DateTime.UtcNow;
-        var usedCount = voucher.Bookings.Count(b => b.Status == BookingStatus.Confirmed || (b.Status == BookingStatus.Pending && b.HoldExpiresAt > now));
+        var voucher = item.Voucher;
+        var usedCount = item.UsedCount;
         var remaining = Math.Max(0, voucher.UsageLimit - usedCount);
         var dto = ToDto(voucher, usedCount, now);
 
