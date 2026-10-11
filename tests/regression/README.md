@@ -64,3 +64,9 @@ Chạy backend với khóa thử, ví dụ `Payments__VnPay__TmnCode=TESTTMN01 P
 `VNPAY_SECRET` khi chạy kịch bản. Kịch bản tự ký các lời gọi IPN/ReturnUrl giống VNPay (viết độc lập với code C#, nên cũng đối chiếu chéo thuật
 toán ký). Không đặt `VNPAY_SECRET` thì nhóm này bị bỏ qua. Nhóm chạy cuối cùng vì tạo thêm giao dịch và giữ ghế trên chuyến A, làm lệch các
 số liệu báo cáo ở nhóm O nếu chạy trước.
+
+## Nhóm G3 – email hóa đơn
+
+Kịch bản tự mở một máy chủ SMTP giả ở cổng `SMTP_SINK_PORT` (vd. 2525) để nhận email. Chạy backend trỏ vào đó:
+`Email__Enabled=true Email__Host=127.0.0.1 Email__Port=2525 Email__UseSsl=false Email__FromAddress=no-reply@smartbus.test`. Nhóm kiểm nội dung thư, SMTP từ chối,
+gửi lại, quyền, địa chỉ không hợp lệ, hóa đơn quá số lần thử và tài khoản chưa có email. Không đặt `SMTP_SINK_PORT` thì nhóm bị bỏ qua.
