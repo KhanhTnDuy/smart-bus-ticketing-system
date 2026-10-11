@@ -57,3 +57,10 @@ Nếu seed đổi, sửa các id này ở đầu các nhóm F, G, I.
 
 Dòng `FAIL` kèm giá trị thực tế và giá trị mong đợi. Mỗi phép kiểm đã kiểm tra bằng tay một lần trên bản main hiện tại, nên một lỗi mới thường
 là hồi quy do thay đổi gần đây (quyền, trạng thái vé, tính tiền, thông báo).
+
+## Nhóm G2 – thanh toán VNPay
+
+Chạy backend với khóa thử, ví dụ `Payments__VnPay__TmnCode=TESTTMN01 Payments__VnPay__HashSecret=<khóa thử>`, rồi đặt cùng khóa đó ở
+`VNPAY_SECRET` khi chạy kịch bản. Kịch bản tự ký các lời gọi IPN/ReturnUrl giống VNPay (viết độc lập với code C#, nên cũng đối chiếu chéo thuật
+toán ký). Không đặt `VNPAY_SECRET` thì nhóm này bị bỏ qua. Nhóm chạy cuối cùng vì tạo thêm giao dịch và giữ ghế trên chuyến A, làm lệch các
+số liệu báo cáo ở nhóm O nếu chạy trước.
