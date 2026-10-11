@@ -37,6 +37,8 @@ export const RefundManagementPage: React.FC = () => {
   const [target, setTarget] = useState<RefundDto | null>(null);
   const [approve, setApprove] = useState(true);
   const [note, setNote] = useState('');
+  // Đã hoàn cho khách bằng đường khác (sau khi đối soát với VNPay): ghi nhận mà không gọi cổng.
+  const [external, setExternal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const load = useCallback(async () => {
@@ -72,15 +74,17 @@ export const RefundManagementPage: React.FC = () => {
     setTarget(r);
     setApprove(approveIt);
     setNote('');
+    setExternal(false);
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!target) return;
     if (!approve && !note.trim()) return showError('Vui lòng ghi lý do từ chối hoàn tiền.');
+    if (approve && external && !note.trim()) return showError('Vui lòng ghi mã hoàn tiền hoặc thông tin đối soát.');
     setIsSubmitting(true);
     try {
-      await processRefund(target.id, approve, note.trim() || undefined);
+      await processRefund(target.id, approve, note.trim() || undefined, approve && external);
       success(approve ? `Đã hoàn ${formatVnd(target.amount)} cho ${target.passengerName}.` : 'Đã từ chối yêu cầu hoàn tiền.');
       setTarget(null);
       await load();
@@ -96,7 +100,7 @@ export const RefundManagementPage: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         title="Xử lý hoàn tiền vé"
-        subtitle="Yêu cầu hoàn tiền được tạo tự động khi vé đã thanh toán bị hủy hoặc chuyến bị hủy."
+        subtitle="Khoản hoàn của giao dịch VNPay được hệ thống tự hoàn qua cổng. Các khoản cần xử lý tay (cổng từ chối hoặc lỗi nhiều lần) hiện ở đây."
         icon={<RotateCcw className="w-5 h-5 text-amber-500" />}
         action={
           <button
@@ -194,10 +198,15 @@ export const RefundManagementPage: React.FC = () => {
                       <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${STATUS_STYLE[r.status] ?? ''}`}>
                         {REFUND_STATUS_LABEL[r.status] ?? r.status}
                       </span>
-                      {r.status !== 'Pending' && r.processedByName && (
+                      {r.status === 'Pending' && r.needsManual && (
+                        <span className="ml-1.5 px-2 py-0.5 rounded text-[11px] font-bold border bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800">
+                          Cần xử lý tay
+                        </span>
+                      )}
+                      {(r.status === 'Pending' ? r.note : r.processedByName || r.note) && (
                         <div className="text-[11px] text-slate-400 mt-0.5">
-                          {r.processedByName}
-                          {r.note ? ` · ${r.note}` : ''}
+                          {r.status !== 'Pending' && r.processedByName ? `${r.processedByName}${r.note ? ' · ' : ''}` : ''}
+                          {r.note}
                         </div>
                       )}
                     </td>
@@ -238,9 +247,22 @@ export const RefundManagementPage: React.FC = () => {
                 {REFUND_REASON_LABEL[target.reason] ?? target.reason}
               </div>
             </div>
+            {approve && target.paymentMethod === 'VnPay' && (
+              <div className="space-y-2">
+                <p className="text-slate-600 dark:text-slate-300">
+                  {external
+                    ? 'Hệ thống chỉ ghi nhận đã hoàn, không gọi VNPay.'
+                    : 'Duyệt sẽ gọi API hoàn tiền của VNPay. Chỉ báo thành công khi VNPay xác nhận.'}
+                </p>
+                <label className="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-300">
+                  <input type="checkbox" checked={external} onChange={(e) => setExternal(e.target.checked)} />
+                  Đã hoàn cho khách bằng đường khác (sau khi đối soát với VNPay)
+                </label>
+              </div>
+            )}
             <label className="space-y-1 block">
               <span className="font-bold text-slate-700 dark:text-slate-300">
-                {approve ? 'Ghi chú (không bắt buộc)' : 'Lý do từ chối *'}
+                {!approve ? 'Lý do từ chối *' : external ? 'Mã hoàn tiền / thông tin đối soát *' : 'Ghi chú (không bắt buộc)'}
               </span>
               <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} className={INPUT} />
             </label>
@@ -253,7 +275,15 @@ export const RefundManagementPage: React.FC = () => {
                 disabled={isSubmitting}
                 className={`px-4 py-2 rounded-lg text-white font-bold disabled:opacity-60 ${approve ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}
               >
-                {isSubmitting ? 'Đang xử lý...' : approve ? 'Xác nhận đã hoàn tiền' : 'Từ chối hoàn tiền'}
+                {isSubmitting
+                  ? 'Đang xử lý...'
+                  : !approve
+                    ? 'Từ chối hoàn tiền'
+                    : external
+                      ? 'Xác nhận đã hoàn ngoài cổng'
+                      : target.paymentMethod === 'VnPay'
+                        ? 'Hoàn qua VNPay'
+                        : 'Xác nhận đã hoàn tiền'}
               </button>
             </div>
           </form>
