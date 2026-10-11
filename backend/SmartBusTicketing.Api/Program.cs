@@ -24,6 +24,7 @@ builder.Services.AddScoped<ITicketExchangeValidator, TicketExchangeValidator>();
 builder.Services.AddScoped<AuditLogService>();
 builder.Services.Configure<VnPayOptions>(builder.Configuration.GetSection(VnPayOptions.Section));
 builder.Services.AddSingleton<VnPayClient>();
+builder.Services.Configure<BankTransferOptions>(builder.Configuration.GetSection(BankTransferOptions.Section));
 builder.Services.AddScoped<PaymentSettlementService>();
 builder.Services.Configure<RefundOptions>(builder.Configuration.GetSection(RefundOptions.Section));
 builder.Services.AddHttpClient<IVnPayRefundGateway, VnPayRefundGateway>(c => c.Timeout = TimeSpan.FromSeconds(20));
