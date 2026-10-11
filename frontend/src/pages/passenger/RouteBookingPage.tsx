@@ -24,6 +24,8 @@ import { listRouteStops, listRoutes, RouteDto, RouteStopDto } from '../../api/ro
 import { cancelPendingBooking, confirmBooking, getTripSeats, searchTrips, TripDto, TripSeatDto } from '../../api/booking';
 import { startPayment, parseUtc, PaymentMethodCode, PaymentDto } from '../../api/payments';
 import { PaidTicketQrs } from '../../components/passenger/PaidTicketQrs';
+import { BankTransferPanel } from '../../components/passenger/BankTransferPanel';
+import { Modal } from '../../components/common/Modal';
 
 const PAYMENT_METHOD_CODE: Record<string, PaymentMethodCode> = {
   MOMO: PaymentMethodCode.Momo,
@@ -101,7 +103,7 @@ export const RouteBookingPage: React.FC = () => {
 
 
   // Payment Selection
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('VNPAY');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('BANK_TRANSFER');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [createdTicketId, setCreatedTicketId] = useState<string>('');
   // Kết quả thanh toán sau khi giữ chỗ; null nghĩa là vẫn chưa thanh toán.
@@ -114,6 +116,8 @@ export const RouteBookingPage: React.FC = () => {
    */
   const [hold, setHold] = useState<{ bookingId: number; bookingCode: string; expiresAt: number } | null>(null);
   const [isHolding, setIsHolding] = useState(false);
+  /** Giao dịch chuyển khoản đang chờ tiền: hiện mã VietQR cho khách quét. */
+  const [transferPay, setTransferPay] = useState<PaymentDto | null>(null);
   const [holdNow, setHoldNow] = useState(() => Date.now());
 
   // Nạp tuyến và trạm của từng tuyến một lần khi vào trang.
@@ -369,6 +373,7 @@ export const RouteBookingPage: React.FC = () => {
   const handleCancelPayment = async () => {
     if (!selectedTrip) return;
     setIsProcessingPayment(true);
+    setTransferPay(null);
     await releaseHold();
     setCurrentStep(2);
     await loadSeats(selectedTrip.id);
@@ -378,6 +383,7 @@ export const RouteBookingPage: React.FC = () => {
 
   // Hết 10 phút mà chưa thanh toán: máy chủ tự nhả ghế (job nền), giao diện đưa khách về chọn lại.
   const handleHoldExpired = useCallback(() => {
+    setTransferPay(null);
     setHold(null);
     setServerFinalAmount(null);
     setSelectedSeatIds([]);
@@ -405,6 +411,18 @@ export const RouteBookingPage: React.FC = () => {
   /** Tiền cần trả: ưu tiên số máy chủ đã chốt lúc giữ chỗ, chưa giữ thì dùng số tạm tính. */
   const displayAmount = serverFinalAmount ?? totalCalculatedAmount;
 
+  // Chuyển khoản: máy chủ báo đã nhận tiền (webhook ngân hàng hoặc quản lý xác nhận) thì sang bước hoàn tất.
+  const handleTransferPaid = useCallback(
+    (payment: PaymentDto) => {
+      setPaidInfo(payment);
+      setTransferPay(null);
+      setHold(null);
+      success(`Đã nhận ${payment.amount.toLocaleString('vi-VN')} VNĐ. Hóa đơn ${payment.invoiceNo ?? ''}.`);
+      setCurrentStep(4);
+    },
+    [success]
+  );
+
   // Step 3: thanh toán lượt đặt đã giữ chỗ. VNPay: trình duyệt chuyển sang trang của ngân hàng, kết quả hiện ở
   // /passenger/payment-result. Phương thức giả lập (chỉ khi máy chủ bật): xong ngay tại đây.
   // Thanh toán lỗi thì ở lại bước này, ghế vẫn giữ tới hết giờ để khách thử lại hoặc đổi phương thức.
@@ -423,6 +441,11 @@ export const RouteBookingPage: React.FC = () => {
         return;
       }
       const payment = started.payment;
+      if (payment.transfer) {
+        // Chuyển khoản: hiện mã VietQR và chờ máy chủ báo đã nhận tiền; ghế vẫn được giữ tới hết giờ.
+        setTransferPay(payment);
+        return;
+      }
       setPaidInfo(payment);
       setHold(null);
       success(`Đã thanh toán ${payment.amount.toLocaleString('vi-VN')} VNĐ. Hóa đơn ${payment.invoiceNo ?? ''}.`);
@@ -443,6 +466,7 @@ export const RouteBookingPage: React.FC = () => {
   };
 
   const resetFlow = () => {
+    setTransferPay(null);
     setHold(null);
     setSelectedTrip(null);
     setSeats([]);
@@ -1302,7 +1326,7 @@ export const RouteBookingPage: React.FC = () => {
                 </div>
                 <div>
                   <div className="font-bold">Chuyển khoản Ngân hàng</div>
-                  <div className="text-[10px] text-slate-500 dark:text-slate-400">Vietcombank / BIDV / Vietinbank</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">Quét mã VietQR bằng app ngân hàng</div>
                 </div>
               </label>
             </div>
@@ -1426,6 +1450,30 @@ export const RouteBookingPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <Modal isOpen={transferPay !== null} onClose={() => setTransferPay(null)} title="Chuyển khoản ngân hàng" maxWidth="2xl">
+        {transferPay && (
+          <div className="space-y-4">
+            <BankTransferPanel payment={transferPay} onPaid={handleTransferPaid} />
+            <div className="flex flex-wrap justify-between gap-2 pt-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setTransferPay(null)}
+                className="px-4 py-2 rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold"
+              >
+                Chọn phương thức khác
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCancelPayment()}
+                className="px-4 py-2 rounded border border-rose-300 text-rose-700 dark:text-rose-300 font-semibold"
+              >
+                Hủy thanh toán, đổi ghế
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
     </div>
   );
