@@ -5,6 +5,7 @@ using Microsoft.IdentityModel.Tokens;
 using SmartBusTicketing.Api.Data;
 using SmartBusTicketing.Api.Services;
 using SmartBusTicketing.Api.Services.Email;
+using SmartBusTicketing.Api.Services.Fares;
 using SmartBusTicketing.Api.Services.Payments;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -105,6 +106,18 @@ await DbSeeder.SeedAdminAsync(app);
 if (app.Environment.IsDevelopment())
 {
     await DbSeeder.SeedAssignmentSampleDataAsync(app);
+}
+
+// Điền km từ đầu tuyến cho các trạm tạo trước khi có giá vé theo km. Lỗi ở đây không được làm hỏng việc khởi động.
+try
+{
+    using var scope = app.Services.CreateScope();
+    var filled = await RouteDistances.BackfillAsync(scope.ServiceProvider.GetRequiredService<AppDbContext>(), CancellationToken.None);
+    if (filled > 0) app.Logger.LogInformation("Đã tính km cho trạm của {Count} tuyến.", filled);
+}
+catch (Exception ex)
+{
+    app.Logger.LogWarning(ex, "Không tính được km trạm khi khởi động.");
 }
 
 app.Run();

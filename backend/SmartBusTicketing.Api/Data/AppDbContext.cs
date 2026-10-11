@@ -17,6 +17,7 @@ public class AppDbContext : DbContext
     public DbSet<Stop> Stops => Set<Stop>();
     public DbSet<RouteStop> RouteStops => Set<RouteStop>();
     public DbSet<Fare> Fares => Set<Fare>();
+    public DbSet<DistanceFare> DistanceFares => Set<DistanceFare>();
     public DbSet<Bus> Buses => Set<Bus>();
     public DbSet<Seat> Seats => Set<Seat>();
     public DbSet<Schedule> Schedules => Set<Schedule>();
@@ -105,6 +106,7 @@ public class AppDbContext : DbContext
             e.HasOne(rs => rs.BusRoute).WithMany(r => r.RouteStops).HasForeignKey(rs => rs.RouteId);
             e.HasOne(rs => rs.Stop).WithMany(s => s.RouteStops).HasForeignKey(rs => rs.StopId);
             e.HasIndex(rs => new { rs.RouteId, rs.StopOrder }).IsUnique();
+            e.Property(rs => rs.DistanceFromStartKm).HasPrecision(7, 2);
         });
 
         modelBuilder.Entity<Fare>(e =>
@@ -113,6 +115,14 @@ public class AppDbContext : DbContext
             e.Property(f => f.Price).HasPrecision(10, 2);
             e.HasOne(f => f.BusRoute).WithMany(r => r.Fares).HasForeignKey(f => f.RouteId);
             e.HasOne(f => f.PassengerType).WithMany(p => p.Fares).HasForeignKey(f => f.PassengerTypeId);
+        });
+
+        modelBuilder.Entity<DistanceFare>(e =>
+        {
+            e.ToTable("distance_fares");
+            e.Property(f => f.FromKm).HasPrecision(7, 2);
+            e.Property(f => f.ToKm).HasPrecision(7, 2);
+            e.Property(f => f.Price).HasPrecision(12, 2);
         });
 
         modelBuilder.Entity<Bus>(e =>

@@ -297,3 +297,26 @@ Chạy backend ở môi trường `Development` để đọc user-secrets. Chưa
 
 **Cần kiểm chứng với dịch vụ thật:** định dạng webhook SePay viết theo tài liệu, mới thử với yêu cầu giả trong bộ hồi quy. Ảnh VietQR do `img.vietqr.io` tạo, số tài khoản nằm trong địa chỉ ảnh (là thông tin nhận tiền công khai).
 Giao dịch chuyển khoản chờ được giữ lâu hơn (2 ngày) trước khi đánh hết hạn, và quản lý vẫn xác nhận được sau đó vì tiền thật có thể về chậm.
+
+## Bảng giá vé niêm yết theo km hành trình
+
+Giá vé lượt tính theo **số km của chặng khách đi** (từ trạm lên đến trạm xuống), tra **bảng giá niêm yết theo bậc km** (`distance_fares`). Học sinh/sinh viên, người cao tuổi...
+được giảm theo `passenger_types.DiscountPercent`, làm tròn đến đồng.
+
+- **Km của chặng** = `route_stops.DistanceFromStartKm` của trạm xuống trừ trạm lên. Km từng trạm do hệ thống **tự tính** từ tọa độ trạm và độ dài tuyến
+  (`routes.DistanceKm`): khoảng cách đường chim bay giữa các trạm liên tiếp, co giãn để tổng bằng đúng độ dài tuyến. Tự tính lại khi lưu danh sách trạm hoặc sửa độ dài tuyến,
+  và điền cho dữ liệu cũ khi khởi động.
+- **Bậc giá** là `(FromKm, ToKm]`: hành trình trên `FromKm` và không quá `ToKm` thì giá là `Price`; `ToKm` rỗng là bậc cuối. Đúng bằng mốc trên thì thuộc bậc đó
+  (đúng 8 km thuộc bậc 3 đến 8 km). Các bậc không được chồng lấn (409).
+- **Có bảng giá km thì đó là giá chính thức** cho tìm chuyến (`price`, `prices`, `distanceKm`) và đặt vé (`finalAmount`). Chưa lập bảng giá, hoặc chặng chưa có km /
+  không rơi vào bậc nào, thì quay về cách cũ (giá cố định theo tuyến trong `fares`, rồi giá dự phòng 7.000 đ).
+- `GET /api/distance-fares` và `GET /api/distance-fares/routes/{id}` (giá mọi chặng của tuyến) là công khai; thêm, sửa, xóa bậc (`POST/PUT/DELETE`) chỉ Admin và Quản lý, có ghi nhật ký.
+- Giao diện: `/fares` (bảng giá niêm yết cho mọi người dùng đã đăng nhập, mục "Bảng giá vé" ở menu hành khách) và `/manager/distance-fares` (quản lý bậc giá).
+
+Lập bảng giá mẫu 6 bậc (5.000 đ đến 3 km, 7.000 đ đến 8 km, 9.000 đ đến 12 km, 11.000 đ đến 16 km, 13.000 đ đến 20 km, 16.000 đ trên 20 km) bằng:
+
+```bash
+mysql -uroot --default-character-set=utf8mb4 smart_bus_ticketing < backend/database/seed_bang_gia_km.sql   # chỉ chèn khi bảng còn trống
+```
+
+Số liệu mẫu chỉ để demo, hãy chỉnh theo bảng giá thật của đơn vị ở `/manager/distance-fares`.

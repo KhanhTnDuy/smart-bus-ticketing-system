@@ -71,6 +71,8 @@ public sealed class TripDto
 
     // Giá vé & Chỗ ngồi (Task 2)
     public decimal Price { get; init; }
+    /// <summary>Số km hành trình từ điểm đi đến điểm đến (null nếu tuyến chưa có dữ liệu km). Giá theo bảng giá niêm yết theo km.</summary>
+    public decimal? DistanceKm { get; init; }
     public int TotalSeats { get; init; }
     public List<string> BookedSeats { get; init; } = [];
     public int AvailableSeats { get; init; }
