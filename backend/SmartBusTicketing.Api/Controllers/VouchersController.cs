@@ -269,7 +269,7 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
     /// Áp dụng cho cả khách hàng tra cứu khi đặt vé lẫn nhân viên Marketing kiểm tra thử nghiệm.
     /// </summary>
     [HttpPost("validate")]
-    [AllowAnonymous]
+    [Authorize]
     public async Task<ActionResult<ValidateVoucherResultDto>> Validate(
         [FromBody] ValidateVoucherRequest request,
         CancellationToken ct)
