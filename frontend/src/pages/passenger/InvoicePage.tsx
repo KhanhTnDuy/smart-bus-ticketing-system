@@ -1,15 +1,31 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileText, Search, Eye, Download, RefreshCw } from 'lucide-react';
+import { FileText, Search, Eye, Download, RefreshCw, Mail } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Modal } from '../../components/common/Modal';
 import { EmptyState } from '../../components/common/EmptyState';
-import { InvoiceDto, PAYMENT_METHOD_LABEL, formatDateTime, formatVnd, listMyInvoices } from '../../api/payments';
+import { ApiError } from '../../api/client';
+import { useToast } from '../../context/ToastContext';
+import {
+  InvoiceDto,
+  PAYMENT_METHOD_LABEL,
+  formatDateTime,
+  formatVnd,
+  listMyInvoices,
+  sendInvoiceEmail,
+} from '../../api/payments';
 
 const CARD = 'bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm';
 const FILTER =
   'py-2 px-3 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500';
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
+
+const EMAIL_STATUS: Record<InvoiceDto['emailStatus'], { label: string; style: string }> = {
+  Sent: { label: 'Đã gửi email', style: 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800' },
+  Pending: { label: 'Đang gửi email...', style: 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800' },
+  Failed: { label: 'Gửi email thất bại', style: 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800' },
+  NoAddress: { label: 'Chưa có email nhận', style: 'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600' },
+};
 
 /** Tải hóa đơn thành một tệp HTML tự chứa để khách in hoặc lưu. */
 const downloadInvoice = (inv: InvoiceDto) => {
@@ -44,6 +60,11 @@ export const InvoicePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [detail, setDetail] = useState<InvoiceDto | null>(null);
+  const { success, error: showError } = useToast();
+  // Hóa đơn chưa có địa chỉ email: hỏi khách nhập địa chỉ trước khi gửi.
+  const [emailTarget, setEmailTarget] = useState<InvoiceDto | null>(null);
+  const [emailInput, setEmailInput] = useState('');
+  const [sendingId, setSendingId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,6 +81,42 @@ export const InvoicePage: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Email gửi trong nền: còn hóa đơn đang chờ gửi thì tự làm mới mỗi 5 giây cho tới khi xong.
+  const hasPending = invoices.some((i) => i.emailStatus === 'Pending');
+  useEffect(() => {
+    if (!hasPending) return;
+    const timer = setInterval(() => {
+      listMyInvoices()
+        .then(setInvoices)
+        .catch(() => undefined);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [hasPending]);
+
+  const handleSendEmail = async (inv: InvoiceDto, email?: string) => {
+    setSendingId(inv.id);
+    try {
+      const updated = await sendInvoiceEmail(inv.id, email);
+      setInvoices((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      setEmailTarget(null);
+      setEmailInput('');
+      success('Đã yêu cầu gửi hóa đơn qua email. Vui lòng kiểm tra hộp thư trong ít phút.');
+    } catch (err) {
+      showError(err instanceof ApiError ? err.message : 'Không gửi được yêu cầu gửi email.');
+    } finally {
+      setSendingId(null);
+    }
+  };
+
+  const onSendClick = (inv: InvoiceDto) => {
+    if (inv.emailStatus === 'NoAddress') {
+      setEmailTarget(inv);
+      setEmailInput('');
+      return;
+    }
+    void handleSendEmail(inv);
+  };
 
   const filtered = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -130,18 +187,73 @@ export const InvoicePage: React.FC = () => {
                   <div className="text-[11px] text-slate-400">{formatDateTime(i.paidAt)}</div>
                 </div>
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${EMAIL_STATUS[i.emailStatus].style}`}>
+                  {EMAIL_STATUS[i.emailStatus].label}
+                  {i.emailStatus === 'Sent' && i.sentAt ? ` · ${formatDateTime(i.sentAt)}` : ''}
+                </span>
+                <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={sendingId === i.id || i.emailStatus === 'Pending'}
+                  onClick={() => onSendClick(i)}
+                  className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Mail className="w-3.5 h-3.5" /> {i.emailStatus === 'Sent' ? 'Gửi lại email' : 'Gửi email'}
+                </button>
                 <button type="button" onClick={() => setDetail(i)} className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold flex items-center gap-1.5">
                   <Eye className="w-3.5 h-3.5" /> Xem
                 </button>
                 <button type="button" onClick={() => downloadInvoice(i)} className="px-3 py-1.5 rounded-lg bg-institutional-600 hover:bg-institutional-700 text-white text-xs font-bold flex items-center gap-1.5">
                   <Download className="w-3.5 h-3.5" /> Tải hóa đơn
                 </button>
+                </div>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      <Modal
+        isOpen={emailTarget !== null}
+        onClose={() => setEmailTarget(null)}
+        title="Nhận hóa đơn qua email"
+        maxWidth="md"
+      >
+        {emailTarget && (
+          <form
+            className="space-y-4 text-xs"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSendEmail(emailTarget, emailInput);
+            }}
+          >
+            <p className="text-slate-600 dark:text-slate-300">
+              Tài khoản của bạn chưa có email. Nhập địa chỉ để nhận hóa đơn <strong>{emailTarget.invoiceNo}</strong>.
+            </p>
+            <input
+              type="email"
+              required
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              placeholder="ban@example.com"
+              className={`${FILTER} w-full`}
+            />
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setEmailTarget(null)} className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 font-bold">
+                Hủy
+              </button>
+              <button
+                type="submit"
+                disabled={sendingId === emailTarget.id || !emailInput.trim()}
+                className="px-3 py-1.5 rounded-lg bg-institutional-600 hover:bg-institutional-700 disabled:opacity-60 text-white font-bold"
+              >
+                Gửi hóa đơn
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
 
       <Modal isOpen={detail !== null} onClose={() => setDetail(null)} title={`Hóa đơn ${detail?.invoiceNo ?? ''}`} maxWidth="lg">
         {detail && (

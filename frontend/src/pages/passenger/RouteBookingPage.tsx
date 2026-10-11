@@ -23,6 +23,7 @@ import { ApiError } from '../../api/client';
 import { listRouteStops, listRoutes, RouteDto, RouteStopDto } from '../../api/routeManagement';
 import { cancelPendingBooking, confirmBooking, getTripSeats, searchTrips, TripDto, TripSeatDto } from '../../api/booking';
 import { startPayment, parseUtc, PaymentMethodCode, PaymentDto } from '../../api/payments';
+import { PaidTicketQrs } from '../../components/passenger/PaidTicketQrs';
 
 const PAYMENT_METHOD_CODE: Record<string, PaymentMethodCode> = {
   MOMO: PaymentMethodCode.Momo,
@@ -1392,6 +1393,9 @@ export const RouteBookingPage: React.FC = () => {
               <span className="font-semibold text-institutional-700 dark:text-sky-400">{paymentMethod}</span>
             </div>
           </div>
+
+          {/* Thanh toán xong: hiện luôn mã QR lên xe của từng vé */}
+          {paidInfo && <PaidTicketQrs bookingId={paidInfo.bookingId} />}
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-3">
             <button

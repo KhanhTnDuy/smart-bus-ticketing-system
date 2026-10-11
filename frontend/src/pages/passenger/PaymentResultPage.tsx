@@ -11,6 +11,7 @@ import {
   startPayment,
 } from '../../api/payments';
 import { useToast } from '../../context/ToastContext';
+import { PaidTicketQrs } from '../../components/passenger/PaidTicketQrs';
 
 /**
  * Trang khách quay về sau khi thanh toán ở cổng VNPay (ReturnUrl). Gửi nguyên query có chữ ký cho máy chủ
@@ -107,6 +108,12 @@ export const PaymentResultPage: React.FC = () => {
         {payment.paidAt && <Row label="Thời gian" value={formatDateTime(payment.paidAt)} />}
         {payment.invoiceNo && <Row label="Hóa đơn" value={payment.invoiceNo} mono />}
       </dl>
+
+      {success && (
+        <div className="mt-6">
+          <PaidTicketQrs bookingId={payment.bookingId} />
+        </div>
+      )}
 
       <div className="mt-6 flex flex-wrap justify-center gap-3">
         {success ? (
