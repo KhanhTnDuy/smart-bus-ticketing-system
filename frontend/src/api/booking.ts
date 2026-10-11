@@ -135,6 +135,13 @@ export const searchTrips = (params: TripSearchParams, signal?: AbortSignal) =>
 export const getTripSeats = (tripId: number, signal?: AbortSignal) =>
   api.get<TripSeatDto[]>(`/api/trips/${tripId}/seats`, undefined, signal);
 
+/**
+ * Hủy lượt đặt đang giữ chỗ chưa thanh toán để nhả ghế ngay (không phải đợi hết 10 phút). Lặp lại an toàn:
+ * lượt đặt đã hủy hoặc hết hạn vẫn trả 200. Lượt đặt đã thanh toán trả 409.
+ */
+export const cancelPendingBooking = (bookingId: number) =>
+  api.post<{ message: string; released: boolean }>(`/api/bookings/${bookingId}/cancel`);
+
 /** SCRUM-62: xác nhận đặt vé, giữ chỗ trong 10 phút. Bắt buộc đăng nhập. */
 export const confirmBooking = (body: ConfirmBookingRequest) =>
   api.post<ConfirmBookingResponse>('/api/bookings', body);

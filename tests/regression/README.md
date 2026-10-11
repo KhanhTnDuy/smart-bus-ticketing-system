@@ -57,3 +57,32 @@ Nếu seed đổi, sửa các id này ở đầu các nhóm F, G, I.
 
 Dòng `FAIL` kèm giá trị thực tế và giá trị mong đợi. Mỗi phép kiểm đã kiểm tra bằng tay một lần trên bản main hiện tại, nên một lỗi mới thường
 là hồi quy do thay đổi gần đây (quyền, trạng thái vé, tính tiền, thông báo).
+
+## Nhóm G2 – thanh toán VNPay
+
+Chạy backend với khóa thử, ví dụ `Payments__VnPay__TmnCode=TESTTMN01 Payments__VnPay__HashSecret=<khóa thử>`, rồi đặt cùng khóa đó ở
+`VNPAY_SECRET` khi chạy kịch bản. Kịch bản tự ký các lời gọi IPN/ReturnUrl giống VNPay (viết độc lập với code C#, nên cũng đối chiếu chéo thuật
+toán ký). Không đặt `VNPAY_SECRET` thì nhóm này bị bỏ qua. Nhóm chạy cuối cùng vì tạo thêm giao dịch và giữ ghế trên chuyến A, làm lệch các
+số liệu báo cáo ở nhóm O nếu chạy trước.
+
+## Nhóm G3 – email hóa đơn
+
+Kịch bản tự mở một máy chủ SMTP giả ở cổng `SMTP_SINK_PORT` (vd. 2525) để nhận email. Chạy backend trỏ vào đó:
+`Email__Enabled=true Email__Host=127.0.0.1 Email__Port=2525 Email__UseSsl=false Email__FromAddress=no-reply@smartbus.test`. Nhóm kiểm nội dung thư, SMTP từ chối,
+gửi lại, quyền, địa chỉ không hợp lệ, hóa đơn quá số lần thử và tài khoản chưa có email. Không đặt `SMTP_SINK_PORT` thì nhóm bị bỏ qua.
+
+## Nhóm G4 – hoàn tiền tự động qua VNPay
+
+Kịch bản tự mở một máy chủ "API hoàn tiền VNPay" giả ở cổng `REFUND_SINK_PORT` (vd. 2526), kiểm chữ ký yêu cầu theo đặc tả và trả lời có ký. Chạy backend với
+`Payments__VnPay__RefundUrl=http://127.0.0.1:2526/refund`. Nhóm kiểm: hoàn toàn bộ và một phần, mã yêu cầu cố định, lỗi tạm thời rồi tự thử lại, cổng từ chối (91) và yêu cầu trùng (94)
+chuyển xử lý tay, phản hồi sai chữ ký, quản lý duyệt tay qua cổng và xác nhận hoàn ngoài cổng, từ chối hoàn. Cần cả `VNPAY_SECRET`. Nhóm chạy hơn 1 phút vì chờ vòng thử lại.
+
+Đặt thêm `REFUND_TIERS=1` khi backend chạy với `Refunds__Tiers__0__HoursBefore=24 Refunds__Tiers__0__Percent=100 Refunds__Tiers__1__HoursBefore=2 Refunds__Tiers__1__Percent=50`
+để kiểm chính sách hoàn theo giờ (còn 5 giờ hoàn 50%, dưới 2 giờ không hoàn, còn 30 giờ hoàn 100%).
+
+## Nhóm G5 – chuyển khoản ngân hàng (VietQR)
+
+Đặt `BANK_WEBHOOK_KEY` và chạy backend với `BankTransfer__BankId=MB BankTransfer__BankName="MB Bank" BankTransfer__AccountNumber=0123456789 BankTransfer__AccountName="NGUYEN VAN TEST" BankTransfer__WebhookApiKey=<khóa>`
+(tài khoản giả, không dùng tài khoản thật). Nhóm kiểm: mã VietQR và nội dung chuyển khoản, quyền xem và xác nhận, xác nhận tay, chống dùng lại mã giao dịch ngân hàng,
+tiền về trễ mở khoản hoàn, webhook (khóa API, lệch số tiền, nội dung bị chèn dấu cách, gửi trùng, gọi đồng thời, giao dịch quá hạn được mở lại) và job nhả giữ chỗ (mất tới ~80 giây).
+Dùng chuyến riêng trên xe 4 để không tranh ghế với nhóm khác.

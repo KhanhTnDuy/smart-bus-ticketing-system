@@ -466,6 +466,12 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
+                    b.Property<int>("EmailAttempts")
+                        .HasColumnType("int");
+
+                    b.Property<string>("EmailError")
+                        .HasColumnType("longtext");
+
                     b.Property<string>("InvoiceNo")
                         .IsRequired()
                         .HasColumnType("varchar(255)");
@@ -707,6 +713,18 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.Property<long?>("BookingId")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("GatewayCreateDate")
+                        .HasMaxLength(14)
+                        .HasColumnType("varchar(14)");
+
+                    b.Property<string>("GatewayPayDate")
+                        .HasMaxLength(14)
+                        .HasColumnType("varchar(14)");
+
                     b.Property<string>("Method")
                         .IsRequired()
                         .HasColumnType("longtext");
@@ -724,6 +742,10 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
+                    b.Property<string>("TxnRef")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("BookingId");
@@ -731,6 +753,9 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.HasIndex("MonthlyPassId");
 
                     b.HasIndex("ProviderTxnId")
+                        .IsUnique();
+
+                    b.HasIndex("TxnRef")
                         .IsUnique();
 
                     b.ToTable("payments", null, t =>
@@ -751,10 +776,20 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .HasPrecision(12, 2)
                         .HasColumnType("decimal(12,2)");
 
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int");
+
                     b.Property<long?>("ChangeRequestId")
                         .HasColumnType("bigint");
 
                     b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("GatewayRefId")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime?>("LastAttemptAt")
                         .HasColumnType("datetime(6)");
 
                     b.Property<string>("Note")

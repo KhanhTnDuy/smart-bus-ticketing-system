@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   Armchair,
   RefreshCw,
+  Clock,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -20,8 +21,11 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { Badge } from '../../components/common/Badge';
 import { ApiError } from '../../api/client';
 import { listRouteStops, listRoutes, RouteDto, RouteStopDto } from '../../api/routeManagement';
-import { confirmBooking, getTripSeats, searchTrips, TripDto, TripSeatDto } from '../../api/booking';
-import { payBooking, PaymentMethodCode, PaymentDto } from '../../api/payments';
+import { cancelPendingBooking, confirmBooking, getTripSeats, searchTrips, TripDto, TripSeatDto } from '../../api/booking';
+import { startPayment, parseUtc, PaymentMethodCode, PaymentDto } from '../../api/payments';
+import { PaidTicketQrs } from '../../components/passenger/PaidTicketQrs';
+import { BankTransferPanel } from '../../components/passenger/BankTransferPanel';
+import { Modal } from '../../components/common/Modal';
 
 const PAYMENT_METHOD_CODE: Record<string, PaymentMethodCode> = {
   MOMO: PaymentMethodCode.Momo,
@@ -99,13 +103,22 @@ export const RouteBookingPage: React.FC = () => {
 
 
   // Payment Selection
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('MOMO');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('BANK_TRANSFER');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [createdTicketId, setCreatedTicketId] = useState<string>('');
   // Kết quả thanh toán sau khi giữ chỗ; null nghĩa là vẫn chưa thanh toán.
   const [paidInfo, setPaidInfo] = useState<PaymentDto | null>(null);
   /** Số tiền do máy chủ chốt khi đặt vé, có thể khác số hiển thị lúc chọn ghế. */
   const [serverFinalAmount, setServerFinalAmount] = useState<number | null>(null);
+  /**
+   * Lượt đặt đang giữ ghế trên máy chủ từ lúc khách sang bước thanh toán (10 phút). Hết giờ mà chưa trả tiền thì
+   * ghế tự nhả; khách bấm hủy thanh toán hoặc quay lại đổi ghế thì nhả ngay. null khi chưa giữ, đã hủy hoặc đã trả.
+   */
+  const [hold, setHold] = useState<{ bookingId: number; bookingCode: string; expiresAt: number } | null>(null);
+  const [isHolding, setIsHolding] = useState(false);
+  /** Giao dịch chuyển khoản đang chờ tiền: hiện mã VietQR cho khách quét. */
+  const [transferPay, setTransferPay] = useState<PaymentDto | null>(null);
+  const [holdNow, setHoldNow] = useState(() => Date.now());
 
   // Nạp tuyến và trạm của từng tuyến một lần khi vào trang.
   useEffect(() => {
@@ -286,7 +299,9 @@ export const RouteBookingPage: React.FC = () => {
     }
   };
 
-  const handleProceedToPayment = () => {
+  // Bước 2 -> 3: giữ ghế ngay trên máy chủ (SCRUM-62). Từ đây ghế thuộc về khách trong 10 phút; hết giờ không
+  // trả tiền thì ghế tự nhả, bấm hủy thanh toán hoặc quay lại đổi ghế thì nhả ngay (releaseHold).
+  const handleProceedToPayment = async () => {
     if (selectedSeatIds.length === 0) {
       error('Vui lòng chọn ít nhất 1 vị trí ghế ngồi trước khi tiếp tục.');
       return;
@@ -295,26 +310,16 @@ export const RouteBookingPage: React.FC = () => {
       error('Vui lòng nhập tên và số điện thoại liên hệ của hành khách.');
       return;
     }
-    setCurrentStep(3);
-  };
-
-  // Step 3: Xác nhận đặt vé thật (SCRUM-62), sau đó mô phỏng thanh toán.
-  //
-  // Backend chỉ GIỮ CHỖ trong 10 phút và để booking ở trạng thái Pending: hệ thống
-  // chưa có endpoint thanh toán, nên bước trả tiền vẫn là mô phỏng như trước.
-  const handlePayNow = async () => {
-    if (!selectedTrip || selectedSeatIds.length === 0) return;
+    if (!selectedTrip) return;
 
     const boardStopId = findStopId(selectedTrip.routeId, departurePoint);
     const alightStopId = findStopId(selectedTrip.routeId, destinationPoint);
-
     if (!boardStopId || !alightStopId) {
       error('Không xác định được điểm lên hoặc điểm xuống trên tuyến của chuyến này.');
       return;
     }
 
-    setIsProcessingPayment(true);
-
+    setIsHolding(true);
     try {
       const booking = await confirmBooking({
         tripId: selectedTrip.id,
@@ -327,31 +332,130 @@ export const RouteBookingPage: React.FC = () => {
       // được duyệt của tài khoản, không theo đối tượng chọn trên giao diện.
       setServerFinalAmount(booking.finalAmount);
       setCreatedTicketId(booking.bookingCode);
-      success(
-        `Đã giữ ${booking.totalSeats} ghế (${booking.bookedSeats.join(', ')}) — ${booking.finalAmount.toLocaleString('vi-VN')} VNĐ. Mã đặt chỗ ${booking.bookingCode}.`
-      );
-      if (booking.finalAmount !== totalCalculatedAmount) {
-        info(
-          `Máy chủ chốt ${booking.finalAmount.toLocaleString('vi-VN')} VNĐ theo đối tượng ưu đãi đã được duyệt của tài khoản, khác số ${totalCalculatedAmount.toLocaleString('vi-VN')} VNĐ hiển thị lúc chọn ghế.`
-        );
-      }
-      // Thanh toán ngay sau khi giữ chỗ. Nếu lỗi thì ghế vẫn được giữ 10 phút để khách trả lại ở mục Vé điện tử.
-      try {
-        const payment = await payBooking(booking.bookingId, PAYMENT_METHOD_CODE[paymentMethod]);
-        setPaidInfo(payment);
-        success(`Đã thanh toán ${payment.amount.toLocaleString('vi-VN')} VNĐ. Hóa đơn ${payment.invoiceNo ?? ''}.`);
-      } catch (payErr) {
-        setPaidInfo(null);
-        error(
-          `${payErr instanceof ApiError ? payErr.message : 'Thanh toán không thành công.'} Ghế vẫn được giữ trong 10 phút, bạn có thể thanh toán lại ở mục Vé điện tử.`
-        );
-      }
-      setCurrentStep(4);
+      setHold({
+        bookingId: booking.bookingId,
+        bookingCode: booking.bookingCode,
+        expiresAt: parseUtc(booking.holdExpiresAt).getTime(),
+      });
+      setHoldNow(Date.now());
+      setCurrentStep(3);
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Không xác nhận được đặt vé.';
-      error(message);
+      error(err instanceof ApiError ? err.message : 'Không giữ được chỗ, vui lòng thử lại.');
       // 409 nghĩa là ghế vừa bị người khác giữ: tải lại sơ đồ để khách thấy trạng thái mới.
       if (err instanceof ApiError && err.status === 409) {
+        setSelectedSeatIds([]);
+        await loadSeats(selectedTrip.id);
+      }
+    } finally {
+      setIsHolding(false);
+    }
+  };
+
+  /** Nhả ghế đang giữ trên máy chủ. Lỗi mạng không chặn khách: ghế vẫn tự nhả khi hết 10 phút. */
+  const releaseHold = async () => {
+    const current = hold;
+    setHold(null);
+    setServerFinalAmount(null);
+    if (!current) return;
+    try {
+      await cancelPendingBooking(current.bookingId);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        // Lượt đặt vừa được thanh toán xong (IPN về kịp): không còn là ghế đang giữ.
+        error(err.message);
+      } else {
+        warning('Chưa nhả được ghế ngay, ghế sẽ tự nhả khi hết 10 phút giữ chỗ.');
+      }
+    }
+  };
+
+  // Khách bấm "Hủy thanh toán": nhả ghế ngay rồi quay lại chọn ghế.
+  const handleCancelPayment = async () => {
+    if (!selectedTrip) return;
+    setIsProcessingPayment(true);
+    setTransferPay(null);
+    await releaseHold();
+    setCurrentStep(2);
+    await loadSeats(selectedTrip.id);
+    setIsProcessingPayment(false);
+    info('Đã hủy thanh toán, ghế đã được nhả.');
+  };
+
+  // Hết 10 phút mà chưa thanh toán: máy chủ tự nhả ghế (job nền), giao diện đưa khách về chọn lại.
+  const handleHoldExpired = useCallback(() => {
+    setTransferPay(null);
+    setHold(null);
+    setServerFinalAmount(null);
+    setSelectedSeatIds([]);
+    setCurrentStep(2);
+    warning('Đã hết 10 phút giữ chỗ, ghế đã được nhả. Vui lòng chọn lại ghế.');
+    if (selectedTrip) void loadSeats(selectedTrip.id);
+  }, [selectedTrip, loadSeats, warning]);
+
+  // Đồng hồ đếm ngược trong lúc đang giữ chỗ.
+  useEffect(() => {
+    if (!hold) return;
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setHoldNow(now);
+      if (now >= hold.expiresAt) {
+        clearInterval(timer);
+        handleHoldExpired();
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [hold, handleHoldExpired]);
+
+  const holdSecondsLeft = hold ? Math.max(0, Math.ceil((hold.expiresAt - holdNow) / 1000)) : 0;
+  const holdClock = `${String(Math.floor(holdSecondsLeft / 60)).padStart(2, '0')}:${String(holdSecondsLeft % 60).padStart(2, '0')}`;
+  /** Tiền cần trả: ưu tiên số máy chủ đã chốt lúc giữ chỗ, chưa giữ thì dùng số tạm tính. */
+  const displayAmount = serverFinalAmount ?? totalCalculatedAmount;
+
+  // Chuyển khoản: máy chủ báo đã nhận tiền (webhook ngân hàng hoặc quản lý xác nhận) thì sang bước hoàn tất.
+  const handleTransferPaid = useCallback(
+    (payment: PaymentDto) => {
+      setPaidInfo(payment);
+      setTransferPay(null);
+      setHold(null);
+      success(`Đã nhận ${payment.amount.toLocaleString('vi-VN')} VNĐ. Hóa đơn ${payment.invoiceNo ?? ''}.`);
+      setCurrentStep(4);
+    },
+    [success]
+  );
+
+  // Step 3: thanh toán lượt đặt đã giữ chỗ. VNPay: trình duyệt chuyển sang trang của ngân hàng, kết quả hiện ở
+  // /passenger/payment-result. Phương thức giả lập (chỉ khi máy chủ bật): xong ngay tại đây.
+  // Thanh toán lỗi thì ở lại bước này, ghế vẫn giữ tới hết giờ để khách thử lại hoặc đổi phương thức.
+  const handlePayNow = async () => {
+    if (!hold || !selectedTrip) {
+      error('Lượt giữ chỗ đã hết hạn, vui lòng chọn lại ghế.');
+      return;
+    }
+
+    setIsProcessingPayment(true);
+    try {
+      const started = await startPayment(hold.bookingId, PAYMENT_METHOD_CODE[paymentMethod]);
+      if (started.redirected) {
+        info('Đang chuyển sang cổng thanh toán VNPay...');
+        // Giữ trạng thái "đang xử lý" để khách không bấm lần hai trong lúc trình duyệt chuyển trang.
+        return;
+      }
+      const payment = started.payment;
+      if (payment.transfer) {
+        // Chuyển khoản: hiện mã VietQR và chờ máy chủ báo đã nhận tiền; ghế vẫn được giữ tới hết giờ.
+        setTransferPay(payment);
+        return;
+      }
+      setPaidInfo(payment);
+      setHold(null);
+      success(`Đã thanh toán ${payment.amount.toLocaleString('vi-VN')} VNĐ. Hóa đơn ${payment.invoiceNo ?? ''}.`);
+      setCurrentStep(4);
+    } catch (err) {
+      error(err instanceof ApiError ? err.message : 'Thanh toán không thành công.');
+      // 409: lượt đặt không còn giữ chỗ (hết hạn, hoặc đã trả ở tab khác) — quay lại chọn ghế với sơ đồ mới.
+      if (err instanceof ApiError && err.status === 409) {
+        setHold(null);
+        setServerFinalAmount(null);
         setSelectedSeatIds([]);
         setCurrentStep(2);
         await loadSeats(selectedTrip.id);
@@ -362,6 +466,8 @@ export const RouteBookingPage: React.FC = () => {
   };
 
   const resetFlow = () => {
+    setTransferPay(null);
+    setHold(null);
     setSelectedTrip(null);
     setSeats([]);
     setSelectedSeatIds([]);
@@ -1033,10 +1139,10 @@ export const RouteBookingPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleProceedToPayment}
-                  disabled={selectedSeatIds.length === 0}
+                  disabled={selectedSeatIds.length === 0 || isHolding}
                   className="flex items-center gap-1.5 px-4 py-2 rounded bg-institutional-700 hover:bg-institutional-800 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold uppercase tracking-wider shadow-sm transition-colors"
                 >
-                  <span>Tiếp tục thanh toán ({selectedSeatIds.length} ghế)</span>
+                  <span>{isHolding ? 'Đang giữ chỗ...' : `Tiếp tục thanh toán (${selectedSeatIds.length} ghế)`}</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -1052,6 +1158,27 @@ export const RouteBookingPage: React.FC = () => {
       {currentStep === 3 && selectedTrip && selectedSeatIds.length > 0 && (
         <div className="max-w-2xl mx-auto bg-white dark:bg-[#131e3a] p-6 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm space-y-6 text-xs">
           
+          {hold && (
+            <div
+              className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${
+                holdSecondsLeft <= 60
+                  ? 'border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200'
+                  : 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 shrink-0" />
+                <span>
+                  Ghế <strong>{selectedSeatCodes.join(', ')}</strong> đang được giữ cho bạn. Hết thời gian mà chưa thanh
+                  toán, ghế sẽ được nhả cho người khác.
+                </span>
+              </div>
+              <span className="font-mono font-black text-lg" aria-label="Thời gian giữ chỗ còn lại">
+                {holdClock}
+              </span>
+            </div>
+          )}
+
           <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
             <h3 className="text-sm font-bold uppercase tracking-wider text-institutional-900 dark:text-sky-300">
               Chọn Phương Thức Thanh Toán Điện Tử
@@ -1090,7 +1217,7 @@ export const RouteBookingPage: React.FC = () => {
             <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center text-sm font-bold text-emerald-600 dark:text-emerald-400">
               <span>Tổng số tiền cần thanh toán:</span>
               <span className="text-base font-black font-mono">
-                {totalCalculatedAmount === 0 ? '0 VNĐ (Miễn phí)' : `${totalCalculatedAmount.toLocaleString('vi-VN')} VNĐ`}
+                {displayAmount === 0 ? '0 VNĐ (Miễn phí)' : `${displayAmount.toLocaleString('vi-VN')} VNĐ`}
               </span>
             </div>
           </div>
@@ -1199,7 +1326,7 @@ export const RouteBookingPage: React.FC = () => {
                 </div>
                 <div>
                   <div className="font-bold">Chuyển khoản Ngân hàng</div>
-                  <div className="text-[10px] text-slate-500 dark:text-slate-400">Vietcombank / BIDV / Vietinbank</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">Quét mã VietQR bằng app ngân hàng</div>
                 </div>
               </label>
             </div>
@@ -1209,12 +1336,12 @@ export const RouteBookingPage: React.FC = () => {
           <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <button
               type="button"
-              onClick={() => setCurrentStep(2)}
+              onClick={handleCancelPayment}
               disabled={isProcessingPayment}
-              className="flex items-center gap-1.5 px-4 py-2 rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold"
+              className="flex items-center gap-1.5 px-4 py-2 rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold disabled:opacity-50"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Quay lại đổi ghế</span>
+              <span>Hủy thanh toán, đổi ghế</span>
             </button>
 
             <button
@@ -1231,7 +1358,7 @@ export const RouteBookingPage: React.FC = () => {
               ) : (
                 <>
                   <CreditCard className="w-4 h-4" />
-                  <span>Xác nhận thanh toán {totalCalculatedAmount === 0 ? '0 VNĐ (Miễn phí)' : `${totalCalculatedAmount.toLocaleString('vi-VN')} VNĐ`}</span>
+                  <span>Xác nhận thanh toán {displayAmount === 0 ? '0 VNĐ (Miễn phí)' : `${displayAmount.toLocaleString('vi-VN')} VNĐ`}</span>
                 </>
               )}
             </button>
@@ -1291,6 +1418,9 @@ export const RouteBookingPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Thanh toán xong: hiện luôn mã QR lên xe của từng vé */}
+          {paidInfo && <PaidTicketQrs bookingId={paidInfo.bookingId} />}
+
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-3">
             <button
               type="button"
@@ -1320,6 +1450,30 @@ export const RouteBookingPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <Modal isOpen={transferPay !== null} onClose={() => setTransferPay(null)} title="Chuyển khoản ngân hàng" maxWidth="2xl">
+        {transferPay && (
+          <div className="space-y-4">
+            <BankTransferPanel payment={transferPay} onPaid={handleTransferPaid} />
+            <div className="flex flex-wrap justify-between gap-2 pt-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setTransferPay(null)}
+                className="px-4 py-2 rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold"
+              >
+                Chọn phương thức khác
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCancelPayment()}
+                className="px-4 py-2 rounded border border-rose-300 text-rose-700 dark:text-rose-300 font-semibold"
+              >
+                Hủy thanh toán, đổi ghế
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
     </div>
   );

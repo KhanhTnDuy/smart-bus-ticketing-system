@@ -3,7 +3,9 @@ import { Clock, CreditCard } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { ApiError } from '../../api/client';
 import { MyTicketDto } from '../../api/booking';
-import { PAYMENT_METHOD_OPTIONS, PaymentMethodCode, formatVnd, parseUtc, payBooking } from '../../api/payments';
+import { PAYMENT_METHOD_OPTIONS, PaymentDto, PaymentMethodCode, formatVnd, parseUtc, startPayment } from '../../api/payments';
+import { Modal } from '../common/Modal';
+import { BankTransferPanel } from './BankTransferPanel';
 
 interface UnpaidBooking {
   bookingId: number;
@@ -29,6 +31,8 @@ export const UnpaidBookingsPanel: React.FC<Props> = ({ tickets, onPaid }) => {
   const [now, setNow] = useState(() => Date.now());
   const [method, setMethod] = useState<Record<number, PaymentMethodCode>>({});
   const [payingId, setPayingId] = useState<number | null>(null);
+  /** Giao dịch chuyển khoản đang chờ tiền: hiện mã VietQR cho khách quét. */
+  const [transfer, setTransfer] = useState<PaymentDto | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15000);
@@ -63,7 +67,14 @@ export const UnpaidBookingsPanel: React.FC<Props> = ({ tickets, onPaid }) => {
   const pay = async (b: UnpaidBooking) => {
     setPayingId(b.bookingId);
     try {
-      const payment = await payBooking(b.bookingId, method[b.bookingId] ?? PaymentMethodCode.Momo);
+      const started = await startPayment(b.bookingId, method[b.bookingId] ?? PaymentMethodCode.BankTransfer);
+      // VNPay: trình duyệt đang chuyển sang trang của ngân hàng, giữ nút ở trạng thái đang xử lý.
+      if (started.redirected) return;
+      const payment = started.payment;
+      if (payment.transfer) {
+        setTransfer(payment);
+        return;
+      }
       success(`Đã thanh toán ${formatVnd(payment.amount)} cho ${b.bookingCode}. Hóa đơn ${payment.invoiceNo ?? ''}.`);
       onPaid();
     } catch (err) {
@@ -95,7 +106,7 @@ export const UnpaidBookingsPanel: React.FC<Props> = ({ tickets, onPaid }) => {
               </div>
             </div>
             <select
-              value={method[b.bookingId] ?? PaymentMethodCode.Momo}
+              value={method[b.bookingId] ?? PaymentMethodCode.BankTransfer}
               onChange={(e) => setMethod((m) => ({ ...m, [b.bookingId]: Number(e.target.value) }))}
               className="p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white"
             >
@@ -117,6 +128,23 @@ export const UnpaidBookingsPanel: React.FC<Props> = ({ tickets, onPaid }) => {
           </div>
         );
       })}
+
+      <Modal isOpen={transfer !== null} onClose={() => setTransfer(null)} title="Chuyển khoản ngân hàng" maxWidth="2xl">
+        {transfer && (
+          <BankTransferPanel
+            payment={transfer}
+            onPaid={(payment) => {
+              setTransfer(null);
+              success(`Đã nhận ${formatVnd(payment.amount)}. Hóa đơn ${payment.invoiceNo ?? ''}.`);
+              onPaid();
+            }}
+            onExpired={() => {
+              setTransfer(null);
+              onPaid();
+            }}
+          />
+        )}
+      </Modal>
     </div>
   );
 };
