@@ -238,3 +238,32 @@ dotnet user-secrets set "Email:FromAddress" "<tài khoản gửi>"
 
 Chưa bật `Email:Enabled` thì hóa đơn vẫn được tạo nhưng chưa gửi (nằm chờ, không tính là thất bại) cho tới khi bật. Email không chứa mã QR hay mã vé,
 chỉ có liên kết tới mục Vé điện tử của tài khoản.
+
+## Hoàn tiền tự động (VNPay)
+
+Khoản hoàn (`Refund`, `Pending`) được tạo khi: quản lý duyệt hủy vé, chuyến bị hủy, hoặc tiền về sau khi hết hạn giữ chỗ / thanh toán trùng.
+Với giao dịch **VNPay**, `RefundProcessingService` (nền, quét 10 giây) tự gọi API hoàn tiền của VNPay qua `RefundExecutor`, không cần quản lý duyệt từng khoản.
+Giao dịch giả lập (MoMo/ZaloPay trong dev) vẫn do quản lý duyệt tay như trước.
+
+- **Mã yêu cầu cố định** `RF{id}` cho mỗi khoản hoàn để VNPay chặn yêu cầu trùng. Hoàn toàn bộ gửi loại `02`, hoàn một phần loại `03`.
+- **Lỗi tạm thời** (mạng, HTTP 5xx, mã 99): thử lại tối đa 5 lần, lần thứ n chờ n × 30 giây, ghi lý do vào `Note`.
+- **Cổng từ chối** (không tìm thấy giao dịch, số tiền sai, yêu cầu trùng 94...) hoặc **phản hồi sai chữ ký**: *không* coi là thành công và không thử lại, chuyển
+  "Cần xử lý tay" (`needsManual`), báo quản lý. Cố ý không đoán, vì không biết tiền đã về khách hay chưa.
+- **Quản lý xử lý tay** ở `/manager/refunds`: *Hoàn qua VNPay* gọi lại cổng (bỏ giới hạn số lần tự thử), hoặc *Đã hoàn bằng đường khác* (bắt buộc ghi mã đối soát, hệ thống không gọi cổng).
+- Hoàn đủ tiền giao dịch thì giao dịch chuyển `Refunded`; hoàn một phần thì giữ `Success`.
+
+**Cấu hình** (mục `Refunds` và `Payments:VnPay`):
+
+```json
+"Refunds": {
+  "AutoProcess": true,
+  "Tiers": [ { "HoursBefore": 24, "Percent": 100 }, { "HoursBefore": 2, "Percent": 50 } ]
+}
+```
+
+`Tiers` là chính sách hoàn theo giờ trước giờ chạy, **chỉ áp cho khách tự hủy vé** (hủy chuyến và thanh toán lỗi luôn hoàn 100%). Để trống thì hoàn 100%.
+Ví dụ trên: còn từ 24 giờ hoàn 100%, từ 2 giờ hoàn 50%, dưới 2 giờ không hoàn. `AutoProcess=false` tắt tự hoàn (quản lý duyệt tay).
+
+**Cần kiểm chứng với VNPay sandbox thật:** phần gọi API hoàn tiền (chuỗi ký nối bằng `|`, định dạng phản hồi) viết theo tài liệu VNPay 2.1.0 nhưng mới chỉ thử với máy chủ giả trong
+bộ hồi quy, chưa gọi sandbox thật. Nếu sandbox báo không tìm thấy giao dịch gốc, đổi `Payments:VnPay:RefundDateSource` giữa `Create` (mặc định, vnp_CreateDate lúc tạo thanh toán) và `Pay` (vnp_PayDate).
+Khoản chưa tự hoàn được sẽ rơi vào "Cần xử lý tay" chứ không mất tiền. VNPay chỉ cho hoàn trong thời hạn quy định của họ.
