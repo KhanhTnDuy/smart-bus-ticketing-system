@@ -68,6 +68,8 @@ export interface ConfirmBookingRequest {
   seatIds: number[];
   boardStopId: number;
   alightStopId: number;
+  /** SCRUM-67: Mã voucher giảm giá nếu hành khách nhập */
+  voucherCode?: string;
 }
 
 export interface ConfirmBookingResponse {
@@ -77,6 +79,9 @@ export interface ConfirmBookingResponse {
   tripId: number;
   bookedSeats: string[];
   totalSeats: number;
+  originalAmount?: number;
+  discountAmount?: number;
+  voucherCode?: string;
   /**
    * Số tiền do máy chủ chốt. Backend tính theo hồ sơ đối tượng ưu đãi đã được duyệt
    * của tài khoản, KHÔNG theo đối tượng người dùng chọn trên giao diện, nên giá trị

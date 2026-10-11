@@ -22,4 +22,8 @@ public class ConfirmBookingDto
 
     [Range(1, long.MaxValue, ErrorMessage = "Vui lòng chọn điểm xuống xe.")]
     public long AlightStopId { get; set; }
+
+    /// <summary>SCRUM-67: Mã voucher giảm giá (nếu có).</summary>
+    [StringLength(50, ErrorMessage = "Mã voucher không được vượt quá 50 ký tự.")]
+    public string? VoucherCode { get; set; }
 }
