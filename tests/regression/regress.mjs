@@ -13,6 +13,11 @@ import http from 'node:http';
 const REFUND_SINK_PORT = Number(process.env.REFUND_SINK_PORT || 0);
 const REFUND_TIERS = process.env.REFUND_TIERS === '1';
 
+// Khóa webhook chuyển khoản, phải trùng BankTransfer__WebhookApiKey của backend (backend chạy với BankTransfer__BankId=MB,
+// BankTransfer__BankName="MB Bank", BankTransfer__AccountNumber=0123456789, BankTransfer__AccountName="NGUYEN VAN TEST").
+// Bỏ trống thì nhóm G5 bị bỏ qua.
+const BANK_WEBHOOK_KEY = process.env.BANK_WEBHOOK_KEY || '';
+
 // API hoàn tiền giả: kiểm chữ ký yêu cầu theo đặc tả (các trường nối bằng "|") rồi trả lời có ký. `mode`: ok, code91
 // (không tìm thấy giao dịch), code94 (yêu cầu trùng), badsig (sai chữ ký phản hồi). `failNext` > 0 thì trả HTTP 500 vài lần đầu.
 function startRefundSink(port, secret) {
@@ -917,6 +922,170 @@ try {
     } finally {
       rs.server.close();
     }
+  }
+
+  // ============================================================
+  sec('G5. Chuyển khoản ngân hàng (VietQR)');
+  if (!BANK_WEBHOOK_KEY) {
+    console.log('  (bỏ qua: chưa đặt BANK_WEBHOOK_KEY)');
+  } else {
+    // Chuyến riêng trên xe 4 (24 ghế) để không tranh ghế với các nhóm trước.
+    sql(`insert into trips (RouteId, ScheduleId, BusId, DepartureAt, Status, DelayMinutes) values (1, NULL, 4, DATE_ADD(UTC_TIMESTAMP(), interval 3 day), 'Scheduled', 0)`);
+    const tidB = Number(sql('select max(Id) from trips'));
+    const seatsB = seatsOf(4, 8);
+    const bookB = async (tok, seat) => (await call(tok, 'POST', '/api/bookings', { tripId: tidB, seatIds: [seat], boardStopId: 1, alightStopId: 2 })).j;
+    const payB = (tok, id) => call(tok, 'POST', '/api/payments', { bookingId: id, method: 4 });
+    const webhook = async (body, auth = `Apikey ${BANK_WEBHOOK_KEY}`) => {
+      const headers = { 'Content-Type': 'application/json' };
+      if (auth) headers.Authorization = auth;
+      const r = await fetch(B + '/api/payments/bank-transfer/webhook', { method: 'POST', headers, body: JSON.stringify(body) });
+      const t = await r.text();
+      let j = null;
+      try { j = JSON.parse(t); } catch { /* không phải JSON */ }
+      return { s: r.status, j };
+    };
+    const incoming = (memoText, amount, over = {}) => ({
+      id: 92700 + Math.floor(Math.random() * 99999), gateway: 'MBBank', transactionDate: '2026-10-11 22:30:00', accountNumber: '0123456789',
+      code: null, content: memoText, transferType: 'in', transferAmount: amount, accumulated: 1000000, subAccount: null,
+      referenceCode: 'FT26285' + Math.floor(Math.random() * 1e6), description: '', ...over,
+    });
+    const stat = (id) => sql(`select Status from payments where Id=${id}`);
+
+    // 1. Khởi tạo: Pending kèm mã VietQR, tài khoản nhận và nội dung chuyển khoản duy nhất.
+    const b1 = await bookB(p1, seatsB[0]);
+    const t1 = await payB(p1, b1.bookingId);
+    is('Chuyển khoản: khởi tạo thanh toán -> 201', t1.s, 201);
+    is('Chuyển khoản: giao dịch Pending', t1.j?.status, 'Pending');
+    const tr = t1.j?.transfer ?? {};
+    check('Chuyển khoản: nội dung là mã duy nhất', /^SBV[A-HJKMNP-Z2-9]{8}$/.test(tr.memo ?? ''));
+    is('Chuyển khoản: nội dung trùng mã tham chiếu', t1.j?.reference, tr.memo);
+    is('Chuyển khoản: tài khoản nhận', tr.accountNumber, '0123456789');
+    is('Chuyển khoản: tên chủ tài khoản', tr.accountName, 'NGUYEN VAN TEST');
+    is('Chuyển khoản: tên ngân hàng', tr.bankName, 'MB Bank');
+    is('Chuyển khoản: số tiền do máy chủ tính', tr.amount, 7000);
+    is('Chuyển khoản: ảnh VietQR điền sẵn tài khoản, số tiền, nội dung',
+      tr.qrUrl, `https://img.vietqr.io/image/MB-0123456789-compact2.png?amount=7000&addInfo=${tr.memo}&accountName=NGUYEN%20VAN%20TEST`);
+    check('Chuyển khoản: hạn chờ bằng hạn giữ chỗ', Math.abs(new Date(tr.expiresAt) - new Date(t1.j?.holdExpiresAt)) < 1000);
+    is('Chuyển khoản: không có đường dẫn cổng', t1.j?.paymentUrl ?? null, null);
+    is('Chuyển khoản: lượt đặt vẫn Pending khi chưa nhận tiền', sql(`select Status from bookings where Id=${b1.bookingId}`), 'Pending');
+    is('Chuyển khoản: vé vẫn Held', sql(`select distinct Status from tickets where BookingId=${b1.bookingId}`), 'Held');
+    const again = await payB(p1, b1.bookingId);
+    check('Chuyển khoản: mỗi lần mở có nội dung riêng', again.s === 201 && again.j?.transfer?.memo !== tr.memo);
+
+    // 2. Ai xem được thông tin chuyển khoản.
+    is('Chuyển khoản: chủ giao dịch xem được', (await call(p1, 'GET', `/api/payments/${t1.j?.id}`)).j?.transfer?.memo, tr.memo);
+    is('Chuyển khoản: người khác không xem được -> 403', (await call(p2, 'GET', `/api/payments/${t1.j?.id}`)).s, 403);
+    check('Chuyển khoản: quản lý lọc được giao dịch chờ', (await call(mg, 'GET', '/api/payments?method=BankTransfer&status=Pending')).j?.some((x) => x.reference === tr.memo));
+
+    // 3. Quản lý xác nhận đã nhận tiền.
+    is('Xác nhận chuyển khoản: hành khách -> 403', (await call(p1, 'POST', `/api/payments/${t1.j?.id}/confirm-transfer`, {})).s, 403);
+    is('Xác nhận chuyển khoản: không đăng nhập -> 401', (await call(null, 'POST', `/api/payments/${t1.j?.id}/confirm-transfer`, {})).s, 401);
+    is('Xác nhận chuyển khoản: giao dịch không tồn tại -> 404', (await call(mg, 'POST', '/api/payments/99999999/confirm-transfer', {})).s, 404);
+    const vnId = sql("select Id from payments where Method='VnPay' limit 1");
+    if (vnId) is('Xác nhận chuyển khoản: giao dịch VNPay -> 400', (await call(mg, 'POST', `/api/payments/${vnId}/confirm-transfer`, {})).s, 400);
+    const ok1 = await call(mg, 'POST', `/api/payments/${t1.j?.id}/confirm-transfer`, { bankTransactionId: 'FT26285123456' });
+    is('Xác nhận chuyển khoản: quản lý xác nhận -> 200', ok1.s, 200);
+    is('Xác nhận chuyển khoản: báo thành công', ok1.j?.success, true);
+    is('Xác nhận chuyển khoản: giao dịch Success', stat(t1.j?.id), 'Success');
+    is('Xác nhận chuyển khoản: lưu mã giao dịch ngân hàng', sql(`select ProviderTxnId from payments where Id=${t1.j?.id}`), 'FT26285123456');
+    is('Xác nhận chuyển khoản: lượt đặt Confirmed', sql(`select Status from bookings where Id=${b1.bookingId}`), 'Confirmed');
+    is('Xác nhận chuyển khoản: vé chuyển Valid', sql(`select distinct Status from tickets where BookingId=${b1.bookingId}`), 'Valid');
+    is('Xác nhận chuyển khoản: có hóa đơn', sql(`select count(*) from invoices where PaymentId=${t1.j?.id}`), '1');
+    check('Xác nhận chuyển khoản: có nhật ký người xác nhận', Number(sql(`select count(*) from audit_logs where Action='Xác nhận chuyển khoản #${t1.j?.id}' and Username='manager'`)) === 1);
+    is('Xác nhận chuyển khoản: xác nhận lần hai -> 409', (await call(mg, 'POST', `/api/payments/${t1.j?.id}/confirm-transfer`, {})).s, 409);
+    is('Xác nhận chuyển khoản: giao dịch đã thành công không còn thông tin chuyển khoản', (await call(p1, 'GET', `/api/payments/${t1.j?.id}`)).j?.transfer ?? null, null);
+
+    // 3b. Một mã giao dịch ngân hàng không dùng được cho hai giao dịch.
+    const b2 = await bookB(p1, seatsB[1]);
+    const t2 = await payB(p1, b2.bookingId);
+    is('Xác nhận chuyển khoản: mã giao dịch ngân hàng đã dùng -> 409', (await call(mg, 'POST', `/api/payments/${t2.j?.id}/confirm-transfer`, { bankTransactionId: 'FT26285123456' })).s, 409);
+    is('Xác nhận chuyển khoản: giao dịch vẫn Pending sau khi bị từ chối', stat(t2.j?.id), 'Pending');
+
+    // 4. Khách hủy giữ chỗ rồi mới chuyển tiền: không xuất vé, tự mở khoản hoàn (hoàn tay vì không có cổng).
+    await call(p1, 'POST', `/api/bookings/${b2.bookingId}/cancel`);
+    const late2 = await call(mg, 'POST', `/api/payments/${t2.j?.id}/confirm-transfer`, { bankTransactionId: 'FT26285777001' });
+    is('Chuyển khoản trễ: xác nhận vẫn ghi nhận tiền', late2.s, 200);
+    is('Chuyển khoản trễ: không báo xuất vé', late2.j?.success, false);
+    check('Chuyển khoản trễ: báo khoản sẽ được hoàn', /hoàn/.test(late2.j?.message ?? ''));
+    is('Chuyển khoản trễ: không có vé Valid', sql(`select count(*) from tickets where BookingId=${b2.bookingId} and Status='Valid'`), '0');
+    const rf2 = Number(sql(`select Id from refunds where PaymentId=${t2.j?.id}`));
+    is('Chuyển khoản trễ: tự mở khoản hoàn 7.000 đ', sql(`select concat(Amount,'/',Status) from refunds where Id=${rf2}`), '7000.00/Pending');
+    await new Promise((r) => setTimeout(r, 12000));
+    const rl = (await call(mg, 'GET', '/api/refunds')).j?.find((x) => x.id === rf2);
+    is('Chuyển khoản trễ: không có cổng nên không tự hoàn', rl?.status, 'Pending');
+    is('Chuyển khoản trễ: không bị đánh cần xử lý tay', rl?.needsManual, false);
+    is('Chuyển khoản trễ: quản lý hoàn tay xong -> 200', (await call(mg, 'PATCH', `/api/refunds/${rf2}/process`, { approve: true, note: 'Da chuyen khoan hoan lai cho khach' })).s, 200);
+    is('Chuyển khoản trễ: khoản hoàn Success', sql(`select Status from refunds where Id=${rf2}`), 'Success');
+
+    // 5. Webhook báo có tiền vào (định dạng SePay).
+    const b3 = await bookB(p1, seatsB[2]);
+    const t3 = await payB(p1, b3.bookingId);
+    const m3 = t3.j?.transfer?.memo ?? 'SBVXXXXXXXX';
+    is('Webhook: không có khóa -> 401', (await webhook(incoming(m3, 7000), '')).s, 401);
+    is('Webhook: sai khóa -> 401', (await webhook(incoming(m3, 7000), 'Apikey sai-khoa')).s, 401);
+    is('Webhook: sai kiểu khóa -> 401', (await webhook(incoming(m3, 7000), `Bearer ${BANK_WEBHOOK_KEY}`)).s, 401);
+    is('Webhook: không xác thực thì giao dịch không đổi', stat(t3.j?.id), 'Pending');
+    is('Webhook: tiền chuyển đi (out) bị bỏ qua', (await webhook(incoming(m3, 7000, { transferType: 'out' }))).j?.reason, 'not-incoming');
+    is('Webhook: tài khoản khác bị bỏ qua', (await webhook(incoming(m3, 7000, { accountNumber: '9999999999' }))).j?.reason, 'other-account');
+    is('Webhook: không có mã nội dung', (await webhook(incoming('chuyen tien an trua', 7000))).j?.reason, 'no-memo');
+    is('Webhook: mã không tồn tại', (await webhook(incoming('SBVAAAAAAAA', 7000))).j?.reason, 'unknown-memo');
+    const wrong = await webhook(incoming(m3, 6000));
+    is('Webhook: lệch số tiền -> 200 nhưng không khớp', wrong.j?.reason, 'amount-mismatch');
+    is('Webhook: lệch số tiền thì giao dịch vẫn Pending', stat(t3.j?.id), 'Pending');
+    check('Webhook: lệch số tiền được báo cho quản lý', Number(sql("select count(*) from notifications where Title='Chuyển khoản lệch số tiền'")) > 0);
+    const w3 = incoming(`CK ve xe ${m3.slice(0, 5).toLowerCase()} ${m3.slice(5)} cam on`, 7000, { id: 555123 });
+    const hit = await webhook(w3);
+    is('Webhook: nội dung bị chèn dấu cách vẫn khớp', hit.j?.matched, true);
+    is('Webhook: kết quả Confirmed', hit.j?.outcome, 'Confirmed');
+    is('Webhook: giao dịch Success', stat(t3.j?.id), 'Success');
+    is('Webhook: lưu mã giao dịch ngân hàng', sql(`select ProviderTxnId from payments where Id=${t3.j?.id}`), 'SEPAY-555123');
+    is('Webhook: lượt đặt Confirmed', sql(`select Status from bookings where Id=${b3.bookingId}`), 'Confirmed');
+    is('Webhook: vé Valid', sql(`select distinct Status from tickets where BookingId=${b3.bookingId}`), 'Valid');
+    is('Webhook: có đúng một hóa đơn', sql(`select count(*) from invoices where PaymentId=${t3.j?.id}`), '1');
+    check('Webhook: nhật ký ghi nhận chuyển khoản', Number(sql(`select count(*) from audit_logs where Action='Nhận chuyển khoản ${m3}'`)) === 1);
+    const dup = await webhook(w3);
+    is('Webhook: gửi lại cùng giao dịch -> báo trùng', dup.j?.duplicate, true);
+    is('Webhook: gửi lại không sinh thêm hóa đơn', sql(`select count(*) from invoices where PaymentId=${t3.j?.id}`), '1');
+
+    // 5b. Mã giao dịch ngân hàng đã dùng thì không xác nhận được giao dịch khác, dù nội dung và số tiền khớp.
+    const b4 = await bookB(p1, seatsB[3]);
+    const t4 = await payB(p1, b4.bookingId);
+    const reuse = await webhook(incoming(t4.j?.transfer?.memo, 7000, { id: 555123 }));
+    is('Webhook: tái dùng mã giao dịch ngân hàng bị coi là trùng', reuse.j?.duplicate, true);
+    is('Webhook: giao dịch khác không bị xác nhận bằng mã đã dùng', stat(t4.j?.id), 'Pending');
+    // Hai webhook cùng lúc cho cùng một khoản: chỉ một hóa đơn.
+    const race = incoming(t4.j?.transfer?.memo, 7000, { id: 555777 });
+    const rr = await Promise.all([webhook(race), webhook(race), webhook(race)]);
+    check('Webhook: gọi đồng thời không lỗi 5xx', rr.every((x) => x.s < 500));
+    is('Webhook: gọi đồng thời chỉ một hóa đơn', sql(`select count(*) from invoices where PaymentId=${t4.j?.id}`), '1');
+    is('Webhook: gọi đồng thời, giao dịch Success', stat(t4.j?.id), 'Success');
+
+    // 6. Quá hạn chờ nhưng tiền vẫn về: giao dịch bị đánh Failed vì hết hạn được mở lại, tiền không bị bỏ qua.
+    const b5 = await bookB(p1, seatsB[4]);
+    const t5 = await payB(p1, b5.bookingId);
+    sql(`update payments set Status='Failed', FailureReason='Hết thời gian chờ thanh toán.' where Id=${t5.j?.id}`);
+    sql(`update bookings set HoldExpiresAt='2020-01-01' where Id=${b5.bookingId}`);
+    const late5 = await webhook(incoming(t5.j?.transfer?.memo ?? 'SBVXXXXXXXX', 7000, { id: 555888 }));
+    is('Chuyển khoản quá hạn: webhook vẫn nhận tiền', late5.j?.matched, true);
+    is('Chuyển khoản quá hạn: kết quả mở khoản hoàn', late5.j?.outcome, 'RefundQueued');
+    is('Chuyển khoản quá hạn: giao dịch ghi nhận Success (tiền đã vào)', stat(t5.j?.id), 'Success');
+    is('Chuyển khoản quá hạn: tự mở khoản hoàn', sql(`select count(*) from refunds where PaymentId=${t5.j?.id}`), '1');
+    is('Chuyển khoản quá hạn: lượt đặt không được xác nhận', sql(`select Status from bookings where Id=${b5.bookingId}`) === 'Confirmed' ? 'Confirmed' : 'khong', 'khong');
+
+    // 7. Job nền: lượt đặt quá hạn được dọn nhưng giao dịch chuyển khoản chờ được giữ lâu hơn (tiền có thể về chậm).
+    const b6 = await bookB(p1, seatsB[5]);
+    const t6 = await payB(p1, b6.bookingId);
+    sql(`update bookings set HoldExpiresAt=UTC_TIMESTAMP() - interval 1 hour where Id=${b6.bookingId}`);
+    let swept = false;
+    for (let i = 0; i < 40 && !swept; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      swept = sql(`select Status from bookings where Id=${b6.bookingId}`) === 'Expired';
+    }
+    check('Chuyển khoản: job dọn lượt đặt quá hạn', swept);
+    is('Chuyển khoản: giao dịch chờ vẫn Pending sau khi lượt đặt hết hạn (ân hạn dài)', stat(t6.j?.id), 'Pending');
+    const late6 = await call(mg, 'POST', `/api/payments/${t6.j?.id}/confirm-transfer`, { bankTransactionId: 'FT26285777006' });
+    is('Chuyển khoản: quản lý vẫn xác nhận được sau khi lượt đặt hết hạn', late6.j?.success, false);
+    is('Chuyển khoản: tiền về sau hết hạn được mở khoản hoàn', sql(`select count(*) from refunds where PaymentId=${t6.j?.id}`), '1');
   }
 
 } catch (e) {
