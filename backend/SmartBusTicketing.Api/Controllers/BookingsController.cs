@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -129,7 +130,7 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
             return Unauthorized(new { message = "Không xác định được tài khoản từ phiên đăng nhập!" });
         }
 
-        using var transaction = await db.Database.BeginTransactionAsync(ct);
+        using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
 
         try
         {
@@ -214,7 +215,13 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
             if (!string.IsNullOrWhiteSpace(dto.VoucherCode))
             {
                 var vCode = dto.VoucherCode.Trim().ToUpperInvariant();
-                var voucher = await db.Vouchers.Include(v => v.Bookings).FirstOrDefaultAsync(v => v.Code == vCode, ct);
+
+                // Khóa dòng voucher bằng FOR UPDATE trong cùng transaction để tuần tự hóa các yêu cầu đồng thời,
+                // ngăn chặn race condition khi hai yêu cầu cùng lúc tranh chấp lượt sử dụng cuối cùng.
+                var voucher = await db.Vouchers
+                    .FromSqlInterpolated($"SELECT * FROM vouchers WHERE Code = {vCode} FOR UPDATE")
+                    .FirstOrDefaultAsync(ct);
+
                 if (voucher == null)
                 {
                     await transaction.RollbackAsync(ct);
@@ -234,7 +241,11 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
                     return BadRequest(new { message = $"Mã giảm giá '{voucher.Code}' đã hết hạn sử dụng." });
                 }
 
-                var usedCount = voucher.Bookings.Count(b => b.Status == BookingStatus.Confirmed || (b.Status == BookingStatus.Pending && b.HoldExpiresAt > nowUtc));
+                // Kiểm tra số lượt đã dùng thực tế trong CSDL (Confirmed hoặc Pending còn hiệu lực giữ chỗ)
+                var usedCount = await db.Bookings
+                    .CountAsync(b => b.VoucherId == voucher.Id &&
+                        (b.Status == BookingStatus.Confirmed || (b.Status == BookingStatus.Pending && b.HoldExpiresAt > nowUtc)), ct);
+
                 if (voucher.UsageLimit > 0 && usedCount >= voucher.UsageLimit)
                 {
                     await transaction.RollbackAsync(ct);
