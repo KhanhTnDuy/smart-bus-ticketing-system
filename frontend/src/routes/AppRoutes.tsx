@@ -40,6 +40,7 @@ import { PaymentHistoryPage } from '../pages/passenger/PaymentHistoryPage';
 import { ComplaintPage } from '../pages/passenger/ComplaintPage';
 import { DiscountApplicationPage } from '../pages/passenger/DiscountApplicationPage';
 import { PassengerRatingPage } from '../pages/passenger/PassengerRatingPage';
+import { PaymentResultPage } from '../pages/passenger/PaymentResultPage';
 
 // Incident & Tracking Pages (Sprint 2 - Multi-role)
 import { BusTrackingPage } from '../pages/common/BusTrackingPage';
@@ -119,6 +120,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/passenger/tickets" element={<ElectronicTicketPage />} />
           <Route path="/passenger/invoices" element={<InvoicePage />} />
           <Route path="/passenger/payments" element={<PaymentHistoryPage />} />
+          <Route path="/passenger/payment-result" element={<PaymentResultPage />} />
         </Route>
 
         {/* Access Denied Page */}

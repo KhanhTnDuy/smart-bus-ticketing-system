@@ -3,7 +3,7 @@ import { Clock, CreditCard } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { ApiError } from '../../api/client';
 import { MyTicketDto } from '../../api/booking';
-import { PAYMENT_METHOD_OPTIONS, PaymentMethodCode, formatVnd, parseUtc, payBooking } from '../../api/payments';
+import { PAYMENT_METHOD_OPTIONS, PaymentMethodCode, formatVnd, parseUtc, startPayment } from '../../api/payments';
 
 interface UnpaidBooking {
   bookingId: number;
@@ -63,7 +63,10 @@ export const UnpaidBookingsPanel: React.FC<Props> = ({ tickets, onPaid }) => {
   const pay = async (b: UnpaidBooking) => {
     setPayingId(b.bookingId);
     try {
-      const payment = await payBooking(b.bookingId, method[b.bookingId] ?? PaymentMethodCode.Momo);
+      const started = await startPayment(b.bookingId, method[b.bookingId] ?? PaymentMethodCode.VnPay);
+      // VNPay: trình duyệt đang chuyển sang trang của ngân hàng, giữ nút ở trạng thái đang xử lý.
+      if (started.redirected) return;
+      const payment = started.payment;
       success(`Đã thanh toán ${formatVnd(payment.amount)} cho ${b.bookingCode}. Hóa đơn ${payment.invoiceNo ?? ''}.`);
       onPaid();
     } catch (err) {
@@ -95,7 +98,7 @@ export const UnpaidBookingsPanel: React.FC<Props> = ({ tickets, onPaid }) => {
               </div>
             </div>
             <select
-              value={method[b.bookingId] ?? PaymentMethodCode.Momo}
+              value={method[b.bookingId] ?? PaymentMethodCode.VnPay}
               onChange={(e) => setMethod((m) => ({ ...m, [b.bookingId]: Number(e.target.value) }))}
               className="p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white"
             >
