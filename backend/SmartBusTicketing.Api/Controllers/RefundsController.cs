@@ -5,6 +5,7 @@ using SmartBusTicketing.Api.Data;
 using SmartBusTicketing.Api.DTOs;
 using SmartBusTicketing.Api.Models;
 using SmartBusTicketing.Api.Services;
+using SmartBusTicketing.Api.Services.Payments;
 
 namespace SmartBusTicketing.Api.Controllers;
 
@@ -16,7 +17,7 @@ namespace SmartBusTicketing.Api.Controllers;
 [ApiController]
 [Route("api/refunds")]
 [Authorize]
-public class RefundsController(AppDbContext db, AuditLogService audit) : ControllerBase
+public class RefundsController(AppDbContext db, AuditLogService audit, RefundExecutor executor) : ControllerBase
 {
     private static IQueryable<RefundDto> Project(IQueryable<Refund> q) => q.Select(r => new RefundDto
     {
@@ -35,6 +36,8 @@ public class RefundsController(AppDbContext db, AuditLogService audit) : Control
         ProcessedByName = r.Processor != null ? r.Processor.FullName : null,
         Note = r.Note,
         ChangeRequestId = r.ChangeRequestId,
+        Attempts = r.Attempts,
+        NeedsManual = r.Status == RefundStatus.Pending && r.Attempts >= RefundExecutor.MaxAttempts,
     });
 
     [HttpGet]
@@ -69,6 +72,26 @@ public class RefundsController(AppDbContext db, AuditLogService audit) : Control
 
         var refund = await db.Refunds.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id, ct);
         if (refund is null) return NotFound();
+
+        if (request.Approve && request.ConfirmedExternally && string.IsNullOrWhiteSpace(request.Note))
+            return BadRequest(new { message = "Vui lòng ghi mã hoàn tiền hoặc thông tin đối soát khi xác nhận đã hoàn ngoài cổng." });
+
+        // Khoản hoàn của giao dịch VNPay: duyệt nghĩa là gọi API hoàn tiền của cổng. Chỉ khi quản lý xác nhận đã hoàn
+        // bằng đường khác (ConfirmedExternally) mới ghi nhận thủ công, nếu không thì "duyệt" mà tiền chưa về khách.
+        var paymentMethod = await db.Payments.Where(p => p.Id == refund.PaymentId).Select(p => p.Method).FirstAsync(ct);
+        if (request.Approve && !request.ConfirmedExternally && RefundExecutor.IsGatewayMethod(paymentMethod))
+        {
+            var run = await executor.ExecuteAsync(id, actorId, User.Username() ?? "manager", manual: true, ct);
+            switch (run.Outcome)
+            {
+                case RefundExecution.Succeeded:
+                    return Ok(await Project(db.Refunds.AsNoTracking().Where(r => r.Id == id)).FirstAsync(ct));
+                case RefundExecution.AlreadyProcessed:
+                    return Conflict(new { message = "Yêu cầu hoàn tiền này đã được xử lý." });
+                default:
+                    return StatusCode(StatusCodes.Status502BadGateway, new { message = run.Message });
+            }
+        }
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var newStatus = request.Approve ? RefundStatus.Success : RefundStatus.Failed;

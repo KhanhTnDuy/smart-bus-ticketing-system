@@ -107,6 +107,10 @@ public sealed class RefundDto
     public string? ProcessedByName { get; init; }
     public string? Note { get; init; }
     public long? ChangeRequestId { get; init; }
+    /// <summary>Số lần hệ thống đã thử hoàn qua cổng.</summary>
+    public int Attempts { get; init; }
+    /// <summary>Đang chờ nhưng đã ngừng tự động (cổng từ chối hoặc quá số lần thử): quản lý phải đối soát và xử lý tay.</summary>
+    public bool NeedsManual { get; init; }
 }
 
 public sealed class ProcessRefundRequest
@@ -116,4 +120,10 @@ public sealed class ProcessRefundRequest
 
     [StringLength(2000)]
     public string? Note { get; init; }
+
+    /// <summary>
+    /// Chỉ dùng khi duyệt: true nghĩa là quản lý đã hoàn tiền cho khách bằng đường khác (đối soát với VNPay), hệ thống chỉ
+    /// ghi nhận mà không gọi cổng nữa. Bắt buộc ghi mã hoàn/đối soát trong Note. Không đặt thì khoản hoàn VNPay được hoàn qua cổng.
+    /// </summary>
+    public bool ConfirmedExternally { get; init; }
 }
