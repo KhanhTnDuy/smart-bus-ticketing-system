@@ -22,6 +22,15 @@ public sealed class HoldExpiryService(IServiceScopeFactory scopes, ILogger<HoldE
     /// </summary>
     private static readonly TimeSpan PendingPaymentGrace = TimeSpan.FromMinutes(30);
 
+    /// <summary>
+    /// Chuyển khoản thì tiền có thể vào tài khoản chậm hơn nhiều (khách chuyển trễ, ngân hàng báo trễ), nên giao dịch chờ được giữ lâu
+    /// hơn. Quá hạn này mới đánh Failed; quản lý vẫn xác nhận được sau đó vì khoản tiền thật đã vào tài khoản.
+    /// </summary>
+    private static readonly TimeSpan PendingTransferGrace = TimeSpan.FromDays(2);
+
+    /// <summary>Lý do ghi khi giao dịch chờ quá hạn. Giao dịch chuyển khoản mang lý do này được mở lại khi xác nhận có tiền.</summary>
+    public const string TimeoutReason = "Hết thời gian chờ thanh toán.";
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(Interval);
@@ -77,11 +86,14 @@ public sealed class HoldExpiryService(IServiceScopeFactory scopes, ILogger<HoldE
         }
 
         var cutoff = now - PendingPaymentGrace;
+        var transferCutoff = now - PendingTransferGrace;
         var payments = await db.Payments
-            .Where(p => p.Status == PaymentStatus.Pending && p.Booking!.HoldExpiresAt <= cutoff)
+            .Where(p => p.Status == PaymentStatus.Pending
+                        && ((p.Method != PaymentMethod.BankTransfer && p.Booking!.HoldExpiresAt <= cutoff)
+                            || (p.Method == PaymentMethod.BankTransfer && p.Booking!.HoldExpiresAt <= transferCutoff)))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(p => p.Status, PaymentStatus.Failed)
-                .SetProperty(p => p.FailureReason, "Hết thời gian chờ thanh toán."), ct);
+                .SetProperty(p => p.FailureReason, TimeoutReason), ct);
 
         return (bookings, tickets, payments);
     }

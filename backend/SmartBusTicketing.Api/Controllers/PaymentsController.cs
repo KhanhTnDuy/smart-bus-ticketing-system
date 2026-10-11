@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using SmartBusTicketing.Api.Data;
 using SmartBusTicketing.Api.DTOs;
 using SmartBusTicketing.Api.Models;
+using Microsoft.Extensions.Options;
 using SmartBusTicketing.Api.Services;
 using SmartBusTicketing.Api.Services.Email;
 using SmartBusTicketing.Api.Services.Payments;
@@ -20,8 +21,11 @@ namespace SmartBusTicketing.Api.Controllers;
 [Route("api/payments")]
 [Authorize]
 public class PaymentsController(
-    AppDbContext db, PaymentSettlementService settlement, VnPayClient vnPay, IConfiguration config) : ControllerBase
+    AppDbContext db, PaymentSettlementService settlement, VnPayClient vnPay, IConfiguration config,
+    IOptions<BankTransferOptions> bankOptions, AuditLogService audit) : ControllerBase
 {
+    private readonly BankTransferOptions bank = bankOptions.Value;
+
     /// <summary>Bộ giả lập cho các phương thức chưa nối cổng thật. Phải tắt ở môi trường thật.</summary>
     private readonly bool simulatorEnabled = config.GetValue<bool>("Payments:Simulator:Enabled");
 
@@ -40,6 +44,8 @@ public class PaymentsController(
         Status = p.Status.ToString(),
         ProviderTxnId = p.ProviderTxnId,
         FailureReason = p.FailureReason,
+        Reference = p.TxnRef,
+        HoldExpiresAt = p.Booking.HoldExpiresAt,
         PaidAt = p.PaidAt,
         TripId = p.Booking.TripId,
         RouteCode = p.Booking.Trip.BusRoute.Code,
@@ -77,11 +83,15 @@ public class PaymentsController(
             return BadRequest(new { message = "Phương thức thanh toán không hợp lệ." });
 
         var useVnPay = request.Method == PaymentMethod.VnPay;
+        var useTransfer = request.Method == PaymentMethod.BankTransfer;
         if (useVnPay && !vnPay.Options.IsConfigured)
             return StatusCode(StatusCodes.Status503ServiceUnavailable,
                 new { message = "Cổng VNPay chưa được cấu hình trên máy chủ (thiếu Payments:VnPay:TmnCode/HashSecret)." });
-        if (!useVnPay && !simulatorEnabled)
-            return BadRequest(new { message = "Phương thức này chưa được hỗ trợ. Vui lòng chọn VNPay." });
+        if (useTransfer && !bank.IsConfigured)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new { message = "Chưa cấu hình tài khoản nhận chuyển khoản trên máy chủ (mục BankTransfer)." });
+        if (!useVnPay && !useTransfer && !simulatorEnabled)
+            return BadRequest(new { message = "Phương thức này chưa được hỗ trợ. Vui lòng chọn chuyển khoản ngân hàng hoặc VNPay." });
 
         var booking = await db.Bookings.AsNoTracking()
             .FirstOrDefaultAsync(b => b.Id == request.BookingId && b.PassengerId == actorId, ct);
@@ -106,7 +116,10 @@ public class PaymentsController(
             Method = request.Method,
             Amount = booking.FinalAmount,
             Status = PaymentStatus.Pending,
-            TxnRef = $"{prefix}{now:yyMMddHHmmss}{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
+            // Chuyển khoản: mã tham chiếu chính là nội dung khách phải ghi khi chuyển tiền.
+            TxnRef = useTransfer
+                ? BankTransferHelper.NewMemo(bank.MemoPrefix)
+                : $"{prefix}{now:yyMMddHHmmss}{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
             GatewayCreateDate = useVnPay ? VnPayClient.FormatVnTime(now) : null,
         };
         db.Payments.Add(payment);
@@ -120,7 +133,7 @@ public class PaymentsController(
                 payment.TxnRef!, payment.Amount, $"Thanh toan ve {booking.BookingCode}",
                 HttpContext.Connection.RemoteIpAddress?.MapToIPv4().ToString() ?? "127.0.0.1", now, expire);
         }
-        else
+        else if (!useTransfer)
         {
             // Bộ giả lập (chỉ dùng khi dev): thanh toán luôn thành công, đi qua đúng đường chốt giao dịch thật.
             var simulated = await settlement.SettleSuccessAsync(payment.Id,
@@ -132,7 +145,134 @@ public class PaymentsController(
 
         var dto = await Project(db.Payments.AsNoTracking().Where(p => p.Id == payment.Id)).FirstAsync(ct);
         dto.PaymentUrl = paymentUrl;
+        WithTransfer(dto);
         return CreatedAtAction(nameof(Get), new { id = payment.Id }, dto);
+    }
+
+    /// <summary>Gắn thông tin chuyển khoản (mã VietQR, tài khoản, nội dung) cho giao dịch chuyển khoản còn chờ.</summary>
+    private PaymentDto WithTransfer(PaymentDto dto)
+    {
+        if (dto.Method == nameof(PaymentMethod.BankTransfer) && dto.Status == nameof(PaymentStatus.Pending)
+            && bank.IsConfigured && !string.IsNullOrEmpty(dto.Reference))
+        {
+            dto.Transfer = new BankTransferInfoDto
+            {
+                BankId = bank.BankId,
+                BankName = string.IsNullOrWhiteSpace(bank.BankName) ? bank.BankId : bank.BankName,
+                AccountNumber = bank.AccountNumber,
+                AccountName = bank.AccountName,
+                Amount = dto.Amount,
+                Memo = dto.Reference,
+                QrUrl = BankTransferHelper.QrUrl(bank, dto.Amount, dto.Reference),
+                ExpiresAt = dto.HoldExpiresAt,
+            };
+        }
+        return dto;
+    }
+
+    /// <summary>
+    /// Giao dịch chuyển khoản đã bị đánh Failed vì quá hạn chờ nhưng tiền vẫn có thể về: mở lại thành Pending để xác nhận được.
+    /// Chỉ mở lại khi lý do là hết hạn chờ, không đụng tới giao dịch thất bại vì lý do khác.
+    /// </summary>
+    private Task<int> ReopenTimedOutTransferAsync(long paymentId, CancellationToken ct) =>
+        db.Payments
+            .Where(p => p.Id == paymentId && p.Method == PaymentMethod.BankTransfer && p.Status == PaymentStatus.Failed
+                        && p.FailureReason == HoldExpiryService.TimeoutReason)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.Status, PaymentStatus.Pending)
+                .SetProperty(p => p.FailureReason, (string?)null), ct);
+
+    /// <summary>
+    /// Quản lý xác nhận đã nhận tiền chuyển khoản (đối chiếu sao kê). Chốt giao dịch cùng đường với VNPay: lượt đặt được xác nhận,
+    /// vé có hiệu lực, hóa đơn được tạo. Nếu lượt đặt đã hết hạn giữ chỗ thì tiền đã vào nhưng không xuất vé: hệ thống mở yêu cầu hoàn tiền.
+    /// </summary>
+    [HttpPost("{id:long}/confirm-transfer")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<ActionResult<PaymentResultDto>> ConfirmTransfer(long id, ConfirmTransferRequest request, CancellationToken ct)
+    {
+        var info = await db.Payments.AsNoTracking().Where(p => p.Id == id)
+            .Select(p => new { p.Method, p.Status }).FirstOrDefaultAsync(ct);
+        if (info is null) return NotFound();
+        if (info.Method != PaymentMethod.BankTransfer)
+            return BadRequest(new { message = "Chỉ xác nhận thủ công được giao dịch chuyển khoản ngân hàng." });
+        if (info.Status is PaymentStatus.Success or PaymentStatus.Refunded)
+            return Conflict(new { message = "Giao dịch này đã được xác nhận." });
+
+        var bankTxn = string.IsNullOrWhiteSpace(request.BankTransactionId) ? $"MANUAL-{id}" : request.BankTransactionId.Trim();
+        if (await db.Payments.AnyAsync(p => p.ProviderTxnId == bankTxn && p.Id != id, ct))
+            return Conflict(new { message = "Mã giao dịch ngân hàng này đã được dùng cho giao dịch khác." });
+
+        await ReopenTimedOutTransferAsync(id, ct);
+        var result = await settlement.SettleSuccessAsync(id, bankTxn, VnPayClient.FormatVnTime(DateTime.UtcNow), ct);
+        if (result.Outcome == SettlementOutcome.AlreadyProcessed)
+            return Conflict(new { message = "Giao dịch này không còn ở trạng thái chờ nên không xác nhận được." });
+
+        await audit.WriteAsync(User.AccountId(), User.Username() ?? "manager", $"Xác nhận chuyển khoản #{id}",
+            AuditActionType.Payment, $"PAYMENT-{id}", AuditStatus.Success, $"Mã giao dịch ngân hàng {bankTxn}", ct);
+
+        var dto = await Project(db.Payments.AsNoTracking().Where(p => p.Id == id)).FirstAsync(ct);
+        var ok = result.Outcome == SettlementOutcome.Confirmed;
+        return Ok(new PaymentResultDto { Success = ok, Message = ok ? "Đã xác nhận nhận tiền, vé đã có hiệu lực." : result.Message, Payment = dto });
+    }
+
+    /// <summary>
+    /// Webhook báo có tiền vào tài khoản (định dạng SePay): tự xác nhận giao dịch chuyển khoản khi nội dung chứa đúng mã và số tiền khớp.
+    /// Bảo vệ bằng khóa API trong header "Authorization: Apikey ...". Luôn trả 200 cho khoản tiền không khớp (kèm matched=false) để
+    /// dịch vụ gửi webhook không gửi lại mãi; khoản lệch số tiền được báo cho quản lý đối soát.
+    /// </summary>
+    [HttpPost("bank-transfer/webhook")]
+    [AllowAnonymous]
+    public async Task<IActionResult> BankTransferWebhook([FromBody] System.Text.Json.JsonElement body, CancellationToken ct)
+    {
+        if (!bank.WebhookEnabled) return NotFound();
+
+        var expectedAuth = System.Text.Encoding.UTF8.GetBytes("Apikey " + bank.WebhookApiKey);
+        var actualAuth = System.Text.Encoding.UTF8.GetBytes(Request.Headers.Authorization.ToString());
+        if (expectedAuth.Length != actualAuth.Length
+            || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedAuth, actualAuth))
+            return Unauthorized(new { success = false });
+
+        string Str(string name) => body.ValueKind == System.Text.Json.JsonValueKind.Object
+            && body.TryGetProperty(name, out var v) && v.ValueKind != System.Text.Json.JsonValueKind.Null
+            ? (v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() ?? "" : v.GetRawText())
+            : "";
+
+        IActionResult NoMatch(string reason) => Ok(new { success = true, matched = false, reason });
+
+        if (!string.Equals(Str("transferType"), "in", StringComparison.OrdinalIgnoreCase)) return NoMatch("not-incoming");
+        var account = Str("accountNumber");
+        if (account.Length > 0 && account != bank.AccountNumber.Trim()) return NoMatch("other-account");
+        if (!decimal.TryParse(Str("transferAmount"), System.Globalization.NumberStyles.Number,
+                System.Globalization.CultureInfo.InvariantCulture, out var amount)) return NoMatch("bad-amount");
+
+        var memos = BankTransferHelper.FindMemos(bank.MemoPrefix, Str("content"), Str("code"), Str("description"));
+        if (memos.Count == 0) return NoMatch("no-memo");
+
+        var candidate = await db.Payments.AsNoTracking()
+            .Where(p => p.Method == PaymentMethod.BankTransfer && p.TxnRef != null && memos.Contains(p.TxnRef))
+            .Select(p => new { p.Id, p.Amount, p.Status, p.TxnRef })
+            .FirstOrDefaultAsync(ct);
+        if (candidate is null) return NoMatch("unknown-memo");
+
+        var bankTxn = $"SEPAY-{(Str("id").Length > 0 ? Str("id") : Str("referenceCode"))}";
+        if (candidate.Status is PaymentStatus.Success or PaymentStatus.Refunded
+            || await db.Payments.AnyAsync(p => p.ProviderTxnId == bankTxn, ct))
+            return Ok(new { success = true, matched = true, duplicate = true });
+
+        if (candidate.Amount != amount)
+        {
+            await NotificationRules.NotifyManagementAsync(db, "Chuyển khoản lệch số tiền",
+                $"Nhận {amount:N0} đ với nội dung {candidate.TxnRef} nhưng cần {candidate.Amount:N0} đ. Hãy đối soát và xác nhận thủ công nếu hợp lệ.",
+                "/manager/bank-transfers", null, ct);
+            await db.SaveChangesAsync(ct);
+            return NoMatch("amount-mismatch");
+        }
+
+        await ReopenTimedOutTransferAsync(candidate.Id, ct);
+        var result = await settlement.SettleSuccessAsync(candidate.Id, bankTxn, VnPayClient.FormatVnTime(DateTime.UtcNow), ct);
+        await audit.WriteAsync(null, "bank-webhook", $"Nhận chuyển khoản {candidate.TxnRef}", AuditActionType.Payment,
+            $"PAYMENT-{candidate.Id}", AuditStatus.Success, $"{amount:N0} VND, giao dịch ngân hàng {bankTxn}, kết quả {result.Outcome}", ct);
+        return Ok(new { success = true, matched = true, outcome = result.Outcome.ToString() });
     }
 
     /// <summary>
@@ -214,7 +354,7 @@ public class PaymentsController(
         if (dto is null) return NotFound();
         var isStaff = User.IsInAppRole(AccountRole.Admin) || User.IsInAppRole(AccountRole.Manager);
         if (!isStaff && dto.PassengerId != User.AccountId()) return Forbid();
-        return Ok(dto);
+        return Ok(WithTransfer(dto));
     }
 }
 
