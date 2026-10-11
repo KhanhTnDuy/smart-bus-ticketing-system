@@ -549,6 +549,11 @@ export const ElectronicTicketPage: React.FC = () => {
                         <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">
                           {ticket.price.toLocaleString('vi-VN')} đ
                         </span>
+                        {ticket.voucherCode && (
+                          <span className="text-[9px] font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1 py-0.5 rounded border border-amber-200 dark:border-amber-800 block mt-0.5">
+                            Voucher: {ticket.voucherCode}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -817,6 +822,11 @@ export const ElectronicTicketPage: React.FC = () => {
                     <span className="font-bold text-emerald-400 text-sm">
                       {selectedTicket.price.toLocaleString('vi-VN')} đ
                     </span>
+                    {selectedTicket.voucherCode && (
+                      <span className="text-[10px] text-amber-300 block font-mono">
+                        (Mã ưu đãi: {selectedTicket.voucherCode})
+                      </span>
+                    )}
                   </div>
                 </div>
 

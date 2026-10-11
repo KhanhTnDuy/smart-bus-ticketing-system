@@ -684,6 +684,21 @@ export const Navbar: React.FC = () => {
                   <span>Vé điện tử</span>
                 </NavLink>
 
+                {/* 3. Ưu đãi & Voucher */}
+                <NavLink
+                  to="/passenger/vouchers"
+                  className={({ isActive }) =>
+                    `flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold uppercase tracking-wider transition-colors ${
+                      isActive
+                        ? 'bg-institutional-800 text-amber-300 shadow-inner'
+                        : 'text-slate-100 hover:bg-white/10 hover:text-white'
+                    }`
+                  }
+                >
+                  <TicketPercent className="w-3.5 h-3.5 text-pink-300" />
+                  <span>Ưu đãi & Voucher</span>
+                </NavLink>
+
                 {/* 3. Thanh toán & Hóa đơn Dropdown */}
                 <div className="relative">
                   <button
@@ -1148,6 +1163,13 @@ export const Navbar: React.FC = () => {
               >
                 <Ticket className="w-4 h-4 text-amber-400" />
                 <span>Vé xe điện tử của tôi</span>
+              </NavLink>
+              <NavLink
+                to="/passenger/vouchers"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <TicketPercent className="w-4 h-4 text-pink-400" />
+                <span>Ưu đãi & Voucher</span>
               </NavLink>
               <NavLink
                 to="/tracking"

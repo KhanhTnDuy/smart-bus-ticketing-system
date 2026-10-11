@@ -123,6 +123,9 @@ interface DataContextType {
     busPlate: string;
     departureDate: string;
     departureTime: string;
+    voucherCode?: string;
+    discountAmount?: number;
+    originalPrice?: number;
   }) => { success: boolean; message?: string; data?: Ticket };
   cancelTicket: (ticketId: string, reason: string) => { success: boolean; message?: string };
   changeTicket: (
@@ -207,6 +210,14 @@ interface DataContextType {
   updateVoucher: (id: string, updates: Partial<Voucher>) => { success: boolean; message?: string };
   deleteVoucher: (id: string) => { success: boolean; message?: string };
   toggleVoucherStatus: (id: string) => { success: boolean; message?: string };
+  validateVoucher: (code: string, currentTotal: number) => {
+    valid: boolean;
+    discountAmount: number;
+    finalTotal: number;
+    message: string;
+    voucher?: Voucher;
+  };
+  recordVoucherUsage: (code: string) => { success: boolean };
 }
 
 
@@ -1197,6 +1208,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     busPlate: string;
     departureDate: string;
     departureTime: string;
+    voucherCode?: string;
+    discountAmount?: number;
+    originalPrice?: number;
   }) => {
     // Support single or multiple comma-separated seats (e.g. "A1, A2")
     const seatsToBook = bookingData.seatNumber
@@ -1230,6 +1244,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ticketStatus: 'PENDING',
       qrCodeData: newQrCode,
       createdAt: getFormattedNow(),
+      voucherCode: bookingData.voucherCode,
+      discountAmount: bookingData.discountAmount,
+      originalPrice: bookingData.originalPrice,
     };
 
     // Update tickets
@@ -1469,6 +1486,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         : 'VCB';
     const transactionCode = `${prefix}${Math.floor(100000 + Math.random() * 900000)}`;
 
+    const details = ticket.voucherCode
+      ? `Thanh toán thành công ${ticket.price.toLocaleString('vi-VN')} VNĐ qua ${method} (Áp dụng voucher ${ticket.voucherCode} giảm ${(ticket.discountAmount || 0).toLocaleString('vi-VN')} VNĐ)`
+      : `Thanh toán thành công ${ticket.price.toLocaleString('vi-VN')} VNĐ qua ${method}`;
+
     const newPayment: PaymentRecord = {
       id: paymentId,
       ticketId,
@@ -1479,7 +1500,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       status: 'SUCCESS',
       transactionCode,
       createdAt: formattedDate,
-      details: `Thanh toán thành công ${ticket.price.toLocaleString('vi-VN')} VNĐ qua ${method}`,
+      details,
+      voucherCode: ticket.voucherCode,
+      discountAmount: ticket.discountAmount,
+      originalAmount: ticket.originalPrice || ticket.price,
     };
 
     const route = routes.find((r) => r.id === ticket.routeId);
@@ -1507,6 +1531,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       invoiceDate: formattedDate,
       status: 'ISSUED',
       signingAuthority: 'CỤC QUẢN LÝ GIAO THÔNG VẬN TẢI ĐÔ THỊ (KÝ ĐIỆN TỬ BỞI TRUNG TÂM QUẢN LÝ GTCC)',
+      voucherCode: ticket.voucherCode,
+      discountAmount: ticket.discountAmount,
     };
 
     // Update ticket
@@ -1524,6 +1550,26 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           : t
       )
     );
+
+    // If ticket used a voucher, increment voucher usage
+    if (ticket.voucherCode) {
+      setVouchers((prev) =>
+        prev.map((v) =>
+          v.code.toUpperCase() === ticket.voucherCode?.toUpperCase()
+            ? { ...v, usedCount: (v.usedCount || 0) + 1 }
+            : v
+        )
+      );
+
+      addAuditLog({
+        user: getActorName(),
+        action: 'Sử dụng mã giảm giá',
+        module: 'VOUCHER',
+        description: `Hành khách ${ticket.passengerName} sử dụng mã giảm giá [${ticket.voucherCode}] cho vé [${ticket.id}], giảm ${(ticket.discountAmount || 0).toLocaleString('vi-VN')} VNĐ`,
+        status: 'SUCCESS',
+        targetId: ticket.voucherCode,
+      });
+    }
 
     // Save payment and invoice
     setPayments((prev) => [newPayment, ...prev]);
@@ -2266,6 +2312,82 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
+  const validateVoucher = (code: string, currentTotal: number) => {
+    const cleanCode = code.trim().toUpperCase();
+    if (!cleanCode) {
+      return { valid: false, discountAmount: 0, finalTotal: currentTotal, message: 'Vui lòng nhập mã giảm giá.' };
+    }
+
+    const voucher = vouchers.find((v) => v.code.toUpperCase() === cleanCode);
+    if (!voucher) {
+      return { valid: false, discountAmount: 0, finalTotal: currentTotal, message: 'Mã giảm giá không tồn tại hoặc đã hết hiệu lực.' };
+    }
+
+    if (!voucher.active) {
+      return { valid: false, discountAmount: 0, finalTotal: currentTotal, message: 'Mã giảm giá này hiện đang tạm ngưng áp dụng.' };
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const startDateStr = voucher.startAt.split('T')[0];
+    const endDateStr = voucher.endAt.split('T')[0];
+
+    if (todayStr < startDateStr) {
+      return { valid: false, discountAmount: 0, finalTotal: currentTotal, message: `Mã giảm giá chỉ có hiệu lực từ ngày ${startDateStr}.` };
+    }
+
+    if (todayStr > endDateStr) {
+      return { valid: false, discountAmount: 0, finalTotal: currentTotal, message: `Mã giảm giá đã hết hạn sử dụng vào ngày ${endDateStr}.` };
+    }
+
+    if (voucher.usageLimit && voucher.usageLimit > 0 && voucher.usedCount >= voucher.usageLimit) {
+      return { valid: false, discountAmount: 0, finalTotal: currentTotal, message: 'Mã giảm giá đã hết lượt sử dụng cho toàn hệ thống.' };
+    }
+
+    if (voucher.minOrder > 0 && currentTotal < voucher.minOrder) {
+      return {
+        valid: false,
+        discountAmount: 0,
+        finalTotal: currentTotal,
+        message: `Đơn hàng tối thiểu để áp dụng mã này là ${voucher.minOrder.toLocaleString('vi-VN')} VNĐ (Hiện tại: ${currentTotal.toLocaleString('vi-VN')} VNĐ).`,
+      };
+    }
+
+    let discount = 0;
+    if (voucher.discountType === 'PERCENT') {
+      discount = Math.round((currentTotal * voucher.discountValue) / 100);
+      if (voucher.maxDiscount && voucher.maxDiscount > 0) {
+        discount = Math.min(discount, voucher.maxDiscount);
+      }
+    } else {
+      discount = Math.min(voucher.discountValue, currentTotal);
+    }
+
+    discount = Math.min(discount, currentTotal);
+    const finalTotal = Math.max(0, currentTotal - discount);
+
+    return {
+      valid: true,
+      discountAmount: discount,
+      finalTotal,
+      message: `Áp dụng thành công! Tiết kiệm được ${discount.toLocaleString('vi-VN')} VNĐ.`,
+      voucher,
+    };
+  };
+
+  const recordVoucherUsage = (code: string) => {
+    const cleanCode = code.trim().toUpperCase();
+    const target = vouchers.find((v) => v.code.toUpperCase() === cleanCode);
+    if (!target) return { success: false };
+
+    setVouchers((prev) =>
+      prev.map((v) =>
+        v.code.toUpperCase() === cleanCode ? { ...v, usedCount: (v.usedCount || 0) + 1 } : v
+      )
+    );
+
+    return { success: true };
+  };
+
   return (
     <DataContext.Provider
       value={{
@@ -2367,6 +2489,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateVoucher,
         deleteVoucher,
         toggleVoucherStatus,
+        validateVoucher,
+        recordVoucherUsage,
       }}
 
     >

@@ -197,6 +197,9 @@ export interface PaymentRecord {
   details?: string;
   transactionId?: string;
   ticketCode?: string;
+  voucherCode?: string;
+  discountAmount?: number;
+  originalAmount?: number;
 }
 
 export type TicketPaymentStatus = 'PENDING' | 'PAID' | 'REFUNDED';
@@ -229,6 +232,9 @@ export interface Ticket {
   routeName?: string;
   status?: TicketStatus;
   qrCodeValue?: string;
+  voucherCode?: string;
+  discountAmount?: number;
+  originalPrice?: number;
 }
 
 export interface ElectronicInvoice {
@@ -259,6 +265,8 @@ export interface ElectronicInvoice {
   amountBeforeTax?: number;
   taxAmount?: number;
   createdAt?: string;
+  voucherCode?: string;
+  discountAmount?: number;
 }
 
 export type RefundStatus = 'NOT_REQUESTED' | 'PROCESSING' | 'REFUNDED' | 'REJECTED' | 'PENDING' | 'APPROVED';

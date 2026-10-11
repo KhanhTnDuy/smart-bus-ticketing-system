@@ -20,8 +20,10 @@ import {
   RotateCcw,
   Search,
   TrendingUp,
+  TicketPercent,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useData } from '../../context/DataContext';
 import { useDashboardData } from '../../hooks/useDashboardData';
 import { toAuditLog } from '../../api/mappers';
 import { formatDateTime } from '../../api/datetime';
@@ -31,6 +33,7 @@ export const DashboardPage: React.FC = () => {
   const { currentUser, role } = useAuth();
   // Số liệu thật từ backend theo quyền của vai trò. Không còn dữ liệu mẫu ở trang này.
   const data = useDashboardData(role);
+  const { vouchers } = useData();
   const navigate = useNavigate();
 
   /** " (3 chờ)" khi có số liệu; chuỗi rỗng khi null, để không khoe một con số 0 sai. */
@@ -173,6 +176,25 @@ export const DashboardPage: React.FC = () => {
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
                         Tra cứu hóa đơn điện tử giá trị gia tăng chuẩn Tổng cục Thuế kèm chữ ký số.
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => navigate('/passenger/vouchers')}
+                    className="flex items-start gap-3 p-3.5 rounded-lg border border-pink-200 dark:border-pink-900/60 bg-pink-50/50 dark:bg-[#200e19] hover:bg-pink-100/70 dark:hover:bg-pink-900/40 transition-all text-left group sm:col-span-2"
+                  >
+                    <div className="p-2.5 rounded-lg bg-pink-600 text-white shrink-0 shadow-sm">
+                      <TicketPercent className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-pink-600 dark:group-hover:text-pink-400 flex items-center justify-between">
+                        <span>Kho Khuyến Mãi & Voucher Giảm Giá ({vouchers.filter((v) => v.active).length} mã)</span>
+                        <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                        Xem danh sách mã giảm giá, trợ giá vé học sinh & chiến dịch xanh, sao chép mã và dùng ngay khi đặt vé.
                       </p>
                     </div>
                   </button>
