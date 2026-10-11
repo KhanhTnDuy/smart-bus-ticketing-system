@@ -49,6 +49,7 @@ import { IncidentPage } from '../pages/incident/IncidentPage';
 // Common Pages
 import { AccessDeniedPage } from '../pages/common/AccessDeniedPage';
 import { NotFoundPage } from '../pages/common/NotFoundPage';
+import { BankTransferConfirmPage } from '../pages/manager/BankTransferConfirmPage';
 import { TicketChangeRequestPage } from '../pages/manager/TicketChangeRequestPage';
 
 export const AppRoutes: React.FC = () => {
@@ -92,6 +93,7 @@ export const AppRoutes: React.FC = () => {
 
           <Route path="/manager/ticket-requests" element={<TicketChangeRequestPage />} />
           <Route path="/manager/refunds" element={<RefundManagementPage />} />
+          <Route path="/manager/bank-transfers" element={<BankTransferConfirmPage />} />
           <Route path="/manager/incidents" element={<IncidentPage />} />
           <Route path="/manager/revenue" element={<RevenueReportPage />} />
 
