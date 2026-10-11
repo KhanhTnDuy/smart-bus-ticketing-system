@@ -60,6 +60,20 @@ export interface RefundSummary {
   note: string | null;
 }
 
+/** Thông tin để khách chuyển khoản vào tài khoản ngân hàng của đơn vị. */
+export interface BankTransferInfo {
+  bankId: string;
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  amount: number;
+  /** Nội dung chuyển khoản bắt buộc, để hệ thống nhận ra khoản tiền thuộc lượt đặt nào. */
+  memo: string;
+  /** Ảnh mã VietQR đã điền sẵn tài khoản, số tiền và nội dung. */
+  qrUrl: string;
+  expiresAt: string;
+}
+
 export interface PaymentDto {
   id: number;
   bookingId: number;
@@ -74,6 +88,11 @@ export interface PaymentDto {
   failureReason: string | null;
   /** Trang thanh toán của ngân hàng. Chỉ có ngay trong phản hồi khởi tạo thanh toán qua cổng (VNPay). */
   paymentUrl: string | null;
+  /** Mã tham chiếu giao dịch; với chuyển khoản đây là nội dung chuyển khoản. */
+  reference: string | null;
+  holdExpiresAt: string;
+  /** Có khi giao dịch chuyển khoản còn chờ tiền. */
+  transfer: BankTransferInfo | null;
   paidAt: string | null;
   tripId: number;
   routeCode: string;
@@ -161,6 +180,15 @@ export interface PaymentResultDto {
  */
 export const confirmVnPayReturn = (search: string) =>
   api.get<PaymentResultDto>(`/api/payments/vnpay/return${search.startsWith('?') ? search : `?${search}`}`);
+
+export const getPayment = (id: number, signal?: AbortSignal) => api.get<PaymentDto>(`/api/payments/${id}`, undefined, signal);
+
+/**
+ * Quản lý xác nhận đã nhận tiền chuyển khoản (đối chiếu sao kê). `bankTransactionId` là mã giao dịch trên sao kê, giúp chống xác
+ * nhận trùng một khoản tiền. Nếu lượt đặt đã hết hạn giữ chỗ thì `success` là false và khoản tiền được mở yêu cầu hoàn.
+ */
+export const confirmBankTransfer = (id: number, bankTransactionId?: string) =>
+  api.post<PaymentResultDto>(`/api/payments/${id}/confirm-transfer`, { bankTransactionId: bankTransactionId?.trim() || undefined });
 
 export const listMyPayments = (signal?: AbortSignal) => api.get<PaymentDto[]>('/api/payments/my', undefined, signal);
 
