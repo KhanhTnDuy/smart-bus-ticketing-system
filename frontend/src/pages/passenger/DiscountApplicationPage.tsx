@@ -25,6 +25,24 @@ const STATUS_STYLE: Record<ApplicationStatus, string> = {
   Rejected: 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800',
 };
 
+const getRequiredDocumentHint = (code?: string, name?: string) => {
+  const c = code?.toUpperCase() ?? '';
+  const n = name?.toLowerCase() ?? '';
+  if (c === 'STUDENT' || n.includes('học sinh') || n.includes('sinh viên')) {
+    return 'Yêu cầu minh chứng: Thẻ học sinh / sinh viên còn hạn hoặc Giấy xác nhận học sinh, sinh viên của nhà trường.';
+  }
+  if (c === 'ELDERLY' || n.includes('cao tuổi')) {
+    return 'Yêu cầu minh chứng: Căn cước công dân (CCCD) chứng minh từ đủ 60 tuổi trở lên (để cấp thẻ ưu tiên miễn phí theo chính sách trợ giá).';
+  }
+  if (c === 'DISABILITY' || n.includes('khuyết tật') || n.includes('có công')) {
+    return 'Yêu cầu minh chứng: Giấy xác nhận mức độ khuyết tật hoặc Thẻ thương binh / Giấy chứng nhận người có công với cách mạng.';
+  }
+  if (c === 'WORKER' || n.includes('tập thể') || n.includes('công nhân') || n.includes('đi làm')) {
+    return 'Yêu cầu minh chứng: Giấy xác nhận công tác của cơ quan / doanh nghiệp hoặc Thẻ nhân viên / Thẻ công nhân KCN.';
+  }
+  return 'Yêu cầu minh chứng: Tải lên giấy tờ minh chứng hợp lệ còn hiệu lực.';
+};
+
 export const DiscountApplicationPage: React.FC = () => {
   const { success, error: showError } = useToast();
   const [types, setTypes] = useState<PassengerTypeDto[]>([]);
@@ -39,6 +57,13 @@ export const DiscountApplicationPage: React.FC = () => {
     try {
       const [t, mine] = await Promise.all([listPassengerTypes(), listMyApplications()]);
       const discounted = t.filter((x) => x.discountPercent > 0);
+      const priorityOrder: Record<string, number> = {
+        STUDENT: 1,
+        ELDERLY: 2,
+        DISABILITY: 3,
+        WORKER: 4,
+      };
+      discounted.sort((a, b) => (priorityOrder[a.code] || 99) - (priorityOrder[b.code] || 99));
       setTypes(discounted);
       setApplications(mine);
       setTypeId((prev) => prev || (discounted[0] ? String(discounted[0].id) : ''));
@@ -52,6 +77,7 @@ export const DiscountApplicationPage: React.FC = () => {
     void load();
   }, [load]);
 
+  const selectedType = types.find((t) => String(t.id) === typeId);
   const hasPending = applications.some((a) => a.status === 'Pending');
 
   const submit = async (e: React.FormEvent) => {
@@ -76,7 +102,7 @@ export const DiscountApplicationPage: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         title="Đăng ký ưu đãi giá vé"
-        subtitle="Học sinh, sinh viên, người cao tuổi... nộp giấy tờ để được giảm giá vé. Hồ sơ được duyệt sẽ tự áp dụng khi bạn đặt vé."
+        subtitle="Học sinh, sinh viên, người cao tuổi, người có công, khuyết tật, công nhân... nộp giấy tờ để được hưởng chính sách trợ giá vé xe buýt công cộng."
         icon={<BadgePercent className="w-5 h-5 text-emerald-500" />}
       />
 
@@ -99,10 +125,15 @@ export const DiscountApplicationPage: React.FC = () => {
             <select value={typeId} onChange={(e) => setTypeId(e.target.value)} className={INPUT}>
               {types.map((t) => (
                 <option key={t.id} value={String(t.id)}>
-                  {t.name} (giảm {t.discountPercent}%)
+                  {t.name} ({t.discountPercent >= 100 ? 'miễn phí 100%' : `giảm ${t.discountPercent}%`})
                 </option>
               ))}
             </select>
+            {selectedType && (
+              <p className="text-[11px] text-institutional-600 dark:text-sky-400 font-medium">
+                {getRequiredDocumentHint(selectedType.code, selectedType.name)}
+              </p>
+            )}
           </label>
           <label className="space-y-1 block">
             <span className="font-bold text-slate-700 dark:text-slate-300">Giấy tờ minh chứng * (JPG, PNG hoặc PDF, tối đa 5 MB)</span>
@@ -143,7 +174,7 @@ export const DiscountApplicationPage: React.FC = () => {
                 <div>
                   <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">HS-{a.id}</span>{' '}
                   <span className="font-bold text-slate-900 dark:text-white">{a.passengerTypeName}</span>{' '}
-                  <span className="text-slate-400">giảm {a.discountPercent}%</span>
+                  <span className="text-slate-400">{a.discountPercent >= 100 ? 'miễn phí 100%' : `giảm ${a.discountPercent}%`}</span>
                 </div>
                 <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${STATUS_STYLE[a.status]}`}>{APPLICATION_STATUS_LABEL[a.status]}</span>
               </div>

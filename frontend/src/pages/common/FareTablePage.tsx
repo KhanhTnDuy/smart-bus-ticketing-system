@@ -101,7 +101,7 @@ export const FareTablePage: React.FC = () => {
                   <th className="py-3 px-4 text-right">{standard?.name ?? 'Hành khách thường'}</th>
                   {others.map((t) => (
                     <th key={t.id} className="py-3 px-4 text-right">
-                      {t.name} (-{t.discountPercent}%)
+                      {t.name} ({t.discountPercent >= 100 ? 'Miễn phí 100%' : `-${t.discountPercent}%`})
                     </th>
                   ))}
                 </tr>
@@ -113,7 +113,7 @@ export const FareTablePage: React.FC = () => {
                     <td className="py-3 px-4 text-right font-bold text-emerald-600 dark:text-emerald-400">{formatVnd(b.price)}</td>
                     {others.map((t) => (
                       <td key={t.id} className="py-3 px-4 text-right text-slate-600 dark:text-slate-300">
-                        {formatVnd(discounted(b.price, t.discountPercent))}
+                        {t.discountPercent >= 100 ? '0 đ (Miễn phí)' : formatVnd(discounted(b.price, t.discountPercent))}
                       </td>
                     ))}
                   </tr>

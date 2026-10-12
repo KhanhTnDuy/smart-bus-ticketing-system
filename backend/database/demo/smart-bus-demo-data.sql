@@ -382,8 +382,7 @@ CREATE TABLE `passenger_types` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 LOCK TABLES `passenger_types` WRITE;
-/*!40000 ALTER TABLE `passenger_types` DISABLE KEYS */;
-INSERT INTO `passenger_types` VALUES (1,'STANDARD','Hành khách thường',0.00),(2,'STUDENT','Học sinh / Sinh viên',50.00),(3,'ELDERLY','Người cao tuổi',50.00),(4,'WORKER','Người đi làm (vé tháng)',20.00);
+INSERT INTO `passenger_types` VALUES (1,'STANDARD','Hành khách thường',0.00),(2,'STUDENT','Học sinh / Sinh viên',50.00),(3,'ELDERLY','Người cao tuổi (từ 60 tuổi)',100.00),(4,'WORKER','Vé tháng tập thể / Công nhân',30.00),(5,'DISABILITY','Người có công / Khuyết tật',100.00);
 /*!40000 ALTER TABLE `passenger_types` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `passenger_verifications`;
