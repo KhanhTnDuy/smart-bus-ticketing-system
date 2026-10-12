@@ -272,31 +272,6 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.ToTable("routes", (string)null);
                 });
 
-            modelBuilder.Entity("SmartBusTicketing.Api.Models.DistanceFare", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<decimal>("FromKm")
-                        .HasPrecision(7, 2)
-                        .HasColumnType("decimal(7,2)");
-
-                    b.Property<decimal>("Price")
-                        .HasPrecision(12, 2)
-                        .HasColumnType("decimal(12,2)");
-
-                    b.Property<decimal?>("ToKm")
-                        .HasPrecision(7, 2)
-                        .HasColumnType("decimal(7,2)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("distance_fares", (string)null);
-                });
-
             modelBuilder.Entity("SmartBusTicketing.Api.Models.Fare", b =>
                 {
                     b.Property<long>("Id")
@@ -431,34 +406,14 @@ namespace SmartBusTicketing.Api.Data.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
                     b.Property<int>("DelayMinutes")
                         .HasColumnType("int");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
 
                     b.Property<string>("IncidentType")
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<string>("Location")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
                     b.Property<long>("ReportedBy")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("ResolutionNote")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("ResolvedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<long?>("ResolvedBy")
                         .HasColumnType("bigint");
 
                     b.Property<string>("Status")
@@ -471,8 +426,6 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ReportedBy");
-
-                    b.HasIndex("ResolvedBy");
 
                     b.HasIndex("TripId");
 
@@ -489,12 +442,6 @@ namespace SmartBusTicketing.Api.Data.Migrations
 
                     b.Property<string>("Email")
                         .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<int>("EmailAttempts")
-                        .HasColumnType("int");
-
-                    b.Property<string>("EmailError")
                         .HasColumnType("longtext");
 
                     b.Property<string>("InvoiceNo")
@@ -579,25 +526,11 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.Property<long>("AccountId")
                         .HasColumnType("bigint");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
                     b.Property<long?>("IncidentId")
                         .HasColumnType("bigint");
 
                     b.Property<bool>("IsRead")
                         .HasColumnType("tinyint(1)");
-
-                    b.Property<string>("Link")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Message")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("longtext");
 
                     b.Property<long?>("TripId")
                         .HasColumnType("bigint");
@@ -690,14 +623,15 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<int>("PassengerTypeId")
-                        .HasColumnType("int");
-
                     b.Property<string>("RejectReason")
-                        .HasColumnType("longtext");
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
 
                     b.Property<DateTime?>("ReviewedAt")
                         .HasColumnType("datetime(6)");
+
+                    b.Property<int>("PassengerTypeId")
+                        .HasColumnType("int");
 
                     b.Property<long?>("ReviewedBy")
                         .HasColumnType("bigint");
@@ -705,9 +639,6 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("longtext");
-
-                    b.Property<DateTime>("SubmittedAt")
-                        .HasColumnType("datetime(6)");
 
                     b.Property<DateOnly?>("ValidUntil")
                         .HasColumnType("date");
@@ -738,18 +669,6 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.Property<long?>("BookingId")
                         .HasColumnType("bigint");
 
-                    b.Property<string>("FailureReason")
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("GatewayCreateDate")
-                        .HasMaxLength(14)
-                        .HasColumnType("varchar(14)");
-
-                    b.Property<string>("GatewayPayDate")
-                        .HasMaxLength(14)
-                        .HasColumnType("varchar(14)");
-
                     b.Property<string>("Method")
                         .IsRequired()
                         .HasColumnType("longtext");
@@ -767,10 +686,6 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<string>("TxnRef")
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("BookingId");
@@ -778,9 +693,6 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.HasIndex("MonthlyPassId");
 
                     b.HasIndex("ProviderTxnId")
-                        .IsUnique();
-
-                    b.HasIndex("TxnRef")
                         .IsUnique();
 
                     b.ToTable("payments", null, t =>
@@ -801,32 +713,10 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .HasPrecision(12, 2)
                         .HasColumnType("decimal(12,2)");
 
-                    b.Property<int>("Attempts")
-                        .HasColumnType("int");
-
                     b.Property<long?>("ChangeRequestId")
                         .HasColumnType("bigint");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("GatewayRefId")
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
-
-                    b.Property<DateTime?>("LastAttemptAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Note")
-                        .HasColumnType("TEXT");
-
                     b.Property<long>("PaymentId")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime?>("ProcessedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<long?>("ProcessedBy")
                         .HasColumnType("bigint");
 
                     b.Property<string>("Reason")
@@ -843,8 +733,6 @@ namespace SmartBusTicketing.Api.Data.Migrations
 
                     b.HasIndex("PaymentId");
 
-                    b.HasIndex("ProcessedBy");
-
                     b.ToTable("refunds", (string)null);
                 });
 
@@ -855,10 +743,6 @@ namespace SmartBusTicketing.Api.Data.Migrations
 
                     b.Property<long>("StopId")
                         .HasColumnType("bigint");
-
-                    b.Property<decimal?>("DistanceFromStartKm")
-                        .HasPrecision(7, 2)
-                        .HasColumnType("decimal(7,2)");
 
                     b.Property<int>("MinutesFromStart")
                         .HasColumnType("int");
@@ -1083,9 +967,6 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.Property<string>("Result")
                         .IsRequired()
                         .HasColumnType("longtext");
-
-                    b.Property<DateTime>("ScannedAt")
-                        .HasColumnType("datetime(6)");
 
                     b.Property<long>("ScannedBy")
                         .HasColumnType("bigint");
@@ -1337,11 +1218,6 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("SmartBusTicketing.Api.Models.Account", "Resolver")
-                        .WithMany()
-                        .HasForeignKey("ResolvedBy")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("SmartBusTicketing.Api.Models.Trip", "Trip")
                         .WithMany("Incidents")
                         .HasForeignKey("TripId")
@@ -1349,8 +1225,6 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Reporter");
-
-                    b.Navigation("Resolver");
 
                     b.Navigation("Trip");
                 });
@@ -1480,16 +1354,9 @@ namespace SmartBusTicketing.Api.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("SmartBusTicketing.Api.Models.Account", "Processor")
-                        .WithMany()
-                        .HasForeignKey("ProcessedBy")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.Navigation("ChangeRequest");
 
                     b.Navigation("Payment");
-
-                    b.Navigation("Processor");
                 });
 
             modelBuilder.Entity("SmartBusTicketing.Api.Models.RouteStop", b =>

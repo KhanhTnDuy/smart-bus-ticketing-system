@@ -59,9 +59,6 @@ public class PassengerVerification
     public long? ReviewedBy { get; set; }
     public Account? Reviewer { get; set; }
     public DateOnly? ValidUntil { get; set; }
-    public DateTime SubmittedAt { get; set; }
-    public DateTime? ReviewedAt { get; set; }
-
-    /// <summary>Lý do từ chối do người duyệt nhập; hành khách đọc được để nộp lại hồ sơ đúng.</summary>
     public string? RejectReason { get; set; }
+    public DateTime? ReviewedAt { get; set; }
 }

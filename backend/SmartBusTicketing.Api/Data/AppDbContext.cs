@@ -17,7 +17,6 @@ public class AppDbContext : DbContext
     public DbSet<Stop> Stops => Set<Stop>();
     public DbSet<RouteStop> RouteStops => Set<RouteStop>();
     public DbSet<Fare> Fares => Set<Fare>();
-    public DbSet<DistanceFare> DistanceFares => Set<DistanceFare>();
     public DbSet<Bus> Buses => Set<Bus>();
     public DbSet<Seat> Seats => Set<Seat>();
     public DbSet<Schedule> Schedules => Set<Schedule>();
@@ -76,6 +75,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PassengerVerification>(e =>
         {
             e.ToTable("passenger_verifications");
+            e.Property(v => v.RejectReason).HasMaxLength(1000);
             e.HasOne(v => v.Account).WithMany(a => a.PassengerVerifications)
                 .HasForeignKey(v => v.AccountId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(v => v.PassengerType).WithMany(p => p.PassengerVerifications)
@@ -106,7 +106,6 @@ public class AppDbContext : DbContext
             e.HasOne(rs => rs.BusRoute).WithMany(r => r.RouteStops).HasForeignKey(rs => rs.RouteId);
             e.HasOne(rs => rs.Stop).WithMany(s => s.RouteStops).HasForeignKey(rs => rs.StopId);
             e.HasIndex(rs => new { rs.RouteId, rs.StopOrder }).IsUnique();
-            e.Property(rs => rs.DistanceFromStartKm).HasPrecision(7, 2);
         });
 
         modelBuilder.Entity<Fare>(e =>
@@ -115,14 +114,6 @@ public class AppDbContext : DbContext
             e.Property(f => f.Price).HasPrecision(10, 2);
             e.HasOne(f => f.BusRoute).WithMany(r => r.Fares).HasForeignKey(f => f.RouteId);
             e.HasOne(f => f.PassengerType).WithMany(p => p.Fares).HasForeignKey(f => f.PassengerTypeId);
-        });
-
-        modelBuilder.Entity<DistanceFare>(e =>
-        {
-            e.ToTable("distance_fares");
-            e.Property(f => f.FromKm).HasPrecision(7, 2);
-            e.Property(f => f.ToKm).HasPrecision(7, 2);
-            e.Property(f => f.Price).HasPrecision(12, 2);
         });
 
         modelBuilder.Entity<Bus>(e =>
@@ -226,11 +217,6 @@ public class AppDbContext : DbContext
             e.ToTable("payments");
             e.Property(p => p.Amount).HasPrecision(12, 2);
             e.HasIndex(p => p.ProviderTxnId).IsUnique();
-            e.Property(p => p.TxnRef).HasMaxLength(64);
-            e.HasIndex(p => p.TxnRef).IsUnique();
-            e.Property(p => p.GatewayPayDate).HasMaxLength(14);
-            e.Property(p => p.GatewayCreateDate).HasMaxLength(14);
-            e.Property(p => p.FailureReason).HasMaxLength(255);
             e.HasOne(p => p.Booking).WithMany(b => b.Payments)
                 .HasForeignKey(p => p.BookingId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(p => p.MonthlyPass).WithMany(m => m.Payments)
@@ -255,9 +241,6 @@ public class AppDbContext : DbContext
             e.ToTable("refunds");
             e.Property(r => r.Amount).HasPrecision(12, 2);
             e.HasOne(r => r.Payment).WithMany(p => p.Refunds).HasForeignKey(r => r.PaymentId);
-            e.HasOne(r => r.Processor).WithMany().HasForeignKey(r => r.ProcessedBy).OnDelete(DeleteBehavior.Restrict);
-            e.Property(r => r.Note).HasColumnType("TEXT");
-            e.Property(r => r.GatewayRefId).HasMaxLength(64);
             e.HasOne(r => r.ChangeRequest).WithMany(c => c.Refunds)
                 .HasForeignKey(r => r.ChangeRequestId).OnDelete(DeleteBehavior.SetNull);
         });
@@ -289,9 +272,6 @@ public class AppDbContext : DbContext
             e.ToTable("incidents");
             e.HasOne(i => i.Trip).WithMany(t => t.Incidents).HasForeignKey(i => i.TripId);
             e.HasOne(i => i.Reporter).WithMany().HasForeignKey(i => i.ReportedBy).OnDelete(DeleteBehavior.Restrict);
-            e.HasOne(i => i.Resolver).WithMany().HasForeignKey(i => i.ResolvedBy).OnDelete(DeleteBehavior.Restrict);
-            e.Property(i => i.Description).HasColumnType("TEXT");
-            e.Property(i => i.ResolutionNote).HasColumnType("TEXT");
         });
 
         modelBuilder.Entity<Notification>(e =>
