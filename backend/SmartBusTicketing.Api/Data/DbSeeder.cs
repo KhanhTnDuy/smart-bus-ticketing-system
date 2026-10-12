@@ -362,7 +362,40 @@ public static class DbSeeder
 
         try
         {
-            if (await db.Vouchers.AnyAsync(ct)) return;
+            var existingVouchers = await db.Vouchers.ToListAsync(ct);
+            if (existingVouchers.Count > 0)
+            {
+                // Cập nhật các voucher mẫu cũ có mức giảm nhỏ (15đ, 20đ, 50đ) thành mức giảm thực tế tính bằng VNĐ (15k, 20k, 50k)
+                bool hasUpdates = false;
+                foreach (var v in existingVouchers)
+                {
+                    if (v.Code == "HE2026" && v.DiscountValue <= 100)
+                    {
+                        v.DiscountType = DiscountType.Fixed;
+                        v.DiscountValue = 20000;
+                        hasUpdates = true;
+                    }
+                    else if (v.Code == "HETHAN2025" && v.DiscountValue <= 100)
+                    {
+                        v.DiscountType = DiscountType.Fixed;
+                        v.DiscountValue = 15000;
+                        hasUpdates = true;
+                    }
+                    else if (v.Code == "HETLUOT" && v.DiscountValue <= 100)
+                    {
+                        v.DiscountType = DiscountType.Fixed;
+                        v.DiscountValue = 50000;
+                        hasUpdates = true;
+                    }
+                }
+
+                if (hasUpdates)
+                {
+                    await db.SaveChangesAsync(ct);
+                    logger.LogInformation("Đã đồng bộ lại mức giảm giá thực tế (15k, 20k, 50k) cho các mã voucher mẫu.");
+                }
+                return;
+            }
 
             var now = DateTime.UtcNow;
             var sampleVouchers = new List<Voucher>
@@ -370,8 +403,8 @@ public static class DbSeeder
                 new()
                 {
                     Code = "HE2026",
-                    DiscountType = DiscountType.Percent,
-                    DiscountValue = 20,
+                    DiscountType = DiscountType.Fixed,
+                    DiscountValue = 20000,
                     StartAt = now.AddDays(-7),
                     EndAt = now.AddDays(30),
                     UsageLimit = 100
@@ -388,8 +421,8 @@ public static class DbSeeder
                 new()
                 {
                     Code = "HETHAN2025",
-                    DiscountType = DiscountType.Percent,
-                    DiscountValue = 15,
+                    DiscountType = DiscountType.Fixed,
+                    DiscountValue = 15000,
                     StartAt = now.AddDays(-60),
                     EndAt = now.AddDays(-5),
                     UsageLimit = 200
@@ -397,8 +430,8 @@ public static class DbSeeder
                 new()
                 {
                     Code = "HETLUOT",
-                    DiscountType = DiscountType.Percent,
-                    DiscountValue = 50,
+                    DiscountType = DiscountType.Fixed,
+                    DiscountValue = 50000,
                     StartAt = now.AddDays(-10),
                     EndAt = now.AddDays(20),
                     UsageLimit = 1

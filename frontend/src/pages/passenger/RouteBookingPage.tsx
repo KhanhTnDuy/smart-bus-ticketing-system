@@ -138,7 +138,7 @@ export const RouteBookingPage: React.FC = () => {
     }
     setIsValidatingVoucher(true);
     try {
-      const res = await voucherApi.validateVoucher(code, totalCalculatedAmount);
+      const res = await voucherApi.validateVoucher(code, totalCalculatedAmount, selectedSeatIds.length);
       if (res.isValid) {
         setAppliedVoucher(res);
         success(res.message);
@@ -1328,14 +1328,19 @@ export const RouteBookingPage: React.FC = () => {
             </div>
 
             {appliedVoucher && (
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300">
+              <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 space-y-1">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>
                     Đã áp dụng mã <strong>{appliedVoucher.voucher?.code}</strong>: giảm{' '}
-                    <strong>{voucherDiscount.toLocaleString('vi-VN')} VNĐ</strong> ({appliedVoucher.voucher?.discountType === 'Percent' ? `${appliedVoucher.voucher?.discountValue}%` : 'Số tiền cố định'}).
+                    <strong>{voucherDiscount.toLocaleString('vi-VN')} VNĐ</strong>.
                   </span>
                 </div>
+                {appliedVoucher.voucher?.condition && (
+                  <div className="text-[11px] text-emerald-700 dark:text-emerald-400 pl-6 font-medium">
+                    {appliedVoucher.voucher.condition}
+                  </div>
+                )}
               </div>
             )}
           </div>

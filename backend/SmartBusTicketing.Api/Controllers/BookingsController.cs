@@ -310,6 +310,21 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
                     return BadRequest(new { message = $"Mã giảm giá '{voucher.Code}' đã hết số lượt sử dụng tối đa." });
                 }
 
+                // Kiểm tra điều kiện số vé và giá trị đơn hàng tối thiểu (SCRUM-67)
+                var minSeats = VouchersController.GetMinSeats(voucher.DiscountType, voucher.DiscountValue);
+                if (seats.Count < minSeats)
+                {
+                    await transaction.RollbackAsync(ct);
+                    return BadRequest(new { message = $"Mã giảm giá '{voucher.Code}' yêu cầu mua từ {minSeats} vé trở lên (bạn đang chọn {seats.Count} vé)." });
+                }
+
+                var minOrder = VouchersController.GetMinOrder(voucher.DiscountType, voucher.DiscountValue);
+                if (baseAmount < minOrder)
+                {
+                    await transaction.RollbackAsync(ct);
+                    return BadRequest(new { message = $"Mã giảm giá '{voucher.Code}' yêu cầu giá trị đơn hàng tối thiểu {minOrder:N0} đ (đơn hiện tại là {baseAmount:N0} đ)." });
+                }
+
                 appliedVoucher = voucher;
                 if (voucher.DiscountType == DiscountType.Percent)
                 {

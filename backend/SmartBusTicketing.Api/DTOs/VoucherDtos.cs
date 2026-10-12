@@ -54,7 +54,10 @@ public sealed record VoucherDto(
     int UsedCount,
     int RemainingCount,
     bool IsActive,
-    string Status)
+    string Status,
+    int MinSeats = 1,
+    decimal MinOrderAmount = 0,
+    string Condition = "")
 {
     /// <summary>
     /// Constructor hỗ trợ tương thích với các phân hệ gọi DTO với 8 tham số cơ bản (như PR #97 / SCRUM-69).
@@ -79,7 +82,10 @@ public sealed record VoucherDto(
             usedCount,
             Math.Max(0, usageLimit - usedCount),
             DateTime.UtcNow >= startAt && DateTime.UtcNow <= endAt && (usageLimit <= 0 || usedCount < usageLimit),
-            DateTime.UtcNow < startAt ? "UPCOMING" : (DateTime.UtcNow > endAt ? "EXPIRED" : (usageLimit > 0 && usedCount >= usageLimit ? "OUT_OF_STOCK" : "ACTIVE")))
+            DateTime.UtcNow < startAt ? "UPCOMING" : (DateTime.UtcNow > endAt ? "EXPIRED" : (usageLimit > 0 && usedCount >= usageLimit ? "OUT_OF_STOCK" : "ACTIVE")),
+            1,
+            0,
+            "")
     {
     }
 }
@@ -94,6 +100,9 @@ public sealed class ValidateVoucherRequest
 
     [Range(0, double.MaxValue, ErrorMessage = "Số tiền đơn hàng không hợp lệ.")]
     public decimal? OrderAmount { get; init; }
+
+    [Range(1, 100, ErrorMessage = "Số lượng vé phải từ 1 đến 100.")]
+    public int? SeatCount { get; init; }
 }
 
 /// <summary>

@@ -72,12 +72,13 @@ export const voucherApi = {
   },
 
   /**
-   * SCRUM-67: Kiểm tra toàn diện voucher (hạn dùng, số lượt còn lại, mức giảm giá)
+   * SCRUM-67: Kiểm tra toàn diện voucher (hạn dùng, số lượt còn lại, mức giảm giá, điều kiện số vé)
    */
-  async validateVoucher(code: string, orderAmount?: number): Promise<ValidateVoucherResult> {
+  async validateVoucher(code: string, orderAmount?: number, seatCount?: number): Promise<ValidateVoucherResult> {
     return api.post<ValidateVoucherResult>('/api/vouchers/validate', {
       code: code.trim(),
       orderAmount: orderAmount !== undefined ? orderAmount : undefined,
+      seatCount: seatCount !== undefined ? seatCount : undefined,
     });
   },
 };

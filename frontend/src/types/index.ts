@@ -420,9 +420,12 @@ export interface Voucher {
   remainingCount: number;
   isActive: boolean;
   status: VoucherStatus;
+  minSeats?: number;
+  minOrder?: number;
+  minOrderAmount?: number;
+  condition?: string;
   description?: string;
   maxDiscount?: number;
-  minOrder?: number;
   active?: boolean;
   createdBy?: string;
   createdAt?: string;

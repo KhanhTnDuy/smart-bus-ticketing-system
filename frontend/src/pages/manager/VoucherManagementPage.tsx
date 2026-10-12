@@ -49,6 +49,25 @@ const getFutureLocalDateTime = (days = 30) => {
   return d.toISOString().slice(0, 16);
 };
 
+const getVoucherCondition = (v: { discountType?: any; discountValue: number; condition?: string }) => {
+  if (v.condition) return v.condition;
+  const isPercent =
+    v.discountType === 'Percent' ||
+    (v.discountType as any) === 0 ||
+    (v.discountType as any) === 'PERCENT';
+  const val = Number(v.discountValue) || 0;
+  if (isPercent) {
+    if (val >= 40) return 'Áp dụng khi mua từ 3 vé trở lên (đơn tối thiểu 90.000 đ)';
+    if (val >= 15) return 'Áp dụng khi mua từ 2 vé trở lên (đơn tối thiểu 30.000 đ)';
+    return 'Áp dụng cho mọi đơn đặt vé (từ 1 vé)';
+  } else {
+    if (val >= 50000) return 'Áp dụng khi mua từ 3 vé trở lên (đơn tối thiểu 90.000 đ)';
+    if (val >= 20000) return 'Áp dụng khi mua từ 2 vé trở lên (đơn tối thiểu 40.000 đ)';
+    if (val >= 15000) return 'Áp dụng khi mua từ 2 vé trở lên (đơn tối thiểu 30.000 đ)';
+    return 'Áp dụng cho mọi đơn đặt vé (từ 1 vé)';
+  }
+};
+
 export const VoucherManagementPage: React.FC = () => {
   const { success, error, warning, info } = useToast();
 
@@ -69,8 +88,8 @@ export const VoucherManagementPage: React.FC = () => {
 
   const initialFormState = {
     code: '',
-    discountType: 'Percent' as VoucherDiscountType,
-    discountValue: 20,
+    discountType: 'Fixed' as VoucherDiscountType,
+    discountValue: 20000,
     startAt: getNowLocalDateTime(),
     endAt: getFutureLocalDateTime(30),
     usageLimit: 100,
@@ -86,7 +105,8 @@ export const VoucherManagementPage: React.FC = () => {
   // SCRUM-67: Modal Kiểm tra voucher
   const [isTesterModalOpen, setIsTesterModalOpen] = useState<boolean>(false);
   const [testCode, setTestCode] = useState<string>('');
-  const [testOrderAmount, setTestOrderAmount] = useState<number>(30000);
+  const [testSeatCount, setTestSeatCount] = useState<number>(2);
+  const [testOrderAmount, setTestOrderAmount] = useState<number>(60000);
   const [isTesting, setIsTesting] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<ValidateVoucherResult | null>(null);
 
@@ -288,7 +308,11 @@ export const VoucherManagementPage: React.FC = () => {
 
     setIsTesting(true);
     try {
-      const res = await voucherApi.validateVoucher(testCode.trim(), Number(testOrderAmount) || 0);
+      const res = await voucherApi.validateVoucher(
+        testCode.trim(),
+        Number(testOrderAmount) || 0,
+        Number(testSeatCount) || undefined
+      );
       setTestResult(res);
       if (res.isValid) {
         success(res.message);
@@ -596,24 +620,34 @@ export const VoucherManagementPage: React.FC = () => {
                           </div>
                         </td>
 
-                        {/* Cột Mức giảm */}
+                        {/* Cột Mức giảm & Điều kiện áp dụng */}
                         <td className="py-3.5 px-4">
-                          <div className="flex items-center gap-2">
-                            {v.discountType === 'Percent' ? (
-                              <div className="flex items-center gap-1.5 font-bold text-amber-600 dark:text-amber-400">
-                                <Percent className="w-4 h-4" />
-                                <span>Giảm {v.discountValue}%</span>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400">
-                                <DollarSign className="w-4 h-4" />
-                                <span>Giảm {Number(v.discountValue).toLocaleString('vi-VN')} đ</span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                            {v.discountType === 'Percent' ? 'Giảm theo tỷ lệ phần trăm' : 'Giảm trực tiếp vào giá vé'}
-                          </div>
+                          {(() => {
+                            const isPercent =
+                              v.discountType === 'Percent' ||
+                              (v.discountType as any) === 0 ||
+                              (v.discountType as any) === 'PERCENT';
+                            return (
+                              <>
+                                <div className="flex items-center gap-2">
+                                  {isPercent ? (
+                                    <div className="flex items-center gap-1.5 font-bold text-amber-600 dark:text-amber-400">
+                                      <Percent className="w-4 h-4" />
+                                      <span>Giảm {v.discountValue}%</span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400">
+                                      <DollarSign className="w-4 h-4" />
+                                      <span>Giảm {Number(v.discountValue).toLocaleString('vi-VN')} đ</span>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                                  {getVoucherCondition(v)}
+                                </div>
+                              </>
+                            );
+                          })()}
                         </td>
 
                         {/* Cột Thời gian hiệu lực */}
@@ -871,7 +905,10 @@ export const VoucherManagementPage: React.FC = () => {
                   <div className="text-xs text-blue-100 mt-0.5">
                     {formData.discountType === 'Percent'
                       ? `Giảm ${formData.discountValue}% trên mỗi vé`
-                      : `Giảm ${Number(formData.discountValue).toLocaleString('vi-VN')} đ trực tiếp`}
+                      : `Giảm ${Number(formData.discountValue).toLocaleString('vi-VN')} đ`}
+                  </div>
+                  <div className="text-[11px] text-amber-200 mt-1 font-medium">
+                    Điều kiện: {getVoucherCondition({ discountType: formData.discountType, discountValue: formData.discountValue })}
                   </div>
                 </div>
                 <div className="text-right text-[11px] text-blue-200">
@@ -922,7 +959,7 @@ export const VoucherManagementPage: React.FC = () => {
         >
           <div className="space-y-4">
             <form onSubmit={handleRunValidation} className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Mã Voucher cần kiểm tra <span className="text-rose-500">*</span>
@@ -939,7 +976,21 @@ export const VoucherManagementPage: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Giá vé thử nghiệm (VNĐ)
+                    Số lượng vé
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={testSeatCount}
+                    onChange={(e) => setTestSeatCount(Math.max(1, Number(e.target.value)))}
+                    className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-[#0c162d] border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Tổng tiền vé (VNĐ)
                   </label>
                   <input
                     type="number"
@@ -1043,6 +1094,13 @@ export const VoucherManagementPage: React.FC = () => {
                             <span className="text-slate-400">Trạng thái:</span>{' '}
                             <span className="font-medium">{testResult.voucher.status}</span>
                           </div>
+                        </div>
+
+                        <div className="pt-1 text-slate-600 dark:text-slate-300">
+                          <span className="text-slate-400">Điều kiện áp dụng:</span>{' '}
+                          <span className="font-semibold text-blue-600 dark:text-sky-400">
+                            {getVoucherCondition(testResult.voucher)}
+                          </span>
                         </div>
 
                         {/* Bảng tính tiền vé */}
