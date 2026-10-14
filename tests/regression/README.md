@@ -94,3 +94,22 @@ Dùng chuyến riêng trên xe 4 để không tranh ghế với nhóm khác.
 Không cần cấu hình thêm. Nhóm kiểm: km từng trạm tự tính, phân quyền thêm/sửa/xóa bậc giá, dữ liệu sai (km ngược, giá 0), chống chồng lấn bậc, mốc ranh giới (đúng 12 km thuộc bậc 8-12),
 giá mọi chặng và giá đối tượng ưu đãi, tìm chuyến trả `distanceKm` và giá theo km, đặt vé tính tiền theo km của chặng khách chọn, xóa hết bậc thì quay về giá cố định cũ của tuyến, tuyến mới tự tính km.
 Nhóm chạy cuối cùng, tự lập rồi xóa bảng giá nên không đổi giá của các nhóm khác.
+
+## Kịch bản trên dữ liệu demo (`seat-lock.mjs`, `refund-flow.mjs`)
+
+Hai kịch bản này chạy riêng, không cần dữ liệu seed của `regress.mjs` mà dùng bộ dữ liệu trong `backend/database/demo` (nạp bằng `smart-bus-demo-data.sql`). Chúng tự chọn chuyến còn ở tương lai
+(đã gán xe, trạng thái Scheduled) nên vẫn chạy được khi đổi ngày giờ chuyến, nhưng cần ít nhất 1 chuyến (`seat-lock`) hoặc 2 chuyến (`refund-flow`, chuyến thứ hai phải có tài xế).
+Cả hai tự tạo 3 tài khoản hành khách `testpax1..3`, nên cần backend chạy Development với `Payments__Simulator__Enabled=true` (thanh toán MoMo giả lập) và bảng `payments` nên trống để số liệu doanh thu dễ đối chiếu.
+Giống `regress.mjs`: bắt buộc `CONFIRM_TEST_DB=1`, ghi mốc id trước khi chạy và xóa mọi dòng mới sau khi chạy (kịch bản hoàn tiền còn trả lại trạng thái chuyến bị hủy).
+
+```bash
+CONFIRM_TEST_DB=1 node tests/regression/seat-lock.mjs
+CONFIRM_TEST_DB=1 node tests/regression/refund-flow.mjs
+```
+
+| Kịch bản | Nội dung |
+|---|---|
+| `seat-lock.mjs` | Giữ và tranh ghế giữa nhiều khách, đặt nhiều ghế có một ghế đã bị giữ, thanh toán xong ghế đóng hẳn, hủy giữ chỗ nhả ghế ngay, hết hạn giữ chỗ tự nhả (đẩy `HoldExpiresAt` về quá khứ), đặt đồng thời cùng một ghế (chỉ một người thắng), hủy vé đã thanh toán chỉ nhả ghế sau khi quản lý duyệt, đặt chuyến đã khởi hành và đặt quá 4 ghế |
+| `refund-flow.mjs` | Hủy một phần rồi hủy hết (giao dịch chuyển Refunded), duyệt, từ chối và xử lý trùng khoản hoàn, thông báo cho khách, phân quyền và cô lập giữa khách, vé đã quét không được hủy, hủy chuyến hoàn cho vé còn hiệu lực và nhả ghế đang giữ, đối chiếu doanh thu sau mỗi bước |
+
+Lưu ý: `Refunds:Tiers` để trống thì hủy vé luôn hoàn 100% (kịch bản dựa vào đó). Hoàn tiền của MoMo/ZaloPay chỉ ghi nhận thủ công, chỉ VNPay gọi API hoàn của cổng.
