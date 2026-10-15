@@ -61,7 +61,7 @@ public class TicketScansController(AppDbContext db, AuditLogService audit) : Con
         else if (ticket.TripId != trip.Id)
         {
             result = ScanResult.WrongTrip;
-            message = $"Vé này thuộc chuyến #{ticket.TripId}, không phải chuyến #{trip.Id}.";
+            message = $"Vé này thuộc chuyến #{ticket.TripId}, không phải chuyến #{trip.Id} hiện tại.";
         }
         else if (ticket.Status == TicketStatus.Used)
         {
@@ -81,12 +81,12 @@ public class TicketScansController(AppDbContext db, AuditLogService audit) : Con
         else if (ticket.Status == TicketStatus.Held)
         {
             result = ScanResult.Invalid;
-            message = "Vé chưa thanh toán.";
+            message = "Vé chưa thanh toán (đang giữ chỗ).";
         }
         else if (trip.Status == TripStatus.Cancelled)
         {
             result = ScanResult.Invalid;
-            message = "Chuyến xe đã bị hủy.";
+            message = "Chuyến xe này đã bị hủy.";
         }
         else
         {
