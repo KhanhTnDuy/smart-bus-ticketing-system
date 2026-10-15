@@ -40,6 +40,7 @@ export const QrScannerPage: React.FC = () => {
   const [code, setCode] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [last, setLast] = useState<ScanTicketResponse | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<TicketScanDto[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -61,6 +62,7 @@ export const QrScannerPage: React.FC = () => {
 
   useEffect(() => {
     setLast(null);
+    setErrorMessage(null);
     void loadHistory();
   }, [loadHistory]);
 
@@ -71,13 +73,24 @@ export const QrScannerPage: React.FC = () => {
     if (!value) return showError('Vui lòng nhập hoặc quét mã QR.');
 
     setIsScanning(true);
+    setErrorMessage(null);
     try {
-      setLast(await scanTicket(value, Number(tripId)));
+      const res = await scanTicket(value, Number(tripId));
+      setLast(res);
       setCode('');
       await loadHistory();
     } catch (err) {
       setLast(null);
-      showError(err instanceof Error ? err.message : 'Không quét được vé.');
+      let msg = err instanceof Error ? err.message : 'Không quét được vé.';
+      if (/403|Forbidden/i.test(msg)) {
+        msg = 'Bạn không được phân công cho chuyến này nên không thể soát vé.';
+      } else if (/400|Bad Request/i.test(msg)) {
+        msg = 'Dữ liệu quét vé không hợp lệ. Vui lòng kiểm tra lại.';
+      } else if (/500|Internal/i.test(msg)) {
+        msg = 'Hệ thống máy chủ đang bận. Vui lòng thử lại sau.';
+      }
+      setErrorMessage(msg);
+      showError(msg);
     } finally {
       setIsScanning(false);
       inputRef.current?.focus();
@@ -145,6 +158,18 @@ export const QrScannerPage: React.FC = () => {
               {isScanning ? 'Đang kiểm tra...' : 'Kiểm tra vé'}
             </button>
           </form>
+
+          {errorMessage && (
+            <div className="p-5 rounded-xl border-2 border-rose-400 bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-200">
+              <div className="flex items-center gap-3">
+                <XCircle className="w-8 h-8 shrink-0 text-rose-600 dark:text-rose-400" />
+                <div>
+                  <div className="text-lg font-bold">Không thể soát vé</div>
+                  <div className="text-sm">{errorMessage}</div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {last && (
             <div className={`p-5 rounded-xl border-2 ${RESULT_STYLE[last.result]}`}>
