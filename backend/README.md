@@ -109,6 +109,54 @@ Cần chạy `dotnet ef database update` để áp migration `AddIncidentAndScan
   tự đổi trạng thái vé trong cơ sở dữ liệu.
 - `GET ?tripId=` lịch sử quét của chuyến.
 
+## Triển khai ngoài máy dev (SCRUM-106)
+
+Ngoài `Development`, backend **chỉ nhận cấu hình từ biến môi trường** (hoặc kho bí mật của nơi triển khai) và
+dừng ngay lúc khởi động nếu thiếu thứ bắt buộc, thay vì chạy với giá trị mặc định của máy dev.
+
+| Biến môi trường | Bắt buộc | Thiếu thì sao |
+|---|---|---|
+| `ASPNETCORE_ENVIRONMENT` | có | Không đặt thì mặc định `Production` khi chạy `--no-launch-profile` |
+| `ConnectionStrings__Default` | có | Dừng khởi động: "Thiếu chuỗi kết nối 'ConnectionStrings:Default'" |
+| `Jwt__Key` (≥ 32 byte) | có | Dừng khởi động; khóa dev trong `appsettings.Development.json` không dùng được ở đây |
+| `Jwt__Issuer`, `Jwt__Audience` | có | Token ký ở máy khác không kiểm được |
+| `Cors__AllowedOrigins__0`, `__1`... | có | Dừng khởi động: trình duyệt ở tên miền thật sẽ bị CORS chặn nếu để danh sách localhost |
+| `Seed__AdminPassword` | lần đầu | Chưa có Admin nào mà thiếu biến này thì ghi lỗi ra log và **không** tạo tài khoản |
+| `Payments__*`, `BankTransfer__*`, `Refunds__*` | tùy cổng | Xem bảng ở mục "Biến cấu hình thanh toán" |
+| `Email__*` | không | `Email__Enabled=false` thì hóa đơn vẫn tạo, chỉ chưa gửi |
+
+Chạy thử:
+
+```bash
+cd backend/SmartBusTicketing.Api
+ASPNETCORE_ENVIRONMENT=Production ASPNETCORE_URLS=http://0.0.0.0:5180 ConnectionStrings__Default="Server=...;Database=smart_bus_ticketing;User=...;Password=..." Jwt__Key="<khóa ngẫu nhiên ít nhất 32 byte>" Jwt__Issuer=SmartBusTicketing.Api Jwt__Audience=SmartBusTicketing.Client Cors__AllowedOrigins__0="https://<tên miền frontend>" Seed__AdminPassword="<mật khẩu quản trị>"   dotnet run --no-launch-profile
+```
+
+Kiểm thử tự động: `node tests/config/deploy-config.mjs` (cần MySQL đang chạy) kiểm tra máy chủ khởi động được
+chỉ bằng biến môi trường và dừng đúng khi thiếu `Jwt:Key`, khóa quá ngắn, hoặc thiếu `Cors:AllowedOrigins`.
+
+### Khóa thật không nằm trong git
+
+`appsettings.json` chỉ chứa giá trị rỗng kèm ghi chú; `appsettings.Development.json` chứa khóa JWT **chỉ dùng cho máy dev**.
+Mật khẩu `Admin@12345` trong `Data/DbSeeder.cs` chỉ được dùng khi chạy `Development` và chưa cấu hình `Seed:AdminPassword`;
+ở môi trường khác, thiếu `Seed__AdminPassword` thì không tạo tài khoản nào. `.env` nằm trong `.gitignore`
+(frontend chỉ commit `.env.example`).
+
+### Sao lưu và phục hồi CSDL
+
+```bash
+cd backend/database
+MYSQL_BIN_DIR="/c/Program Files/MySQL/MySQL Server 8.4/bin" ./backup.sh            # ra backups/smart_bus_ticketing_<ngày>_<giờ>.sql
+CONFIRM_RESTORE=1 ./restore.sh backups/smart_bus_ticketing_20261017_013059.sql     # GHI ĐÈ CSDL trong file
+```
+
+`backup.sh` dùng `mysqldump --single-transaction --routines --events --triggers --databases` nên bản sao nhất quán,
+không khóa bảng, và kèm luôn lệnh tạo CSDL. `restore.sh` bắt buộc `CONFIRM_RESTORE=1` vì ghi đè toàn bộ CSDL đích.
+Biến môi trường dùng chung: `MYSQL_BIN_DIR`, `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DB`.
+
+Đã chạy thử ngày 17/10: sao lưu CSDL dev (29 bảng), phục hồi sang CSDL `sbt_restore_check` và đối chiếu số bảng cùng
+số dòng `accounts`, `tickets`, `trips` — khớp hoàn toàn.
+
 ## Thanh toán, hóa đơn, hoàn tiền
 
 Cần `dotnet ef database update` để áp migration `AddRefundProcessing` (thêm cột xử lý cho `refunds`; `PaymentMethod`
