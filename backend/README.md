@@ -239,6 +239,14 @@ CONFIRM_TEST_DB=1 PUBLIC_BASE_URL=https://<địa chỉ> IPN_PORT=5180   VNPAY_T
 `Confirmed`, vé sang `Valid`, sinh đúng một hóa đơn, ghi mã giao dịch của VNPay; gọi lại cùng IPN trả
 `RspCode 02` mà không sinh thêm vé hay hóa đơn; chữ ký sai trả `97`, mã giao dịch lạ trả `01`.
 
+Đã chạy 17/10 qua địa chỉ công khai thật (cloudflared quick tunnel, backend mở ở `0.0.0.0:5180`): 17/17 đạt,
+IPN đi từ Internet vào tới backend và chốt đúng trạng thái giao dịch. Phần còn lại cần tài khoản merchant
+VNPay sandbox (TmnCode/HashSecret) để chính VNPay là bên gửi IPN.
+
+Backend phải nghe ở `0.0.0.0` (không phải `localhost`) thì đường hầm mới chuyển tiếp được:
+`ASPNETCORE_URLS=http://0.0.0.0:5180`. Đóng đường hầm ngay sau khi thử xong — trong lúc mở, ai có địa chỉ đó
+cũng gọi được API của máy bạn.
+
 ## Giữ ghế khi thanh toán
 
 Ghế được giữ **từ lúc khách bấm "Tiếp tục thanh toán"** (bước chọn ghế → thanh toán): `POST /api/bookings` tạo lượt đặt `Pending` với
