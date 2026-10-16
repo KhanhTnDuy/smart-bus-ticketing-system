@@ -161,7 +161,10 @@ if (process.env.CONFIRM_TEST_DB !== '1') {
 }
 
 const sql = (q) => {
-  const args = ['-h', DB.host, '-P', DB.port, '-u', DB.user, ...(DB.password ? [`-p${DB.password}`] : []), '-N', '-D', DB.name, '-e', q];
+  // --default-character-set=utf8mb4: thiếu cờ này thì mysql gửi truy vấn theo bảng mã của console Windows,
+  // nên mọi điều kiện có chữ tiếng Việt (vd. Action='Thêm bậc giá theo km') không khớp dòng nào và phép kiểm báo sai.
+  const args = ['-h', DB.host, '-P', DB.port, '-u', DB.user, ...(DB.password ? [`-p${DB.password}`] : []),
+    '--default-character-set=utf8mb4', '-N', '-D', DB.name, '-e', q];
   const r = spawnSync(DB.bin, args, { encoding: 'utf8' });
   if (r.status !== 0) throw new Error(`mysql lỗi: ${(r.stderr || r.error?.message || '').trim()}`);
   return r.stdout.trim();
