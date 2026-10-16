@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using SmartBusTicketing.Api.Models;
 
 namespace SmartBusTicketing.Api.DTOs;
@@ -95,6 +95,13 @@ public sealed class PaymentResultDto
     public bool Success { get; init; }
     public string Message { get; init; } = string.Empty;
     public PaymentDto Payment { get; init; } = null!;
+}
+
+/// <summary>Tổng hợp hóa đơn theo bộ lọc đang xem, để đối chiếu với báo cáo doanh thu cùng kỳ (SCRUM-99).</summary>
+public sealed class InvoiceSummaryDto
+{
+    public int Count { get; init; }
+    public decimal Total { get; init; }
 }
 
 public sealed class InvoiceDto
