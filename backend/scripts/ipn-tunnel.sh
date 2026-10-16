@@ -42,14 +42,17 @@ tunnel_pid=$!
 trap 'kill "$tunnel_pid" 2>/dev/null || true; rm -f "$log"' EXIT
 
 public=""
-for _ in $(seq 1 30); do
+for _ in $(seq 1 60); do
   sleep 1
   if [ "$tool" = "ngrok" ]; then
     # ngrok mở sẵn API cục bộ ở cổng 4040, đọc địa chỉ từ đó chắc chắn hơn là bóc từ log.
     public="$(curl -fsS http://127.0.0.1:4040/api/tunnels 2>/dev/null \
       | grep -o 'https://[a-zA-Z0-9.-]*\.ngrok[a-z.-]*' | head -1 || true)"
   else
-    public="$(grep -o 'https://[a-zA-Z0-9.-]*\.trycloudflare\.com' "$log" | head -1 || true)"
+    # cloudflared in địa chỉ ra log trước khi kết nối được đăng ký; chờ cả hai, nếu không thì gọi thử sẽ lỗi oan.
+    if grep -q 'Registered tunnel connection' "$log" 2>/dev/null; then
+      public="$(grep -o 'https://[a-zA-Z0-9.-]*\.trycloudflare\.com' "$log" | head -1 || true)"
+    fi
   fi
   [ -n "$public" ] && break
 done
@@ -61,10 +64,20 @@ if [ -z "$public" ]; then
 fi
 
 # Kiểm tra đường hầm thật sự tới được backend trước khi bảo người dùng dán địa chỉ vào VNPay.
-if curl -fsS "${public}/api/health" | grep -q '"status":"ok"'; then
+# Tên miền vừa cấp cần vài giây để phân giải được, nên thử lại thay vì kết luận ngay là hỏng.
+healthy=""
+for _ in $(seq 1 12); do
+  if curl -fsS --max-time 10 "${public}/api/health" 2>/dev/null | grep -q '"status":"ok"'; then
+    healthy=1
+    break
+  fi
+  sleep 3
+done
+
+if [ -n "$healthy" ]; then
   echo "Đường hầm đã thông tới backend."
 else
-  echo "Mở được đường hầm nhưng ${public}/api/health không trả lời đúng. Kiểm tra lại backend." >&2
+  echo "Mở được đường hầm nhưng ${public}/api/health không trả lời đúng sau 36 giây. Kiểm tra lại backend và mạng." >&2
   exit 1
 fi
 
