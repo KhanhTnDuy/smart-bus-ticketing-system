@@ -1,10 +1,10 @@
 -- ===================================================================
--- DỮ LIỆU DEMO SMART BUS TICKETING (đã gồm cấu trúc bảng + dữ liệu + bảng giá theo km + 4 chuyến sáng 12/10/2026)
--- Xuất ngày 11/10/2026 từ MySQL 8.4 của máy dev.
+-- DỮ LIỆU DEMO SMART BUS TICKETING (cấu trúc bảng + dữ liệu + bảng giá theo km + chuyến động theo ngày chạy)
+-- Dữ liệu demo tự động sinh chuyến trong tương lai dựa trên ngày/giờ hiện tại (UTC_TIMESTAMP / UTC_DATE).
 --
 -- CÁCH DỰNG TRÊN LAPTOP DEMO (cần MySQL 8.x):
 --   1. Mở terminal, chạy:  mysql -uroot -p --default-character-set=utf8mb4 < smart-bus-demo-data.sql
---      (hoặc trong MySQL Workbench: File > Open SQL Script > chạy cả file)
+--      (hoặc chạy script reload-demo.ps1 / reload-demo.sh / node scripts/reload-demo.mjs)
 --      File tự tạo database `smart_bus_ticketing` (xóa bản cũ nếu có).
 --   2. Trong backend/SmartBusTicketing.Api/appsettings.Development.json (hoặc user-secrets) đặt ConnectionStrings:Default
 --      trỏ tới MySQL trên laptop, ví dụ: Server=127.0.0.1;Port=3306;Database=smart_bus_ticketing;User=root;Password=<mật khẩu>
@@ -682,7 +682,7 @@ CREATE TABLE `trip_staff` (
 
 LOCK TABLES `trip_staff` WRITE;
 /*!40000 ALTER TABLE `trip_staff` DISABLE KEYS */;
-INSERT INTO `trip_staff` VALUES (1,3,'Driver'),(1,5,'Conductor'),(4,3,'Driver'),(4,5,'Conductor'),(5,4,'Driver'),(5,6,'Conductor'),(6,3,'Driver'),(6,5,'Conductor'),(7,4,'Driver'),(7,6,'Conductor');
+INSERT INTO `trip_staff` VALUES (1,3,'Driver'),(1,5,'Conductor'),(4,3,'Driver'),(4,5,'Conductor'),(5,4,'Driver'),(5,6,'Conductor'),(6,3,'Driver'),(6,5,'Conductor'),(7,4,'Driver'),(7,6,'Conductor'),(8,3,'Driver'),(8,5,'Conductor'),(9,4,'Driver'),(9,6,'Conductor'),(10,3,'Driver'),(10,5,'Conductor'),(11,4,'Driver'),(11,6,'Conductor'),(12,3,'Driver'),(12,5,'Conductor'),(13,4,'Driver'),(13,6,'Conductor'),(14,3,'Driver'),(14,5,'Conductor'),(15,4,'Driver'),(15,6,'Conductor');
 /*!40000 ALTER TABLE `trip_staff` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `trips`;
@@ -703,12 +703,27 @@ CREATE TABLE `trips` (
   CONSTRAINT `FK_trips_buses_BusId` FOREIGN KEY (`BusId`) REFERENCES `buses` (`Id`) ON DELETE SET NULL,
   CONSTRAINT `FK_trips_routes_RouteId` FOREIGN KEY (`RouteId`) REFERENCES `routes` (`Id`) ON DELETE CASCADE,
   CONSTRAINT `FK_trips_schedules_ScheduleId` FOREIGN KEY (`ScheduleId`) REFERENCES `schedules` (`Id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=16 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 LOCK TABLES `trips` WRITE;
 /*!40000 ALTER TABLE `trips` DISABLE KEYS */;
-INSERT INTO `trips` VALUES (1,1,NULL,1,'2026-10-07 00:30:00.000000','Scheduled',0),(2,1,NULL,2,'2026-10-07 03:00:00.000000','Scheduled',0),(3,1,NULL,NULL,'2026-10-07 07:30:00.000000','Scheduled',0),(4,1,NULL,1,'2026-10-12 00:30:00.000000','Scheduled',0),(5,1,NULL,2,'2026-10-12 01:30:00.000000','Scheduled',0),(6,1,NULL,3,'2026-10-12 03:00:00.000000','Scheduled',0),(7,1,NULL,4,'2026-10-12 04:00:00.000000','Scheduled',0);
+INSERT INTO `trips` (`Id`, `RouteId`, `ScheduleId`, `BusId`, `DepartureAt`, `Status`, `DelayMinutes`) VALUES
+(1, 1, NULL, 1, DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 DAY), 'Scheduled', 0),
+(2, 1, NULL, 2, DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY), 'Scheduled', 0),
+(3, 1, NULL, NULL, DATE_SUB(UTC_TIMESTAMP(), INTERVAL 12 HOUR), 'Scheduled', 0),
+(4, 1, NULL, 1, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 2 HOUR), 'Scheduled', 0),
+(5, 1, NULL, 2, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 4 HOUR), 'Scheduled', 0),
+(6, 1, NULL, 3, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 6 HOUR), 'Scheduled', 0),
+(7, 1, NULL, 4, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR), 'Scheduled', 0),
+(8, 1, NULL, 1, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 1 DAY), '00:30:00'), 'Scheduled', 0),
+(9, 1, NULL, 2, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 1 DAY), '01:30:00'), 'Scheduled', 0),
+(10, 1, NULL, 3, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 1 DAY), '03:00:00'), 'Scheduled', 0),
+(11, 1, NULL, 4, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 1 DAY), '04:00:00'), 'Scheduled', 0),
+(12, 1, NULL, 1, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 2 DAY), '00:30:00'), 'Scheduled', 0),
+(13, 1, NULL, 2, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 2 DAY), '01:30:00'), 'Scheduled', 0),
+(14, 1, NULL, 3, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 2 DAY), '03:00:00'), 'Scheduled', 0),
+(15, 1, NULL, 4, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 2 DAY), '04:00:00'), 'Scheduled', 0);
 /*!40000 ALTER TABLE `trips` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `vouchers`;
