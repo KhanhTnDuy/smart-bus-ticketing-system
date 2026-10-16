@@ -241,20 +241,27 @@ public class PaymentsController(
 
         if (!string.Equals(Str("transferType"), "in", StringComparison.OrdinalIgnoreCase)) return NoMatch("not-incoming");
         var account = Str("accountNumber");
-        if (account.Length > 0 && account != bank.AccountNumber.Trim()) return NoMatch("other-account");
+        if (string.IsNullOrWhiteSpace(account)) return NoMatch("missing-account");
+        if (account.Trim() != bank.AccountNumber.Trim()) return NoMatch("other-account");
         if (!decimal.TryParse(Str("transferAmount"), System.Globalization.NumberStyles.Number,
-                System.Globalization.CultureInfo.InvariantCulture, out var amount)) return NoMatch("bad-amount");
+                System.Globalization.CultureInfo.InvariantCulture, out var amount)
+            || amount <= 0 || amount != decimal.Truncate(amount)) return NoMatch("bad-amount");
+
+        // SePay retries identify the same bank event by id. Never synthesize an empty shared id.
+        if (!long.TryParse(Str("id"), out var eventId) || eventId <= 0) return NoMatch("bad-transaction-id");
 
         var memos = BankTransferHelper.FindMemos(bank.MemoPrefix, Str("content"), Str("code"), Str("description"));
         if (memos.Count == 0) return NoMatch("no-memo");
 
-        var candidate = await db.Payments.AsNoTracking()
+        var candidates = await db.Payments.AsNoTracking()
             .Where(p => p.Method == PaymentMethod.BankTransfer && p.TxnRef != null && memos.Contains(p.TxnRef))
             .Select(p => new { p.Id, p.Amount, p.Status, p.TxnRef })
-            .FirstOrDefaultAsync(ct);
-        if (candidate is null) return NoMatch("unknown-memo");
+            .Take(2).ToListAsync(ct);
+        if (candidates.Count == 0) return NoMatch("unknown-memo");
+        if (candidates.Count > 1) return NoMatch("ambiguous-memo");
+        var candidate = candidates[0];
 
-        var bankTxn = $"SEPAY-{(Str("id").Length > 0 ? Str("id") : Str("referenceCode"))}";
+        var bankTxn = $"SEPAY-{eventId}";
         if (candidate.Status is PaymentStatus.Success or PaymentStatus.Refunded
             || await db.Payments.AnyAsync(p => p.ProviderTxnId == bankTxn, ct))
             return Ok(new { success = true, matched = true, duplicate = true });
