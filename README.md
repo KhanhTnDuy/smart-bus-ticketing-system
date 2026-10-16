@@ -21,3 +21,5 @@ CONFIRM_TEST_DB=1 node tests/regression/regress.mjs
 ```
 
 Điều kiện chạy, biến môi trường và dữ liệu seed cần có xem `tests/regression/README.md`.
+
+Quy ước báo lỗi, danh sách lỗi đã biết và kết quả chạy gần nhất: `docs/LOI-DA-BIET.md`.
