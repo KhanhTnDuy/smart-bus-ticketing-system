@@ -382,7 +382,31 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
                 orderAmount));
         }
 
-        // 3. Tính toán mức giảm giá
+        // 3. Kiểm tra điều kiện số vé tối thiểu (SCRUM-67)
+        var minSeats = GetMinSeats(voucher.DiscountType, voucher.DiscountValue);
+        if (request.SeatCount.HasValue && request.SeatCount.Value < minSeats)
+        {
+            return Ok(new ValidateVoucherResultDto(
+                false,
+                $"Mã voucher '{voucher.Code}' yêu cầu mua từ {minSeats} vé trở lên (bạn đang chọn {request.SeatCount.Value} vé).",
+                dto,
+                0,
+                orderAmount));
+        }
+
+        // 4. Kiểm tra điều kiện đơn hàng tối thiểu (SCRUM-67)
+        var minOrder = GetMinOrder(voucher.DiscountType, voucher.DiscountValue);
+        if (orderAmount > 0 && orderAmount < minOrder)
+        {
+            return Ok(new ValidateVoucherResultDto(
+                false,
+                $"Mã voucher '{voucher.Code}' yêu cầu giá trị đơn hàng tối thiểu {minOrder:N0} đ (đơn hiện tại là {orderAmount:N0} đ).",
+                dto,
+                0,
+                orderAmount));
+        }
+
+        // 5. Tính toán mức giảm giá
         decimal discountAmount = 0;
         if (orderAmount > 0)
         {
@@ -403,10 +427,61 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
 
         return Ok(new ValidateVoucherResultDto(
             true,
-            $"Áp dụng mã giảm giá '{voucher.Code}' thành công! (Giảm {discountDesc}, còn lại {remaining} lượt)",
+            $"Áp dụng mã giảm giá '{voucher.Code}' thành công! (Giảm {discountDesc}, còn lại {remaining} lượt - {dto.Condition})",
             dto,
             discountAmount,
             finalAmount));
+    }
+
+    /// <summary>
+    /// Tính số lượng vé tối thiểu yêu cầu theo mức giảm (phân bậc ưu đãi mua sắm: giảm càng cao, điều kiện càng cao).
+    /// </summary>
+    public static int GetMinSeats(DiscountType type, decimal value)
+    {
+        if (type == DiscountType.Fixed)
+        {
+            if (value >= 50000m) return 3;
+            if (value >= 15000m) return 2;
+            return 1;
+        }
+
+        if (value >= 40m) return 3;
+        if (value >= 15m) return 2;
+        return 1;
+    }
+
+    /// <summary>
+    /// Tính giá trị đơn hàng tối thiểu theo mức giảm.
+    /// </summary>
+    public static decimal GetMinOrder(DiscountType type, decimal value)
+    {
+        if (type == DiscountType.Fixed)
+        {
+            if (value >= 50000m) return 90000m;
+            if (value >= 20000m) return 40000m;
+            if (value >= 15000m) return 30000m;
+            return 0m;
+        }
+
+        if (value >= 40m) return 90000m;
+        if (value >= 20m) return 40000m;
+        if (value >= 15m) return 30000m;
+        return 0m;
+    }
+
+    /// <summary>
+    /// Chuỗi mô tả điều kiện áp dụng tương ứng (ví dụ: "Áp dụng khi mua từ 3 vé trở lên (đơn tối thiểu 90.000 đ)").
+    /// </summary>
+    public static string GetConditionText(DiscountType type, decimal value)
+    {
+        var minSeats = GetMinSeats(type, value);
+        var minOrder = GetMinOrder(type, value);
+
+        if (minSeats >= 3)
+            return $"Áp dụng khi mua từ {minSeats} vé trở lên (đơn tối thiểu {minOrder:N0} đ)";
+        if (minSeats == 2)
+            return $"Áp dụng khi mua từ 2 vé trở lên (đơn tối thiểu {minOrder:N0} đ)";
+        return "Áp dụng cho mọi đơn đặt vé (từ 1 vé)";
     }
 
     private static VoucherDto ToDto(Voucher v, int usedCount, DateTime now)
@@ -414,6 +489,9 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
         var remaining = Math.Max(0, v.UsageLimit - usedCount);
         var status = CalculateStatus(v.StartAt, v.EndAt, v.UsageLimit, usedCount, now);
         var isActive = status == "ACTIVE";
+        var minSeats = GetMinSeats(v.DiscountType, v.DiscountValue);
+        var minOrder = GetMinOrder(v.DiscountType, v.DiscountValue);
+        var condition = GetConditionText(v.DiscountType, v.DiscountValue);
 
         return new VoucherDto(
             v.Id,
@@ -426,7 +504,10 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
             usedCount,
             remaining,
             isActive,
-            status);
+            status,
+            minSeats,
+            minOrder,
+            condition);
     }
 
     private static string CalculateStatus(DateTime startUtc, DateTime endUtc, int limit, int used, DateTime now)

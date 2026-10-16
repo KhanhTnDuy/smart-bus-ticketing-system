@@ -185,7 +185,9 @@ export const DiscountVerificationPage: React.FC = () => {
                     </td>
                     <td className="py-3 px-4">
                       {a.passengerTypeName}
-                      <div className="text-[11px] text-slate-400">Giảm {a.discountPercent}%</div>
+                      <div className={`text-[11px] ${a.discountPercent >= 100 ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-slate-400'}`}>
+                        {a.discountPercent >= 100 ? 'Miễn phí 100%' : `Giảm ${a.discountPercent}%`}
+                      </div>
                     </td>
                     <td className="py-3 px-4 text-slate-500">{formatDateTime(a.submittedAt)}</td>
                     <td className="py-3 px-4">
@@ -228,7 +230,7 @@ export const DiscountVerificationPage: React.FC = () => {
           <form onSubmit={submit} className="space-y-4 text-xs">
             <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-800">
               <div className="font-bold text-slate-900 dark:text-white">
-                {target.passengerName} · {target.passengerTypeName} (giảm {target.discountPercent}%)
+                {target.passengerName} · {target.passengerTypeName} ({target.discountPercent >= 100 ? 'miễn phí 100%' : `giảm ${target.discountPercent}%`})
               </div>
               <div className="text-slate-500">
                 {target.passengerEmail ?? ''} {target.passengerPhone ? `· ${target.passengerPhone}` : ''}

@@ -362,7 +362,40 @@ public static class DbSeeder
 
         try
         {
-            if (await db.Vouchers.AnyAsync(ct)) return;
+            var existingVouchers = await db.Vouchers.ToListAsync(ct);
+            if (existingVouchers.Count > 0)
+            {
+                // Cập nhật các voucher mẫu cũ có mức giảm nhỏ (15đ, 20đ, 50đ) thành mức giảm thực tế tính bằng VNĐ (15k, 20k, 50k)
+                bool hasUpdates = false;
+                foreach (var v in existingVouchers)
+                {
+                    if (v.Code == "HE2026" && v.DiscountValue <= 100)
+                    {
+                        v.DiscountType = DiscountType.Fixed;
+                        v.DiscountValue = 20000;
+                        hasUpdates = true;
+                    }
+                    else if (v.Code == "HETHAN2025" && v.DiscountValue <= 100)
+                    {
+                        v.DiscountType = DiscountType.Fixed;
+                        v.DiscountValue = 15000;
+                        hasUpdates = true;
+                    }
+                    else if (v.Code == "HETLUOT" && v.DiscountValue <= 100)
+                    {
+                        v.DiscountType = DiscountType.Fixed;
+                        v.DiscountValue = 50000;
+                        hasUpdates = true;
+                    }
+                }
+
+                if (hasUpdates)
+                {
+                    await db.SaveChangesAsync(ct);
+                    logger.LogInformation("Đã đồng bộ lại mức giảm giá thực tế (15k, 20k, 50k) cho các mã voucher mẫu.");
+                }
+                return;
+            }
 
             var now = DateTime.UtcNow;
             var sampleVouchers = new List<Voucher>
@@ -370,8 +403,8 @@ public static class DbSeeder
                 new()
                 {
                     Code = "HE2026",
-                    DiscountType = DiscountType.Percent,
-                    DiscountValue = 20,
+                    DiscountType = DiscountType.Fixed,
+                    DiscountValue = 20000,
                     StartAt = now.AddDays(-7),
                     EndAt = now.AddDays(30),
                     UsageLimit = 100
@@ -388,8 +421,8 @@ public static class DbSeeder
                 new()
                 {
                     Code = "HETHAN2025",
-                    DiscountType = DiscountType.Percent,
-                    DiscountValue = 15,
+                    DiscountType = DiscountType.Fixed,
+                    DiscountValue = 15000,
                     StartAt = now.AddDays(-60),
                     EndAt = now.AddDays(-5),
                     UsageLimit = 200
@@ -397,8 +430,8 @@ public static class DbSeeder
                 new()
                 {
                     Code = "HETLUOT",
-                    DiscountType = DiscountType.Percent,
-                    DiscountValue = 50,
+                    DiscountType = DiscountType.Fixed,
+                    DiscountValue = 50000,
                     StartAt = now.AddDays(-10),
                     EndAt = now.AddDays(20),
                     UsageLimit = 1
@@ -421,6 +454,96 @@ public static class DbSeeder
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Bỏ qua khởi tạo dữ liệu mẫu voucher: {Message}", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Đồng bộ các mức phần trăm ưu đãi giá vé xe buýt chuẩn bám sát thực tế tại Việt Nam:
+    /// - Học sinh / Sinh viên: Giảm 50%
+    /// - Người cao tuổi (từ 60 tuổi): Miễn phí 100%
+    /// - Người có công / Khuyết tật: Miễn phí 100%
+    /// - Vé tháng tập thể / Công nhân: Giảm 30%
+    /// </summary>
+    public static async Task SeedPassengerTypesAsync(WebApplication app, CancellationToken ct = default)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(DbSeeder));
+
+        try
+        {
+            var types = await db.PassengerTypes.ToListAsync(ct);
+            bool changed = false;
+
+            // 1. STANDARD: Hành khách thường
+            var standard = types.FirstOrDefault(t => t.Code == "STANDARD");
+            if (standard is null)
+            {
+                db.PassengerTypes.Add(new PassengerType { Code = "STANDARD", Name = "Hành khách thường", DiscountPercent = 0 });
+                changed = true;
+            }
+
+            // 2. STUDENT: Học sinh / Sinh viên (giảm 50%)
+            var student = types.FirstOrDefault(t => t.Code == "STUDENT");
+            if (student is null)
+            {
+                db.PassengerTypes.Add(new PassengerType { Code = "STUDENT", Name = "Học sinh / Sinh viên", DiscountPercent = 50 });
+                changed = true;
+            }
+            else
+            {
+                if (student.DiscountPercent != 50) { student.DiscountPercent = 50; changed = true; }
+                if (student.Name != "Học sinh / Sinh viên") { student.Name = "Học sinh / Sinh viên"; changed = true; }
+            }
+
+            // 3. ELDERLY: Người cao tuổi từ 60 tuổi (miễn phí 100%)
+            var elderly = types.FirstOrDefault(t => t.Code == "ELDERLY");
+            if (elderly is null)
+            {
+                db.PassengerTypes.Add(new PassengerType { Code = "ELDERLY", Name = "Người cao tuổi (từ 60 tuổi)", DiscountPercent = 100 });
+                changed = true;
+            }
+            else
+            {
+                if (elderly.DiscountPercent != 100) { elderly.DiscountPercent = 100; changed = true; }
+                if (elderly.Name != "Người cao tuổi (từ 60 tuổi)") { elderly.Name = "Người cao tuổi (từ 60 tuổi)"; changed = true; }
+            }
+
+            // 4. WORKER: Vé tháng tập thể / Công nhân (giảm 30%)
+            var worker = types.FirstOrDefault(t => t.Code == "WORKER");
+            if (worker is null)
+            {
+                db.PassengerTypes.Add(new PassengerType { Code = "WORKER", Name = "Vé tháng tập thể / Công nhân", DiscountPercent = 30 });
+                changed = true;
+            }
+            else
+            {
+                if (worker.DiscountPercent != 30) { worker.DiscountPercent = 30; changed = true; }
+                if (worker.Name != "Vé tháng tập thể / Công nhân") { worker.Name = "Vé tháng tập thể / Công nhân"; changed = true; }
+            }
+
+            // 5. DISABILITY: Người có công / Khuyết tật (miễn phí 100%)
+            var disability = types.FirstOrDefault(t => t.Code == "DISABILITY");
+            if (disability is null)
+            {
+                db.PassengerTypes.Add(new PassengerType { Code = "DISABILITY", Name = "Người có công / Khuyết tật", DiscountPercent = 100 });
+                changed = true;
+            }
+            else
+            {
+                if (disability.DiscountPercent != 100) { disability.DiscountPercent = 100; changed = true; }
+                if (disability.Name != "Người có công / Khuyết tật") { disability.Name = "Người có công / Khuyết tật"; changed = true; }
+            }
+
+            if (changed)
+            {
+                await db.SaveChangesAsync(ct);
+                logger.LogInformation("Đã đồng bộ chính sách ưu đãi giá vé xe buýt chuẩn (50%, miễn phí 100%, 30%).");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Bỏ qua cập nhật danh mục đối tượng ưu đãi: {Message}", ex.Message);
         }
     }
 }

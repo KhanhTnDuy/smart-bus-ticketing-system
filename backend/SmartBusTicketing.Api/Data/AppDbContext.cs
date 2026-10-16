@@ -65,12 +65,12 @@ public class AppDbContext : DbContext
             e.ToTable("passenger_types");
             e.HasIndex(p => p.Code).IsUnique();
             e.Property(p => p.DiscountPercent).HasPrecision(5, 2);
-            // Dữ liệu mặc định (cần có để tạo giá vé và đăng ký ưu đãi).
             e.HasData(
                 new PassengerType { Id = 1, Code = "STANDARD", Name = "Hành khách thường", DiscountPercent = 0 },
                 new PassengerType { Id = 2, Code = "STUDENT", Name = "Học sinh / Sinh viên", DiscountPercent = 50 },
-                new PassengerType { Id = 3, Code = "ELDERLY", Name = "Người cao tuổi", DiscountPercent = 50 },
-                new PassengerType { Id = 4, Code = "WORKER", Name = "Người đi làm (vé tháng)", DiscountPercent = 20 });
+                new PassengerType { Id = 3, Code = "ELDERLY", Name = "Người cao tuổi (từ 60 tuổi)", DiscountPercent = 100 },
+                new PassengerType { Id = 4, Code = "WORKER", Name = "Vé tháng tập thể / Công nhân", DiscountPercent = 30 },
+                new PassengerType { Id = 5, Code = "DISABILITY", Name = "Người có công / Khuyết tật", DiscountPercent = 100 });
         });
 
         modelBuilder.Entity<PassengerVerification>(e =>

@@ -107,6 +107,7 @@ if (app.Environment.IsDevelopment())
 {
     await DbSeeder.SeedAssignmentSampleDataAsync(app);
     await DbSeeder.SeedVouchersSampleDataAsync(app);
+    await DbSeeder.SeedPassengerTypesAsync(app);
 }
 
 // Điền km từ đầu tuyến cho các trạm tạo trước khi có giá vé theo km. Lỗi ở đây không được làm hỏng việc khởi động.
