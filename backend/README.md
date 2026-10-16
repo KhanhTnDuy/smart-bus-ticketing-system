@@ -240,8 +240,26 @@ CONFIRM_TEST_DB=1 PUBLIC_BASE_URL=https://<địa chỉ> IPN_PORT=5180   VNPAY_T
 `RspCode 02` mà không sinh thêm vé hay hóa đơn; chữ ký sai trả `97`, mã giao dịch lạ trả `01`.
 
 Đã chạy 17/10 qua địa chỉ công khai thật (cloudflared quick tunnel, backend mở ở `0.0.0.0:5180`): 17/17 đạt,
-IPN đi từ Internet vào tới backend và chốt đúng trạng thái giao dịch. Phần còn lại cần tài khoản merchant
-VNPay sandbox (TmnCode/HashSecret) để chính VNPay là bên gửi IPN.
+IPN đi từ Internet vào tới backend và chốt đúng trạng thái giao dịch.
+
+### Thực tế với VNPay sandbox: IPN không được gọi
+
+Đã thử thật ngày 17/10 với tài khoản merchant sandbox tự đăng ký (TmnCode `DRR0UTZT`), địa chỉ IPN đã khai
+trong trang quản trị merchant:
+
+| Giao dịch | Số tiền | Mã VNPay | Kết quả |
+|---|---|---|---|
+| 3 lần thanh toán bằng thẻ test NCB | 21.000 đ | 15707054, 15707057, 15707058 | lượt đặt `Confirmed`, vé `Valid`, hóa đơn khớp |
+
+Nhưng nhật ký request của backend (bật `Logging__LogLevel__Microsoft.AspNetCore=Information`) cho thấy **không
+có một lời gọi nào tới `/api/payments/vnpay/ipn`** — cả ba lần đều do `/api/payments/vnpay/return` chốt. Tài khoản
+sandbox tự đăng ký không được VNPay chủ động gọi IPN; muốn bật phải gửi địa chỉ IPN cho `support.vnpayment@vnpay.vn`
+(mail hướng dẫn của VNPay có ghi "Merchant cần gửi cho VNPAY URL này"), hoặc dùng công cụ
+`sandbox.vnpayment.vn/vnpaygw-sit-testing` để tự bắn kịch bản IPN.
+
+Vì vậy luồng thanh toán **không phụ thuộc IPN**: `ReturnUrl` đi cùng một đường chốt giao dịch trong
+`PaymentSettlementService`, an toàn khi gọi lặp, nên vé vẫn xuất đúng khi IPN không tới. Khi lên môi trường thật
+có IPN, hai đường cùng chạy mà không chốt hai lần (xem phép kiểm `RspCode 02` ở trên).
 
 Backend phải nghe ở `0.0.0.0` (không phải `localhost`) thì đường hầm mới chuyển tiếp được:
 `ASPNETCORE_URLS=http://0.0.0.0:5180`. Đóng đường hầm ngay sau khi thử xong — trong lúc mở, ai có địa chỉ đó
