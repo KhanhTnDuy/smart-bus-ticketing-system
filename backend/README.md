@@ -204,6 +204,67 @@ bộ giả lập khi `Payments:Simulator:Enabled=true` (đã bật sẵn ở `ap
 Thanh toán về sau khi hết hạn giữ chỗ, hoặc hai giao dịch cùng thanh toán thành công cho một lượt đặt, không xuất thêm vé: hệ thống tự mở
 yêu cầu hoàn tiền `PaymentFailed` cho khoản dư. `HoldExpiryService` chạy nền mỗi 60 giây để chuyển lượt đặt quá hạn sang `Expired` và nhả ghế.
 
+## Địa chỉ công khai cho IPN VNPay (SCRUM-105)
+
+IPN (`GET /api/payments/vnpay/ipn`) là nguồn chốt giao dịch chính thức: VNPay gọi thẳng từ máy chủ của họ, nên
+`localhost` không nhận được. Muốn thử trọn vẹn cần một địa chỉ công khai trỏ về backend ở máy dev.
+
+```bash
+# cửa sổ 1: backend
+cd backend/SmartBusTicketing.Api && dotnet run --no-launch-profile --urls http://localhost:5180
+
+# cửa sổ 2: mở địa chỉ công khai (cần ngrok hoặc cloudflared trong PATH)
+bash backend/scripts/ipn-tunnel.sh 5180
+```
+
+Script tự kiểm tra backend đang sống, mở kết nối, **gọi thử `/api/health` qua địa chỉ công khai** rồi in ra:
+
+- địa chỉ IPN để dán vào trang quản trị merchant VNPay: `https://<địa chỉ>/api/payments/vnpay/ipn`;
+- biến `Payments__VnPay__ReturnUrl` tương ứng nếu muốn khách quay về qua địa chỉ đó.
+
+Đăng ký ngrok rồi `ngrok config add-authtoken <token>`; cloudflared chạy thử được không cần tài khoản. Địa chỉ
+đổi mỗi lần mở lại (trừ khi dùng tên miền cố định), nên phải dán lại vào VNPay sau mỗi lần mở.
+
+### Kiểm thử đầu-cuối đường IPN
+
+```bash
+# trên máy, không cần địa chỉ công khai: kịch bản tự dựng backend riêng ở cổng 5181 với TmnCode/HashSecret thử
+CONFIRM_TEST_DB=1 node tests/payments/vnpay-ipn-e2e.mjs
+
+# qua đúng đường VNPay sẽ đi, sau khi có địa chỉ công khai và backend đã có TmnCode/HashSecret thật
+CONFIRM_TEST_DB=1 PUBLIC_BASE_URL=https://<địa chỉ> IPN_PORT=5180   VNPAY_TMN_CODE=<TmnCode> VNPAY_HASH_SECRET=<HashSecret> node tests/payments/vnpay-ipn-e2e.mjs
+```
+
+17 phép kiểm: địa chỉ dùng cho IPN tới được backend, tạo giao dịch VNPay, IPN ký đúng thì chốt lượt đặt sang
+`Confirmed`, vé sang `Valid`, sinh đúng một hóa đơn, ghi mã giao dịch của VNPay; gọi lại cùng IPN trả
+`RspCode 02` mà không sinh thêm vé hay hóa đơn; chữ ký sai trả `97`, mã giao dịch lạ trả `01`.
+
+Đã chạy 17/10 qua địa chỉ công khai thật (cloudflared quick tunnel, backend mở ở `0.0.0.0:5180`): 17/17 đạt,
+IPN đi từ Internet vào tới backend và chốt đúng trạng thái giao dịch.
+
+### Thực tế với VNPay sandbox: IPN không được gọi
+
+Đã thử thật ngày 17/10 với tài khoản merchant sandbox tự đăng ký (TmnCode `DRR0UTZT`), địa chỉ IPN đã khai
+trong trang quản trị merchant:
+
+| Giao dịch | Số tiền | Mã VNPay | Kết quả |
+|---|---|---|---|
+| 3 lần thanh toán bằng thẻ test NCB | 21.000 đ | 15707054, 15707057, 15707058 | lượt đặt `Confirmed`, vé `Valid`, hóa đơn khớp |
+
+Nhưng nhật ký request của backend (bật `Logging__LogLevel__Microsoft.AspNetCore=Information`) cho thấy **không
+có một lời gọi nào tới `/api/payments/vnpay/ipn`** — cả ba lần đều do `/api/payments/vnpay/return` chốt. Tài khoản
+sandbox tự đăng ký không được VNPay chủ động gọi IPN; muốn bật phải gửi địa chỉ IPN cho `support.vnpayment@vnpay.vn`
+(mail hướng dẫn của VNPay có ghi "Merchant cần gửi cho VNPAY URL này"), hoặc dùng công cụ
+`sandbox.vnpayment.vn/vnpaygw-sit-testing` để tự bắn kịch bản IPN.
+
+Vì vậy luồng thanh toán **không phụ thuộc IPN**: `ReturnUrl` đi cùng một đường chốt giao dịch trong
+`PaymentSettlementService`, an toàn khi gọi lặp, nên vé vẫn xuất đúng khi IPN không tới. Khi lên môi trường thật
+có IPN, hai đường cùng chạy mà không chốt hai lần (xem phép kiểm `RspCode 02` ở trên).
+
+Backend phải nghe ở `0.0.0.0` (không phải `localhost`) thì đường hầm mới chuyển tiếp được:
+`ASPNETCORE_URLS=http://0.0.0.0:5180`. Đóng đường hầm ngay sau khi thử xong — trong lúc mở, ai có địa chỉ đó
+cũng gọi được API của máy bạn.
+
 ## Giữ ghế khi thanh toán
 
 Ghế được giữ **từ lúc khách bấm "Tiếp tục thanh toán"** (bước chọn ghế → thanh toán): `POST /api/bookings` tạo lượt đặt `Pending` với
