@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -26,6 +26,8 @@ builder.Services.AddScoped<AuditLogService>();
 builder.Services.Configure<VnPayOptions>(builder.Configuration.GetSection(VnPayOptions.Section));
 builder.Services.AddSingleton<VnPayClient>();
 builder.Services.Configure<BankTransferOptions>(builder.Configuration.GetSection(BankTransferOptions.Section));
+builder.Services.Configure<PaymentSimulatorOptions>(builder.Configuration.GetSection(PaymentSimulatorOptions.Section));
+builder.Services.AddSingleton<PaymentSimulator>();
 builder.Services.AddScoped<PaymentSettlementService>();
 builder.Services.Configure<RefundOptions>(builder.Configuration.GetSection(RefundOptions.Section));
 builder.Services.AddHttpClient<IVnPayRefundGateway, VnPayRefundGateway>(c => c.Timeout = TimeSpan.FromSeconds(20));
@@ -83,6 +85,12 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 0))));
 
 var app = builder.Build();
+
+// Bộ giả lập thanh toán chốt giao dịch mà không thu tiền: ngoài Development thì không chỉ tắt mà còn dừng
+// khởi động, để cấu hình sai bị phát hiện ngay chứ không âm thầm cho qua các lượt đặt chưa trả tiền.
+var paymentSimulator = app.Services.GetRequiredService<PaymentSimulator>();
+if (paymentSimulator.IsMisconfigured) throw new InvalidOperationException(PaymentSimulator.MisconfiguredMessage);
+if (paymentSimulator.IsEnabled) app.Logger.LogWarning("Bộ giả lập thanh toán đang bật (chỉ dùng cho máy dev).");
 
 if (app.Environment.IsDevelopment())
 {
