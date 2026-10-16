@@ -83,6 +83,7 @@ export const Navbar: React.FC = () => {
   const isManagerOpsActive =
     location.pathname.startsWith('/manager/ticket-requests') ||
     location.pathname.startsWith('/manager/refunds') ||
+    location.pathname.startsWith('/manager/invoices') ||
     location.pathname.startsWith('/manager/bank-transfers') ||
     location.pathname.startsWith('/manager/incidents') ||
     location.pathname.startsWith('/manager/complaints') ||
@@ -228,6 +229,14 @@ export const Navbar: React.FC = () => {
                       >
                         <RotateCcw className="w-4 h-4 text-amber-400" />
                         <span>Xử lý hoàn tiền</span>
+                      </NavLink>
+                      <NavLink
+                        to="/manager/invoices"
+                        onClick={() => setActiveDropdown(null)}
+                        className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-blue-800/50 hover:text-white"
+                      >
+                        <FileText className="w-4 h-4 text-sky-400" />
+                        <span>Hóa đơn điện tử</span>
                       </NavLink>
                       <NavLink
                         to="/manager/incidents"
@@ -513,6 +522,20 @@ export const Navbar: React.FC = () => {
                       >
                         <RotateCcw className="w-4 h-4 text-amber-400" />
                         <span>Xử lý hoàn tiền vé</span>
+                      </NavLink>
+                      <NavLink
+                        to="/manager/invoices"
+                        onClick={() => setActiveDropdown(null)}
+                        className={({ isActive }) =>
+                          `flex items-center gap-2.5 px-4 py-2 text-xs font-medium transition-colors ${
+                            isActive
+                              ? 'bg-blue-800/80 text-amber-300 font-semibold'
+                              : 'text-slate-200 hover:bg-blue-800/50 hover:text-white'
+                          }`
+                        }
+                      >
+                        <FileText className="w-4 h-4 text-sky-400" />
+                        <span>Hóa đơn điện tử</span>
                       </NavLink>
 
                       <NavLink
@@ -1031,6 +1054,13 @@ export const Navbar: React.FC = () => {
                 <span>Xử lý hoàn tiền</span>
               </NavLink>
               <NavLink
+                to="/manager/invoices"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <FileText className="w-4 h-4 text-sky-400" />
+                <span>Hóa đơn điện tử</span>
+              </NavLink>
+              <NavLink
                 to="/manager/incidents"
                 className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
               >
@@ -1180,6 +1210,13 @@ export const Navbar: React.FC = () => {
               >
                 <RotateCcw className="w-4 h-4 text-amber-400" />
                 <span>Xử lý hoàn tiền vé</span>
+              </NavLink>
+              <NavLink
+                to="/manager/invoices"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <FileText className="w-4 h-4 text-sky-400" />
+                <span>Hóa đơn điện tử</span>
               </NavLink>
               <NavLink
                 to="/manager/incidents"
