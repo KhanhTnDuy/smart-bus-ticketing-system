@@ -71,16 +71,27 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 });
 builder.Services.AddAuthorization();
 
-// Frontend Vite chạy ở origin khác nên cần CORS để gọi được API.
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-    ?? ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "http://localhost:8080"];
+// Frontend Vite chạy ở origin khác nên cần CORS để gọi được API. Mặc định localhost chỉ hợp lệ ở máy dev:
+// ngoài Development bắt buộc khai Cors:AllowedOrigins, nếu không trình duyệt ở tên miền thật sẽ bị chặn mà
+// không ai biết vì sao, còn danh sách localhost thì vô nghĩa trên máy chủ.
+string[] devOrigins = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "http://localhost:8080"];
+var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?.Where(o => !string.IsNullOrWhiteSpace(o)).ToArray();
+if (!builder.Environment.IsDevelopment() && (configuredOrigins is null || configuredOrigins.Length == 0))
+{
+    throw new InvalidOperationException(
+        "Thiếu cấu hình 'Cors:AllowedOrigins' ngoài môi trường Development. " +
+        "Khai origin của frontend qua biến môi trường Cors__AllowedOrigins__0, Cors__AllowedOrigins__1...");
+}
+var allowedOrigins = configuredOrigins ?? devOrigins;
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
     .WithOrigins(allowedOrigins)
     .AllowAnyHeader()
     .AllowAnyMethod()));
 
 var connectionString = builder.Configuration.GetConnectionString("Default")
-    ?? throw new InvalidOperationException("Connection string 'Default' not found.");
+    ?? throw new InvalidOperationException(
+        "Thiếu chuỗi kết nối 'ConnectionStrings:Default'. Đặt qua biến môi trường ConnectionStrings__Default.");
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 0))));
 
