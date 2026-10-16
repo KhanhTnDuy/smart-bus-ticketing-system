@@ -14,12 +14,11 @@ public static class PaymentRules
     /// (không tính vé đã đổi), cùng quy ước với báo cáo doanh thu, và tổng hoàn không vượt số tiền đã trả.
     /// Hàm chỉ thêm Refund vào ngữ cảnh, người gọi tự SaveChanges.
     ///
-    /// Hủy vé của khách (TicketCancelled) hoàn theo chính sách giờ trong <paramref name="options"/> nếu có cấu hình
-    /// (Refunds:Tiers); hủy chuyến và thanh toán lỗi luôn hoàn 100% vì lỗi không do khách.
+    /// Hủy vé của khách (TicketCancelled) hoàn theo chính sách giờ lấy từ DB (bảng refund_tiers);
+    /// hủy chuyến và thanh toán lỗi luôn hoàn 100% vì lỗi không do khách.
     /// </summary>
     public static async Task<Refund?> CreateTicketRefundAsync(
-        AppDbContext db, Ticket ticket, long? changeRequestId, RefundReason reason, DateTime now, CancellationToken ct,
-        RefundOptions? options = null)
+        AppDbContext db, Ticket ticket, long? changeRequestId, RefundReason reason, DateTime now, CancellationToken ct)
     {
         var payment = await db.Payments
             .Include(p => p.Refunds)
@@ -34,10 +33,15 @@ public static class PaymentRules
         var unit = Math.Round(payment.Amount / ticketCount, 0, MidpointRounding.AwayFromZero);
 
         var percent = 100;
-        if (reason == RefundReason.TicketCancelled && options is { Tiers.Count: > 0 })
+        if (reason == RefundReason.TicketCancelled)
         {
-            var departure = await db.Trips.Where(t => t.Id == ticket.TripId).Select(t => t.DepartureAt).FirstAsync(ct);
-            percent = RefundPolicy.PercentFor((departure - now).TotalHours, options.Tiers);
+            var dbTiers = await db.RefundTiers.AsNoTracking().ToListAsync(ct);
+            if (dbTiers.Count > 0)
+            {
+                var departure = await db.Trips.Where(t => t.Id == ticket.TripId).Select(t => t.DepartureAt).FirstAsync(ct);
+                var tiers = dbTiers.Select(t => new RefundTier { HoursBefore = t.HoursBefore, Percent = t.Percent }).ToList();
+                percent = RefundPolicy.PercentFor((departure - now).TotalHours, tiers);
+            }
         }
 
         var alreadyRefunded = payment.Refunds.Where(r => r.Status != RefundStatus.Failed).Sum(r => r.Amount);

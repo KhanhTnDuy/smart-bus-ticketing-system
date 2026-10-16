@@ -156,3 +156,26 @@ public sealed class ProcessRefundRequest
     /// </summary>
     public bool ConfirmedExternally { get; init; }
 }
+
+/// <summary>Một bậc chính sách hoàn vé: hủy còn ít nhất HoursBefore giờ trước chuyến thì hoàn Percent%.</summary>
+public sealed class RefundTierDto
+{
+    public long Id { get; init; }
+    public int HoursBefore { get; init; }
+    public int Percent { get; init; }
+}
+
+/// <summary>Danh sách bậc hoàn tiền thay thế toàn bộ (PUT /api/refunds/tiers).</summary>
+public sealed class RefundTiersRequest
+{
+    public List<RefundTierRequest> Tiers { get; init; } = [];
+}
+
+public sealed class RefundTierRequest
+{
+    [Range(0, int.MaxValue, ErrorMessage = "Số giờ trước chuyến phải >= 0.")]
+    public int HoursBefore { get; init; }
+
+    [Range(0, 100, ErrorMessage = "Phần trăm hoàn phải từ 0 đến 100.")]
+    public int Percent { get; init; }
+}
