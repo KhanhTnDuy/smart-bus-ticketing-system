@@ -1,0 +1,11 @@
+{
+  "name": "smart-bus-ticketing-system",
+  "private": true,
+  "description": "Smart Bus Ticketing System",
+  "scripts": {
+    "reload-demo": "node scripts/reload-demo.mjs",
+    "test:seat-lock": "node tests/regression/seat-lock.mjs",
+    "test:refund-flow": "node tests/regression/refund-flow.mjs",
+    "test:regress": "node tests/regression/regress.mjs"
+  }
+}
