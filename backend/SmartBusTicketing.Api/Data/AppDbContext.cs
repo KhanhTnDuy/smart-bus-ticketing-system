@@ -33,6 +33,7 @@ public class AppDbContext : DbContext
     public DbSet<Payment> Payments => Set<Payment>();
     public DbSet<Invoice> Invoices => Set<Invoice>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<RefundTierRow> RefundTiers => Set<RefundTierRow>();
     public DbSet<MonthlyPass> MonthlyPasses => Set<MonthlyPass>();
 
     public DbSet<BusLocation> BusLocations => Set<BusLocation>();
@@ -272,6 +273,11 @@ public class AppDbContext : DbContext
             e.HasOne(m => m.PassengerType).WithMany(p => p.MonthlyPasses).HasForeignKey(m => m.PassengerTypeId);
             e.HasOne(m => m.PreviousPass).WithMany()
                 .HasForeignKey(m => m.PreviousPassId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<RefundTierRow>(e =>
+        {
+            e.ToTable("refund_tiers");
         });
 
         // --- Operations ---

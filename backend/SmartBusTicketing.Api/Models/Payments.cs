@@ -92,3 +92,16 @@ public class MonthlyPass
     public ICollection<Payment> Payments { get; set; } = new List<Payment>();
     public ICollection<TicketScan> Scans { get; set; } = new List<TicketScan>();
 }
+
+/// <summary>
+/// Một bậc chính sách hoàn tiền lưu trong DB. Khi hủy vé còn ít nhất <see cref="HoursBefore"/> giờ trước giờ
+/// khởi hành thì hoàn <see cref="Percent"/>% tiền vé. Thay thế cấu hình Refunds:Tiers trong appsettings.
+/// </summary>
+public class RefundTierRow
+{
+    public long Id { get; set; }
+    /// <summary>Số giờ trước giờ khởi hành để áp bậc này.</summary>
+    public int HoursBefore { get; set; }
+    /// <summary>Phần trăm được hoàn, 0–100.</summary>
+    public int Percent { get; set; }
+}
