@@ -223,6 +223,19 @@ export const PassengerRatingPage: React.FC = () => {
         }
       />
 
+      {/* Banner thông báo tính năng đang phát triển / dữ liệu cục bộ (SCRUM-104) */}
+      <div className="flex items-center gap-3 p-4 rounded-xl border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 shadow-sm">
+        <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+        <div className="text-xs">
+          <span className="font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-200 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 mr-2">
+            Đang phát triển (Beta)
+          </span>
+          <span>
+            Tính năng đánh giá chuyến đi đang được phát triển thử nghiệm. Dữ liệu đánh giá hiện đang lưu trữ cục bộ trên trình duyệt (LocalStorage / Mock Data) và chưa đồng bộ về máy chủ trung tâm.
+          </span>
+        </div>
+      </div>
+
       {/* 2. KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="p-5 rounded-xl border border-slate-200 dark:border-[#1e2f57] bg-white dark:bg-[#131e3a] shadow-sm">
