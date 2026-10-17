@@ -140,4 +140,57 @@ public class RefundsController(AppDbContext db, AuditLogService audit, RefundExe
 
         return Ok(await Project(db.Refunds.AsNoTracking().Where(r => r.Id == id)).FirstAsync(ct));
     }
+
+    /// <summary>Lấy bảng phí hoàn vé (tiers) hiện tại từ DB. Nếu rỗng nghĩa là hoàn 100% mọi trường hợp.</summary>
+    [HttpGet("tiers")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<ActionResult<IReadOnlyList<RefundTierDto>>> GetTiers(CancellationToken ct)
+    {
+        var tiers = await db.RefundTiers.AsNoTracking()
+            .OrderByDescending(t => t.HoursBefore)
+            .Select(t => new RefundTierDto { Id = t.Id, HoursBefore = t.HoursBefore, Percent = t.Percent })
+            .ToListAsync(ct);
+        return Ok(tiers);
+    }
+
+    /// <summary>
+    /// Thay thế toàn bộ bảng phí hoàn vé. Danh sách rỗng nghĩa là luôn hoàn 100%. Không được có hai bậc cùng HoursBefore.
+    /// </summary>
+    [HttpPut("tiers")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<ActionResult<IReadOnlyList<RefundTierDto>>> PutTiers(RefundTiersRequest request, CancellationToken ct)
+    {
+        var actorId = User.AccountId();
+        if (actorId is null) return Unauthorized();
+
+        // Kiểm tra không có hai bậc cùng HoursBefore
+        var duplicate = request.Tiers.GroupBy(t => t.HoursBefore).FirstOrDefault(g => g.Count() > 1);
+        if (duplicate is not null)
+            return BadRequest(new { message = $"Có hai bậc cùng số giờ {duplicate.Key}h trước chuyến." });
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        // Xóa toàn bộ bậc cũ
+        await db.RefundTiers.ExecuteDeleteAsync(ct);
+
+        // Thêm các bậc mới
+        var newRows = request.Tiers
+            .Select(t => new RefundTierRow { HoursBefore = t.HoursBefore, Percent = Math.Clamp(t.Percent, 0, 100) })
+            .ToList();
+        db.RefundTiers.AddRange(newRows);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+
+        var description = request.Tiers.Count == 0 ? "(rỗng – hoàn 100%)" :
+            string.Join("; ", request.Tiers.OrderByDescending(t => t.HoursBefore)
+                .Select(t => $"{t.HoursBefore}h:{t.Percent}%"));
+        await audit.WriteAsync(actorId, User.Username() ?? "manager",
+            "Cập nhật bảng phí hoàn vé", AuditActionType.Update,
+            "REFUND-TIERS", AuditStatus.Success, description, ct);
+
+        var result = newRows.OrderByDescending(t => t.HoursBefore)
+            .Select(t => new RefundTierDto { Id = t.Id, HoursBefore = t.HoursBefore, Percent = t.Percent })
+            .ToList();
+        return Ok(result);
+    }
 }
