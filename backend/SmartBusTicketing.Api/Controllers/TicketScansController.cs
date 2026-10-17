@@ -43,6 +43,9 @@ public class TicketScansController(AppDbContext db, AuditLogService audit) : Con
         if (!await CanActOnTripAsync(trip.Id, ct))
             return StatusCode(403, new { message = "Nhân viên không được phân công phục vụ chuyến này." });
 
+        if (string.IsNullOrWhiteSpace(request.QrCode))
+            return BadRequest(new { message = "Vui lòng nhập hoặc quét mã QR hợp lệ." });
+
         var code = request.QrCode.Trim();
         var ticket = await db.Tickets
             .Include(t => t.Booking).ThenInclude(b => b.Passenger)
