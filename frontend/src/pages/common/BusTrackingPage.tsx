@@ -102,6 +102,19 @@ export const BusTrackingPage: React.FC = () => {
         ]}
       />
 
+      {/* Banner thông báo tính năng đang phát triển / dữ liệu mô phỏng (SCRUM-104) */}
+      <div className="flex items-center gap-3 p-4 rounded-xl border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 shadow-sm">
+        <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+        <div className="text-xs">
+          <span className="font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-200 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 mr-2">
+            Đang phát triển (Beta)
+          </span>
+          <span>
+            Tính năng theo dõi xe buýt trực tuyến đang trong giai đoạn thử nghiệm. Toàn bộ tọa độ GPS, tốc độ và trạng thái xe hiển thị dưới dạng <strong>dữ liệu mô phỏng (Mock Data)</strong> để minh họa giao diện.
+          </span>
+        </div>
+      </div>
+
       {/* Control & Telemetry Bar */}
       <div className="bg-white dark:bg-[#131e3a] p-4 rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between">
         <div className="flex flex-col sm:flex-row gap-3 flex-1">
