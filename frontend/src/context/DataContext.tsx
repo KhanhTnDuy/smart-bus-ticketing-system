@@ -123,6 +123,9 @@ interface DataContextType {
     busPlate: string;
     departureDate: string;
     departureTime: string;
+    voucherCode?: string;
+    discountAmount?: number;
+    originalPrice?: number;
   }) => { success: boolean; message?: string; data?: Ticket };
   cancelTicket: (ticketId: string, reason: string) => { success: boolean; message?: string };
   changeTicket: (
@@ -1197,6 +1200,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     busPlate: string;
     departureDate: string;
     departureTime: string;
+    voucherCode?: string;
+    discountAmount?: number;
+    originalPrice?: number;
   }) => {
     // Support single or multiple comma-separated seats (e.g. "A1, A2")
     const seatsToBook = bookingData.seatNumber
@@ -1230,6 +1236,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ticketStatus: 'PENDING',
       qrCodeData: newQrCode,
       createdAt: getFormattedNow(),
+      voucherCode: bookingData.voucherCode,
+      discountAmount: bookingData.discountAmount,
+      originalPrice: bookingData.originalPrice,
     };
 
     // Update tickets
@@ -1469,6 +1478,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         : 'VCB';
     const transactionCode = `${prefix}${Math.floor(100000 + Math.random() * 900000)}`;
 
+    const details = ticket.voucherCode
+      ? `Thanh toán thành công ${ticket.price.toLocaleString('vi-VN')} VNĐ qua ${method} (Áp dụng voucher ${ticket.voucherCode} giảm ${(ticket.discountAmount || 0).toLocaleString('vi-VN')} VNĐ)`
+      : `Thanh toán thành công ${ticket.price.toLocaleString('vi-VN')} VNĐ qua ${method}`;
+
     const newPayment: PaymentRecord = {
       id: paymentId,
       ticketId,
@@ -1479,7 +1492,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       status: 'SUCCESS',
       transactionCode,
       createdAt: formattedDate,
-      details: `Thanh toán thành công ${ticket.price.toLocaleString('vi-VN')} VNĐ qua ${method}`,
+      details,
+      voucherCode: ticket.voucherCode,
+      discountAmount: ticket.discountAmount,
+      originalAmount: ticket.originalPrice || ticket.price,
     };
 
     const route = routes.find((r) => r.id === ticket.routeId);
@@ -1528,6 +1544,26 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Save payment and invoice
     setPayments((prev) => [newPayment, ...prev]);
     setInvoices((prev) => [newInvoice, ...prev]);
+
+    // If ticket used a voucher, increment voucher usage
+    if (ticket.voucherCode) {
+      setVouchers((prev) =>
+        prev.map((v) =>
+          v.code.toUpperCase() === ticket.voucherCode?.toUpperCase()
+            ? { ...v, usedCount: (v.usedCount || 0) + 1 }
+            : v
+        )
+      );
+
+      addAuditLog({
+        user: getActorName(),
+        action: 'Sử dụng mã giảm giá',
+        module: 'VOUCHER',
+        description: `Hành khách ${ticket.passengerName} sử dụng mã giảm giá [${ticket.voucherCode}] cho vé [${ticket.id}], giảm ${(ticket.discountAmount || 0).toLocaleString('vi-VN')} VNĐ`,
+        status: 'SUCCESS',
+        targetId: ticket.voucherCode,
+      });
+    }
 
     addAuditLog({
       user: getActorName(),
