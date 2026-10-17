@@ -180,7 +180,7 @@ export const QrScannerPage: React.FC = () => {
           )}
 
           {last && (
-            <div className={`p-5 rounded-xl border-2 ${RESULT_STYLE[last.result]}`}>
+            <div className={`p-5 rounded-xl border-2 ${RESULT_STYLE[last.result] || RESULT_STYLE.Invalid}`}>
               <div className="flex items-center gap-3">
                 {last.accepted ? (
                   <CheckCircle2 className="w-8 h-8 shrink-0" />
@@ -190,31 +190,31 @@ export const QrScannerPage: React.FC = () => {
                   <AlertTriangle className="w-8 h-8 shrink-0" />
                 )}
                 <div>
-                  <div className="text-lg font-bold">{RESULT_LABEL[last.result]}</div>
-                  <div className="text-sm">{last.message}</div>
+                  <div className="text-lg font-bold">{RESULT_LABEL[last.result] || last.result}</div>
+                  <div className="text-sm">{last.message || 'Đã kiểm tra mã QR.'}</div>
                 </div>
               </div>
               {last.ticket && (
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs mt-4 pt-4 border-t border-current/20">
                   <div>
                     <dt className="opacity-70">Hành khách</dt>
-                    <dd className="font-bold">{last.ticket.passengerName}</dd>
+                    <dd className="font-bold">{last.ticket.passengerName || 'Hành khách'}</dd>
                   </div>
                   <div>
                     <dt className="opacity-70">Ghế</dt>
-                    <dd className="font-bold font-mono">{last.ticket.seatCode}</dd>
+                    <dd className="font-bold font-mono">{last.ticket.seatCode || '---'}</dd>
                   </div>
                   <div>
                     <dt className="opacity-70">Lên xe</dt>
-                    <dd className="font-bold">{last.ticket.boardStop}</dd>
+                    <dd className="font-bold">{last.ticket.boardStop || '---'}</dd>
                   </div>
                   <div>
                     <dt className="opacity-70">Xuống xe</dt>
-                    <dd className="font-bold">{last.ticket.alightStop}</dd>
+                    <dd className="font-bold">{last.ticket.alightStop || '---'}</dd>
                   </div>
                   <div className="col-span-2">
                     <dt className="opacity-70">Mã đặt chỗ</dt>
-                    <dd className="font-bold font-mono">{last.ticket.bookingCode}</dd>
+                    <dd className="font-bold font-mono">{last.ticket.bookingCode || '---'}</dd>
                   </div>
                 </dl>
               )}
