@@ -41,7 +41,7 @@ public class TicketScansController(AppDbContext db, AuditLogService audit) : Con
         var trip = await db.Trips.AsNoTracking().FirstOrDefaultAsync(t => t.Id == request.TripId, ct);
         if (trip is null) return NotFound(new { message = $"Không tìm thấy chuyến #{request.TripId}." });
         if (!await CanActOnTripAsync(trip.Id, ct))
-            return StatusCode(403, new { message = "Bạn không được phân công cho chuyến này nên không thể soát vé." });
+            return StatusCode(403, new { message = "Nhân viên không được phân công phục vụ chuyến này." });
 
         var code = request.QrCode.Trim();
         var ticket = await db.Tickets
@@ -66,7 +66,29 @@ public class TicketScansController(AppDbContext db, AuditLogService audit) : Con
         else if (ticket.Status == TicketStatus.Used)
         {
             result = ScanResult.AlreadyUsed;
-            message = "Vé này đã được sử dụng.";
+            var lastValidScan = await db.TicketScans.AsNoTracking()
+                .Where(s => s.TicketId == ticket.Id && s.Result == ScanResult.Valid)
+                .OrderByDescending(s => s.ScannedAt)
+                .FirstOrDefaultAsync(ct);
+
+            if (lastValidScan != null)
+            {
+                DateTime vnTime;
+                try
+                {
+                    var tz = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+                    vnTime = TimeZoneInfo.ConvertTimeFromUtc(lastValidScan.ScannedAt, tz);
+                }
+                catch
+                {
+                    vnTime = lastValidScan.ScannedAt.AddHours(7);
+                }
+                message = $"Vé này đã được sử dụng trước đó lúc {vnTime:HH:mm}.";
+            }
+            else
+            {
+                message = "Vé này đã được sử dụng trước đó.";
+            }
         }
         else if (ticket.Status == TicketStatus.Expired || trip.Status == TripStatus.Completed)
         {
@@ -81,7 +103,7 @@ public class TicketScansController(AppDbContext db, AuditLogService audit) : Con
         else if (ticket.Status == TicketStatus.Held)
         {
             result = ScanResult.Invalid;
-            message = "Vé chưa thanh toán (đang giữ chỗ).";
+            message = "Vé chưa được thanh toán.";
         }
         else if (trip.Status == TripStatus.Cancelled)
         {
@@ -144,7 +166,7 @@ public class TicketScansController(AppDbContext db, AuditLogService audit) : Con
     public async Task<ActionResult<IReadOnlyList<TicketScanDto>>> History([FromQuery] long tripId, [FromQuery] int take = 50, CancellationToken ct = default)
     {
         if (!await CanActOnTripAsync(tripId, ct))
-            return StatusCode(403, new { message = "Bạn không được phân công cho chuyến này." });
+            return StatusCode(403, new { message = "Nhân viên không được phân công phục vụ chuyến này." });
 
         var list = await db.TicketScans.AsNoTracking()
             .Where(s => s.TripId == tripId)
