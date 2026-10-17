@@ -22,7 +22,7 @@
 
 ## 1. Hướng dẫn cài đặt & Khởi chạy nhanh (< 15 phút)
 
-⏱️ **Kết quả kiểm thử thực tế từ số 0**: Thực hiện clone repo → tạo CSDL `smart_bus_ticketing` → `dotnet build` → `npm run build`: hoàn thành trong **4 phút 20 giây** (đạt tiêu chuẩn < 15 phút).
+⏱️ **Mục tiêu triển khai nhanh**: Thiết kế luồng cài đặt tối giản gồm nạp CSDL mẫu, build backend và frontend với mục tiêu hoàn tất dưới 15 phút. (Đo đạc kiểm thử biên dịch thực tế: `dotnet build` ~1.5s, `npm run build` ~1.6s).
 
 ### 1.1. Yêu cầu môi trường
 Trước khi bắt đầu, đảm bảo máy tính đã cài đặt:
