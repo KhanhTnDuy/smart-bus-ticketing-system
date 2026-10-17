@@ -423,4 +423,48 @@ public static class DbSeeder
             logger.LogWarning(ex, "Bỏ qua khởi tạo dữ liệu mẫu voucher: {Message}", ex.Message);
         }
     }
+
+    /// <summary>
+    /// Khởi tạo bảng phí hoàn vé mặc định nếu cơ sở dữ liệu chưa có bậc nào (SCRUM-92).
+    /// Mặc định: hủy trước 24h hoàn 100%, hủy trước 2h hoàn 50%, dưới 2h không hoàn.
+    /// Nếu có cấu hình Refunds:Tiers từ file appsettings hoặc biến môi trường thì ưu tiên lấy theo cấu hình.
+    /// </summary>
+    public static async Task SeedRefundTiersAsync(WebApplication app, CancellationToken ct = default)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(DbSeeder));
+
+        try
+        {
+            if (await db.RefundTiers.AnyAsync(ct)) return;
+
+            var configTiers = app.Configuration.GetSection("Refunds:Tiers").Get<List<SmartBusTicketing.Api.Services.Payments.RefundTier>>();
+            List<RefundTierRow> tiersToSeed;
+
+            if (configTiers is { Count: > 0 })
+            {
+                tiersToSeed = configTiers
+                    .Select(t => new RefundTierRow { HoursBefore = t.HoursBefore, Percent = Math.Clamp(t.Percent, 0, 100) })
+                    .ToList();
+            }
+            else
+            {
+                tiersToSeed =
+                [
+                    new() { HoursBefore = 24, Percent = 100 },
+                    new() { HoursBefore = 2, Percent = 50 }
+                ];
+            }
+
+            db.RefundTiers.AddRange(tiersToSeed);
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation("Đã khởi tạo bảng phí hoàn vé mặc định: {Tiers}.",
+                string.Join(", ", tiersToSeed.Select(t => $"{t.HoursBefore}h: {t.Percent}%")));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Bỏ qua khởi tạo dữ liệu bậc phí hoàn vé: {Message}", ex.Message);
+        }
+    }
 }

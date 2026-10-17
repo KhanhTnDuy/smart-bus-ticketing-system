@@ -103,6 +103,7 @@ app.UseAuthorization();
 app.MapControllers();
 
 await DbSeeder.SeedAdminAsync(app);
+await DbSeeder.SeedRefundTiersAsync(app);
 if (app.Environment.IsDevelopment())
 {
     await DbSeeder.SeedAssignmentSampleDataAsync(app);
