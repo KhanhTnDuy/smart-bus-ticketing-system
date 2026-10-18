@@ -12,6 +12,7 @@ import {
   scanTicket,
   utcToLocal,
 } from '../../api/operations';
+import { ApiError } from '../../api/client';
 
 const CARD = 'bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm';
 
@@ -82,8 +83,16 @@ export const QrScannerPage: React.FC = () => {
     } catch (err) {
       setLast(null);
       let msg = err instanceof Error ? err.message : 'Không quét được vé.';
-      if (/403|Forbidden/i.test(msg)) {
+      if (err instanceof ApiError && err.status === 403) {
+        msg = err.message && !err.message.includes('HTTP 403')
+          ? err.message
+          : 'Nhân viên không được phân công phục vụ chuyến này.';
+      } else if (/403|Forbidden|không có quyền|không được phân công/i.test(msg)) {
         msg = 'Nhân viên không được phân công phục vụ chuyến này.';
+      } else if (err instanceof ApiError && err.status === 400) {
+        msg = err.message && !err.message.includes('HTTP 400')
+          ? err.message
+          : 'Dữ liệu quét vé không hợp lệ. Vui lòng kiểm tra lại.';
       } else if (/400|Bad Request/i.test(msg)) {
         msg = 'Dữ liệu quét vé không hợp lệ. Vui lòng kiểm tra lại.';
       } else if (/500|Internal/i.test(msg)) {
