@@ -1,7 +1,7 @@
 /**
  * US3 - Nguồn dữ liệu thật cho ba trang quản lý tuyến đường, trạm dừng và giá vé.
  *
- * Hook này thay thế useData() (mockData) ở ba trang đó. Các hàm thao tác giữ đúng
+ * Hook này đọc tuyến, trạm và giá vé từ API cho ba trang đó. Các hàm thao tác giữ đúng
  * chữ ký { success, message } mà các trang đang dùng, chỉ khác là trả về Promise
  * nên chỗ gọi cần await.
  *
