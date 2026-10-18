@@ -100,8 +100,8 @@ if ($process.ExitCode -ne 0) {
 
 Write-Host "✅ Nạp dữ liệu thành công!" -ForegroundColor Green
 
-# SCRUM-87: Dời ngày chuyến theo hôm nay để luôn có ít nhất 4 chuyến tương lai
-$shiftTripsQuery = "SET @ref_date = (SELECT DATE(DepartureAt) FROM trips WHERE Id = 4); SET @day_diff = DATEDIFF(CURRENT_DATE(), @ref_date); UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL @day_diff DAY);"
+# SCRUM-87: Dời ngày chuyến theo hôm nay để luôn có ít nhất 4 chuyến tương lai (thêm ORDER BY DepartureAt DESC tránh trùng IX_trips_BusId_DepartureAt)
+$shiftTripsQuery = "SET @ref_date = (SELECT DATE(DepartureAt) FROM trips WHERE Id = 4); SET @day_diff = DATEDIFF(CURRENT_DATE(), @ref_date); UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL @day_diff DAY) ORDER BY DepartureAt DESC;"
 $shiftArgs = @("-h", $Hostname, "-P", $Port, "-u", $User, "-D", $Database, "-e", $shiftTripsQuery)
 if ($Password) { $shiftArgs += "-p$Password" }
 & $mysqlBin @shiftArgs | Out-Null
@@ -120,7 +120,7 @@ if ($checkProc.ExitCode -eq 0 -and (Test-Path "$env:TEMP\trips_check.txt")) {
 
 # Nếu chạy vào cuối ngày chưa đủ 4 chuyến tương lai, dời thêm ngày
 while ($futureCount -lt 4) {
-    $bumpQuery = "UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL 1 DAY);"
+    $bumpQuery = "UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL 1 DAY) ORDER BY DepartureAt DESC;"
     $bumpArgs = @("-h", $Hostname, "-P", $Port, "-u", $User, "-D", $Database, "-e", $bumpQuery)
     if ($Password) { $bumpArgs += "-p$Password" }
     & $mysqlBin @bumpArgs | Out-Null
