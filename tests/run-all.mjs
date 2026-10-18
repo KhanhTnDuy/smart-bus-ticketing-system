@@ -182,8 +182,7 @@ try {
     console.log('Áp migration còn thiếu ...');
     const efEnv = { ...backendEnv(false) };
     const ef = spawnSync('dotnet', ['ef', 'database', 'update', '--project', join(ROOT, 'backend', 'SmartBusTicketing.Api'), '--no-build'], { encoding: 'utf8', env: efEnv });
-    if (ef.status !== 0) throw new Error('Áp migration lỗi (cần dotnet-ef: dotnet tool install --global dotnet-ef): ' + `${ef.stdout || ''}${ef.stderr || ''}`.trim().split('
-').slice(-8).join(' | '));
+    if (ef.status !== 0) throw new Error('Áp migration lỗi (cần dotnet-ef: dotnet tool install --global dotnet-ef): ' + `${ef.stdout || ''}${ef.stderr || ''}`.trim().split('\n').slice(-8).join(' | '));
   }
   let i = 0;
   for (const phase of PHASES) {
