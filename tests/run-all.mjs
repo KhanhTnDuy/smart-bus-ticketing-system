@@ -91,18 +91,34 @@ async function healthy() {
 }
 
 let backend = null;
+let lastPid = null;
+const killGroup = (sig) => {
+  if (!lastPid) return;
+  if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(lastPid), '/T', '/F']);
+  else { try { process.kill(-lastPid, sig); } catch { /* đã thoát */ } }
+};
 function stopBackend() {
   if (!backend) return;
-  if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(backend.pid), '/T', '/F']);
-  else { try { process.kill(-backend.pid, 'SIGTERM'); } catch { /* đã thoát */ } }
+  lastPid = backend.pid;
+  killGroup('SIGTERM');
   backend = null;
 }
-process.on('exit', stopBackend);
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { stopBackend(); process.exit(130); });
+process.on('exit', () => { stopBackend(); killGroup('SIGKILL'); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { stopBackend(); killGroup('SIGKILL'); process.exit(130); });
+
+// Chờ backend vừa tắt nhả cổng (trên Linux tắt êm mất vài giây); quá 10 giây thì buộc tắt.
+async function waitPortFree() {
+  for (let i = 0; i < 40; i++) {
+    if (!(await healthy())) return;
+    if (i === 20) killGroup('SIGKILL');
+    await sleep(500);
+  }
+}
 
 async function startBackend(tiers, label) {
   if (flag('--no-backend')) return;
   stopBackend();
+  await waitPortFree();
   if (await healthy()) throw new Error(`Cổng ${PORT} đang có backend khác chạy. Tắt nó đi hoặc dùng --no-backend.`);
   mkdirSync(OUT, { recursive: true });
   const log = join(OUT, `backend-${label}.log`);
@@ -153,11 +169,17 @@ try {
     if (r.status === 0) r = spawnSync(MYSQL, [...dbArgs, DB_NAME], { input: readFileSync(sqlFile), encoding: 'utf8' });
     if (r.status !== 0) throw new Error(`Nạp dữ liệu demo lỗi: ${(r.stderr || '').trim()}`);
   }
+  if (!flag('--no-backend')) {
+    // Các kịch bản cấu hình chạy thẳng bản đã biên dịch (--no-build) nên phải biên dịch trước một lần.
+    console.log('Biên dịch backend ...');
+    const b = spawnSync('dotnet', ['build', join(ROOT, 'backend', 'SmartBusTicketing.slnx'), '--nologo', '-v', 'q'], { encoding: 'utf8' });
+    if (b.status !== 0) throw new Error('Biên dịch backend lỗi: ' + (b.stdout || '').split('\n').slice(-15).join(' | '));
+  }
   let i = 0;
   for (const phase of PHASES) {
     console.log(`\n=== Giai đoạn ${++i}/${PHASES.length}: ${phase.name}`);
     if (!phase.noBackend) await startBackend(phase.tiers, `giai-doan-${i}`);
-    else stopBackend();
+    else { stopBackend(); await waitPortFree(); }
     for (const s of phase.scripts) {
       process.stdout.write(`  ${s} `);
       const r = await runScript(s, phase.env ?? {});
