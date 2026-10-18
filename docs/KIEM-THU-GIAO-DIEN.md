@@ -24,3 +24,10 @@ Chuẩn bị: backend chạy `Payments__Simulator__Enabled=true` (thanh toán Mo
 
 Thanh toán VNPay và chuyển khoản ngân hàng trên giao diện (cần cổng sandbox hoặc tài khoản nhận tiền; phần API đã có test tự động trong nhóm G2, G5 của `tests/regression/regress.mjs`),
 quét bằng camera điện thoại (cần HTTPS), giao diện điện thoại.
+
+## Bổ sung 18/10: phụ xe quét vé
+
+Duyệt toàn bộ trang theo từng vai trò (admin, quản lý, tài xế, phụ xe, hành khách) phát hiện **phụ xe đăng nhập bị giao diện coi là Hành khách** nên không vào được trang quét vé
+(`frontend/src/api/auth.ts` không có vai "Conductor"). Đã sửa: phụ xe dùng chung nhóm giao diện với tài xế. Kiểm tra lại bằng tài khoản `conductor1`: vào `/driver/qr-scanner`,
+chuyến gần giờ nhất được chọn sẵn, quét vé hợp lệ ra "Hợp lệ" (ảnh `kiem-thu-giao-dien/5-phu-xe-quet-ve.jpg`). Kịch bản `tests/config/frontend-role-mapping.mjs` (trong `npm test`)
+đối chiếu enum `AccountRole` của backend với bảng vai của frontend để lỗi này không quay lại. Còn lại: nhãn vai trên thanh đầu trang của phụ xe vẫn là "Tài xế".
