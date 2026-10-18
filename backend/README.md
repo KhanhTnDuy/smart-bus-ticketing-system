@@ -162,7 +162,7 @@ số dòng `accounts`, `tickets`, `trips` — khớp hoàn toàn.
 Cần `dotnet ef database update` để áp migration `AddRefundProcessing` (thêm cột xử lý cho `refunds`; `PaymentMethod`
 có thêm `BankTransfer`, lưu dạng chuỗi nên không đổi cấu trúc bảng).
 
-**Chưa nối cổng thanh toán thật.** Lệnh thanh toán luôn thành công và sinh mã giao dịch giả lập (`SIM-...`); phần còn lại chạy thật.
+**Cổng thanh toán:** VNPay và chuyển khoản ngân hàng (VietQR) đã nối thật; MoMo và ZaloPay chỉ chạy bằng bộ giả lập (mã giao dịch `SIM-...`), và bộ giả lập chỉ bật được ở `Development` (xem mục "Biến cấu hình thanh toán"). Phần còn lại chạy thật.
 
 - `POST /api/payments { bookingId, method }` (Hành khách): lấy số tiền từ `Booking.FinalAmount` ở máy chủ. Lượt đặt chuyển
   `Pending` sang `Confirmed` bằng một câu UPDATE có điều kiện còn trong thời hạn giữ chỗ (10 phút), nên bấm hai lần hoặc trả
