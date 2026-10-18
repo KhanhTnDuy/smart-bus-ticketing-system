@@ -388,7 +388,7 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
         {
             return Ok(new ValidateVoucherResultDto(
                 false,
-                $"Mã voucher '{voucher.Code}' yêu cầu mua từ {minSeats} vé trở lên (bạn đang chọn {request.SeatCount.Value} vé).",
+                $"Mã voucher '{voucher.Code}' yêu cầu mua từ {minSeats} vé trở lên (bạn đang chọn {request.SeatCount.Value} vé). Vui lòng chọn thêm ghế hoặc dùng mã áp dụng cho 1 vé (ví dụ: CHAOHEXANH).",
                 dto,
                 0,
                 orderAmount));

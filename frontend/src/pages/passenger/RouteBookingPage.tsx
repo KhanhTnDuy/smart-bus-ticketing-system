@@ -1337,6 +1337,51 @@ export const RouteBookingPage: React.FC = () => {
               )}
             </div>
 
+            {/* Gợi ý mã giảm giá demo sẵn có & Hướng dẫn điều kiện số vé (SCRUM-66, SCRUM-67) */}
+            {!appliedVoucher && (
+              <div className="space-y-1.5 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
+                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                  <span>Mã khuyến mãi gợi ý (nhấn để chọn nhanh):</span>
+                  <span className="font-semibold text-slate-600 dark:text-slate-300">
+                    {selectedSeatIds.length === 1 ? '1 vé đã chọn' : `${selectedSeatIds.length} vé đã chọn`}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setVoucherCodeInput('CHAOHEXANH')}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all border ${
+                      voucherCodeInput === 'CHAOHEXANH'
+                        ? 'bg-sky-100 border-sky-400 text-sky-800 dark:bg-sky-900/50 dark:border-sky-600 dark:text-sky-200'
+                        : 'bg-white dark:bg-[#0c162d] border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-sky-300'
+                    }`}
+                  >
+                    🏷️ <strong className="font-mono">CHAOHEXANH</strong>: Giảm 10.000 đ (từ 1 vé)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVoucherCodeInput('HE2026')}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all border ${
+                      voucherCodeInput === 'HE2026'
+                        ? 'bg-amber-100 border-amber-400 text-amber-900 dark:bg-amber-900/50 dark:border-amber-600 dark:text-amber-200'
+                        : 'bg-white dark:bg-[#0c162d] border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-300'
+                    }`}
+                  >
+                    🔥 <strong className="font-mono">HE2026</strong>: Giảm 20.000 đ {selectedSeatIds.length < 2 ? '(yêu cầu ≥ 2 vé)' : '(đủ điều kiện)'}
+                  </button>
+                </div>
+                {selectedSeatIds.length === 1 ? (
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+                    💡 <em>Lưu ý ràng buộc số vé: Bạn đang chọn 1 ghế nên áp dụng được mã <strong>CHAOHEXANH</strong> (giảm 10k). Các mã giảm giá lớn (như <strong>HE2026</strong> giảm 20k) yêu cầu đặt từ 2 ghế trở lên.</em>
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
+                    ✨ <em>Đơn hàng đã chọn {selectedSeatIds.length} ghế: Đủ điều kiện áp dụng mọi voucher khuyến mãi kể cả mã giảm giá lớn <strong>HE2026</strong> (giảm 20k)!</em>
+                  </p>
+                )}
+              </div>
+            )}
+
             {appliedVoucher && (
               <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 space-y-1">
                 <div className="flex items-center gap-2">

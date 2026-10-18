@@ -315,7 +315,7 @@ public class BookingsController(AppDbContext db, AuditLogService audit, ISeatHol
                 if (seats.Count < minSeats)
                 {
                     await transaction.RollbackAsync(ct);
-                    return BadRequest(new { message = $"Mã giảm giá '{voucher.Code}' yêu cầu mua từ {minSeats} vé trở lên (bạn đang chọn {seats.Count} vé)." });
+                    return BadRequest(new { message = $"Mã giảm giá '{voucher.Code}' yêu cầu mua từ {minSeats} vé trở lên (bạn đang chọn {seats.Count} vé). Vui lòng chọn thêm ghế hoặc dùng mã áp dụng cho 1 vé (ví dụ: CHAOHEXANH)." });
                 }
 
                 var minOrder = VouchersController.GetMinOrder(voucher.DiscountType, voucher.DiscountValue);
