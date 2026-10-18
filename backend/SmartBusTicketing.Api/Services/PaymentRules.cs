@@ -34,10 +34,18 @@ public static class PaymentRules
         var unit = Math.Round(payment.Amount / ticketCount, 0, MidpointRounding.AwayFromZero);
 
         var percent = 100;
-        if (reason == RefundReason.TicketCancelled && options is { Tiers.Count: > 0 })
+        if (reason == RefundReason.TicketCancelled)
         {
-            var departure = await db.Trips.Where(t => t.Id == ticket.TripId).Select(t => t.DepartureAt).FirstAsync(ct);
-            percent = RefundPolicy.PercentFor((departure - now).TotalHours, options.Tiers);
+            var dbTiers = await db.RefundTiers
+                .AsNoTracking()
+                .Select(t => new RefundTier { HoursBefore = t.HoursBefore, Percent = t.Percent })
+                .ToListAsync(ct);
+            var activeTiers = dbTiers.Count > 0 ? dbTiers : options?.Tiers ?? [];
+            if (activeTiers.Count > 0)
+            {
+                var departure = await db.Trips.Where(t => t.Id == ticket.TripId).Select(t => t.DepartureAt).FirstAsync(ct);
+                percent = RefundPolicy.PercentFor((departure - now).TotalHours, activeTiers);
+            }
         }
 
         var alreadyRefunded = payment.Refunds.Where(r => r.Status != RefundStatus.Failed).Sum(r => r.Amount);

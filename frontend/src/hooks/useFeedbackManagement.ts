@@ -1,7 +1,7 @@
 /**
  * US4 - Nguồn dữ liệu thật cho trang tiếp nhận và xử lý phản ánh.
  *
- * Hook này thay useData() (mockData) ở ComplaintManagementPage. Việc lọc theo
+ * Hook này đọc khiếu nại từ API cho ComplaintManagementPage. Việc lọc theo
  * trạng thái, loại và từ khóa được đẩy xuống backend vì bảng phản ánh lớn dần
  * theo thời gian.
  *

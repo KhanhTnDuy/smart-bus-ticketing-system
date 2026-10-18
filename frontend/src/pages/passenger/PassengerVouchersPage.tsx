@@ -82,7 +82,7 @@ export const PassengerVouchersPage: React.FC = () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const data = await voucherApi.getVouchers();
+      const data = await voucherApi.getAvailableVouchers();
       setVouchers(data || []);
     } catch (err: any) {
       const msg = err?.message || 'Không thể kết nối đến máy chủ lấy danh sách voucher';

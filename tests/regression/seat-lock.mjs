@@ -23,7 +23,8 @@ check('Chuyến chưa có ghế nào bị chiếm', (await seatMap(TRIP)).every(
 sec('2. Giữ ghế và tranh ghế');
 const b1 = await book(p1, TRIP, [s2.seatId]);
 check('p1 đặt ghế thứ nhất thành công', ok(b1), `HTTP ${b1.s} ${b1.t.slice(0, 120)}`);
-is('Sơ đồ ghế: ghế đang giữ hiện Booked (khách vãng lai cũng thấy)', await state(s2), 'Booked');
+is('SCRUM-96: ghế đang giữ hiện Held (khách vãng lai cũng thấy)', await state(s2), 'Held');
+check('SCRUM-96: ghế đang giữ không chọn được', (await seatMap(TRIP)).find((s) => s.seatId === s2.seatId)?.isAvailable === false);
 is('p2 đặt ghế p1 đang giữ -> 409', (await book(p2, TRIP, [s2.seatId])).s, 409);
 is('Chính p1 đặt lại ghế đang giữ -> 409', (await book(p1, TRIP, [s2.seatId])).s, 409);
 const b2 = await book(p2, TRIP, [s3.seatId]);
@@ -34,7 +35,7 @@ check('Đặt nhiều ghế có một ghế đã bị giữ -> 409 và ghế cò
 sec('3. Thanh toán rồi ghế đóng hẳn');
 const pp = await pay(p1, bid(b1));
 check('p1 thanh toán thành công', ok(pp), `HTTP ${pp.s} ${pp.t.slice(0, 120)}`);
-is('Sau thanh toán ghế vẫn Booked', await state(s2), 'Booked');
+is('SCRUM-96: sau thanh toán ghế chuyển từ Held sang Sold', await state(s2), 'Sold');
 is('p3 đặt ghế đã bán -> 409', (await book(p3, TRIP, [s2.seatId])).s, 409);
 is('Thanh toán lần hai cùng lượt đặt -> 409', (await pay(p1, bid(b1))).s, 409);
 is('Khách khác trả tiền lượt đặt của người khác -> 404', (await pay(p3, bid(b2))).s, 404);
@@ -55,8 +56,15 @@ const b2b = await book(p2, TRIP, [s3.seatId]);
 check('p2 đặt được ghế sau khi p3 hết hạn giữ', ok(b2b), `HTTP ${b2b.s}`);
 const late = await pay(p3, bid(b3));
 check('p3 trả tiền lượt đặt đã hết hạn -> bị từ chối', late.s >= 400 && late.s < 500, `HTTP ${late.s}`);
-is('Ghế vẫn thuộc p2, p3 không lấy lại được', await state(s3), 'Booked');
+is('Ghế vẫn thuộc p2 (đang giữ), p3 không lấy lại được', await state(s3), 'Held');
 is('Chỉ còn 1 vé Held sống trên ghế đó', sql(`select count(*) from tickets t join bookings b on b.Id=t.BookingId where t.TripId=${TRIP} and t.SeatId=${s3.seatId} and t.Status='Held' and b.Status='Pending'`), '1');
+
+sec('5b. SCRUM-96: Held tự hết, Sold thì không');
+const b4 = await book(p1, TRIP, [s4.seatId]);
+is('Ghế vừa đặt hiện Held', await state(s4), 'Held');
+sql(`update bookings set HoldExpiresAt = date_sub(utc_timestamp(), interval 1 minute) where Id = ${bid(b4)}`);
+is('Hết hạn giữ: Held trở lại Available', await state(s4), 'Available');
+is('Ghế đã bán vẫn Sold, không tự trống', await state(s2), 'Sold');
 
 sec('6. Đặt đồng thời cùng một ghế');
 const race = await Promise.all([book(p1, TRIP, [s5.seatId]), book(p2, TRIP, [s5.seatId]), book(p3, TRIP, [s5.seatId])]);
@@ -67,7 +75,7 @@ sec('7. Hủy vé đã thanh toán: ghế chỉ nhả sau khi quản lý duyệt
 const tid = Number(sql(`select Id from tickets where BookingId=${bid(b1)}`));
 const rq = await call(p1.token, 'POST', `/api/tickets/${tid}/cancel`, { reason: 'Kiểm thử nhả ghế' });
 is('p1 gửi yêu cầu hủy vé', rq.s, 200);
-is('Chưa duyệt: ghế vẫn Booked', await state(s2), 'Booked');
+is('Chưa duyệt: ghế vẫn Sold', await state(s2), 'Sold');
 is('Chưa duyệt: người khác đặt ghế -> 409', (await book(p3, TRIP, [s2.seatId])).s, 409);
 const ap = await call(manager, 'POST', `/api/ticket-change-requests/${rq.j?.changeRequestId}/approve`);
 is('Quản lý duyệt hủy vé', ap.s, 200);

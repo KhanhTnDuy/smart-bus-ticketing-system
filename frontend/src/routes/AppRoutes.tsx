@@ -24,6 +24,7 @@ import { BusManagementPage } from '../pages/manager/BusManagementPage';
 import { ScheduleManagementPage } from '../pages/manager/ScheduleManagementPage';
 import { AssignmentManagementPage } from '../pages/manager/AssignmentManagementPage';
 import { RefundManagementPage } from '../pages/manager/RefundManagementPage';
+import { InvoiceManagementPage } from '../pages/manager/InvoiceManagementPage';
 import { RevenueReportPage } from '../pages/manager/RevenueReportPage';
 import { VoucherManagementPage } from '../pages/manager/VoucherManagementPage';
 import { DiscountVerificationPage } from '../pages/manager/DiscountVerificationPage';
@@ -40,12 +41,10 @@ import { InvoicePage } from '../pages/passenger/InvoicePage';
 import { PaymentHistoryPage } from '../pages/passenger/PaymentHistoryPage';
 import { ComplaintPage } from '../pages/passenger/ComplaintPage';
 import { DiscountApplicationPage } from '../pages/passenger/DiscountApplicationPage';
-import { PassengerRatingPage } from '../pages/passenger/PassengerRatingPage';
 import { PaymentResultPage } from '../pages/passenger/PaymentResultPage';
 import { PassengerVouchersPage } from '../pages/passenger/PassengerVouchersPage';
 
 // Incident & Tracking Pages (Sprint 2 - Multi-role)
-import { BusTrackingPage } from '../pages/common/BusTrackingPage';
 import { IncidentPage } from '../pages/incident/IncidentPage';
 
 // Common Pages
@@ -74,7 +73,6 @@ export const AppRoutes: React.FC = () => {
         <Route path="/" element={<DashboardPage />} />
 
         {/* COMMON SPRINT 2 OPERATIONAL ROUTES (All authenticated users) */}
-        <Route path="/tracking" element={<BusTrackingPage />} />
         <Route path="/fares" element={<FareTablePage />} />
         <Route path="/incident/report" element={<IncidentPage />} />
 
@@ -99,6 +97,7 @@ export const AppRoutes: React.FC = () => {
 
           <Route path="/manager/ticket-requests" element={<TicketChangeRequestPage />} />
           <Route path="/manager/refunds" element={<RefundManagementPage />} />
+          <Route path="/manager/invoices" element={<InvoiceManagementPage />} />
           <Route path="/manager/bank-transfers" element={<BankTransferConfirmPage />} />
           <Route path="/manager/incidents" element={<IncidentPage />} />
           <Route path="/manager/revenue" element={<RevenueReportPage />} />
@@ -121,7 +120,6 @@ export const AppRoutes: React.FC = () => {
           <Route path="/passenger/complaints" element={<ComplaintPage />} />
           <Route path="/passenger/discount" element={<DiscountApplicationPage />} />
           {/* F15 - Đánh giá chất lượng chuyến đi (Thành viên C) */}
-          <Route path="/passenger/rating" element={<PassengerRatingPage />} />
           {/* Sprint 2 Passenger Features */}
           <Route path="/passenger/booking" element={<RouteBookingPage />} />
           <Route path="/passenger/tickets" element={<ElectronicTicketPage />} />
