@@ -16,7 +16,6 @@
 2. [Kiến trúc hệ thống 3 lớp & Danh mục công nghệ](#2-kiến-trúc-hệ-thống-3-lớp--danh-mục-công-nghệ)
 3. [Kịch bản & Checklist Demo cuối kỳ (Sprint 5)](#3-kịch-bản--checklist-demo-cuối-kỳ-sprint-5)
 4. [Cấu hình hệ thống & Xử lý sự cố thường gặp (Troubleshooting)](#4-cấu-hình-hệ-thống--xử-lý-sự-cố-thường-gặp-troubleshooting)
-5. [Đối chiếu Pull Requests & Kết quả Đánh giá QA](#5-đối-chiếu-pull-requests--kết-quả-đánh-giá-qa)
 
 ---
 
@@ -305,14 +304,3 @@ Kịch bản chuẩn từng bước để nhóm thực hiện demo mượt mà, 
 - **Cách khắc phục**:
   - Truy cập đúng endpoint OpenAPI chính thức của hệ thống: **`http://localhost:5180/openapi/v1.json`**.
   - Dán URL trên vào Swagger Editor trực tuyến (https://editor.swagger.io) hoặc import vào Postman / Scalar để xem tài liệu API dạng giao diện tương tác.
-
----
-
-## 5. Đối chiếu Pull Requests & Kết quả Đánh giá QA
-
-| Pull Request | Nhiệm vụ liên quan | Tác giả | Trạng thái | Đánh giá QA |
-| :--- | :--- | :---: | :---: | :---: |
-| **[PR #145](https://github.com/KhanhTnDuy/smart-bus-ticketing-system/pull/145)** | **SCRUM-97** (Thông báo rõ lý do quét QR không hợp lệ) & **SCRUM-102** (Quy chuẩn kịch bản Demo, .NET 10, OpenAPI & Hướng dẫn sao lưu CSDL) | `diu005` (Hoàng Thị Dịu) | **ĐANG MỞ (OPEN)** | **ĐẠT (PASS)** — Sẵn sàng nghiệm thu Sprint 5. |
-| **[PR #102](https://github.com/KhanhTnDuy/smart-bus-ticketing-system/pull/102)** | SCRUM-82, SCRUM-86 (API báo cáo doanh thu theo ngày & tuyến) | `KhanhTnDuy` | **ĐÃ MERGE** | Kết nối trực tiếp vào Luồng 4 Demo Admin. |
-| **[PR #122](https://github.com/KhanhTnDuy/smart-bus-ticketing-system/pull/122)** | SCRUM-66, SCRUM-67 (Quản lý voucher & khuyến mãi) | `diu005` | **ĐÃ MERGE** | Đã gộp vào nhánh chính. |
-| **[PR #91](https://github.com/KhanhTnDuy/smart-bus-ticketing-system/pull/91)** | SCRUM-50 (Phân công xe buýt & nhân sự chống trùng lịch) | `diu005` | **ĐÃ MERGE** | Đã gộp vào nhánh chính. |
