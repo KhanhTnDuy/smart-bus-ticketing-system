@@ -166,5 +166,4 @@ public sealed class ProcessRefundRequest
 
 public sealed record RefundTierDto(int Id, int HoursBefore, int Percent);
 public sealed record RefundTierRequest(int HoursBefore, int Percent);
-public sealed record RefundTiersRequest(List<RefundTierRequest> Tiers);
 

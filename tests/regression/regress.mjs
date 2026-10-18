@@ -920,8 +920,9 @@ try {
       // 4. Chính sách hoàn theo giờ (chỉ khi backend chạy với Refunds__Tiers: 24h=100%, 2h=50%). Dùng thanh toán giả lập để
       // tách khỏi cổng; hủy vé do khách nên áp chính sách, quản lý duyệt hủy là lúc tính tiền hoàn.
       if (REFUND_TIERS) {
+        let tripSeq = 0; // lệch vài phút để hai chuyến cùng số giờ trên cùng xe không trùng khóa (BusId, DepartureAt)
         const cancelWithTrip = async (hoursAhead, seat) => {
-          sql(`insert into trips (RouteId, ScheduleId, BusId, DepartureAt, Status, DelayMinutes) values (1, NULL, 3, DATE_ADD(UTC_TIMESTAMP(), interval ${hoursAhead} hour), 'Scheduled', 0)`);
+          sql(`insert into trips (RouteId, ScheduleId, BusId, DepartureAt, Status, DelayMinutes) values (1, NULL, 3, DATE_ADD(DATE_ADD(UTC_TIMESTAMP(), interval ${hoursAhead} hour), interval ${++tripSeq} minute), 'Scheduled', 0)`);
           const tid = Number(sql('select max(Id) from trips'));
           const bk = (await call(p1, 'POST', '/api/bookings', { tripId: tid, seatIds: [seat], boardStopId: 1, alightStopId: 2 })).j;
           const pay = await call(p1, 'POST', '/api/payments', { bookingId: bk.bookingId, method: 0 });
@@ -938,6 +939,52 @@ try {
         is('Chính sách: vé vẫn được hủy dù không hoàn', sql(`select Status from tickets where Id=${c1.ticketId}`), 'Cancelled');
         const c30 = await cancelWithTrip(30, t30);
         is('Chính sách: còn 30 giờ hoàn 100%', sql(`select concat(Amount,'/',ifnull(Note,'-')) from refunds where PaymentId=${c30.payId}`), `${FARE}.00/-`);
+
+        // 4b. Bảng phí hoàn lưu trong CSDL (SCRUM-92): quản lý đổi qua API, ưu tiên hơn cấu hình, áp dụng ngay không cần khởi động lại.
+        sql('drop table if exists qa_refund_tiers_bak; create table qa_refund_tiers_bak as select * from refund_tiers');
+        try {
+          const tiersOf = (j) => JSON.stringify((j ?? []).map((t) => [t.hoursBefore, t.percent]));
+          const nTiers = () => sql('select count(*) from refund_tiers');
+          is('Bậc hoàn: không đăng nhập xem -> 401', (await call(null, 'GET', '/api/refunds/tiers')).s, 401);
+          is('Bậc hoàn: hành khách xem -> 403', (await call(p1, 'GET', '/api/refunds/tiers')).s, 403);
+          is('Bậc hoàn: tài xế sửa -> 403', (await call(d1, 'PUT', '/api/refunds/tiers', [{ hoursBefore: 12, percent: 10 }])).s, 403);
+          sql('delete from refund_tiers');
+          is('Bậc hoàn: số giờ âm -> 400', (await call(mg, 'PUT', '/api/refunds/tiers', [{ hoursBefore: -1, percent: 50 }])).s, 400);
+          is('Bậc hoàn: phần trăm trên 100 -> 400', (await call(mg, 'PUT', '/api/refunds/tiers', [{ hoursBefore: 5, percent: 101 }])).s, 400);
+          is('Bậc hoàn: phần trăm âm -> 400', (await call(mg, 'PUT', '/api/refunds/tiers', [{ hoursBefore: 5, percent: -1 }])).s, 400);
+          is('Bậc hoàn: hai bậc cùng số giờ -> 400', (await call(mg, 'PUT', '/api/refunds/tiers', [{ hoursBefore: 5, percent: 50 }, { hoursBefore: 5, percent: 60 }])).s, 400);
+          is('Bậc hoàn: yêu cầu sai không làm đổi bảng', nTiers(), '0');
+
+          const nAudit = Number(sql(`select count(*) from audit_logs where Action='Cập nhật bảng bậc hoàn tiền'`));
+          const put = await call(mg, 'PUT', '/api/refunds/tiers', [{ hoursBefore: 0, percent: 0 }, { hoursBefore: 24, percent: 100 }, { hoursBefore: 6, percent: 70 }]);
+          is('Bậc hoàn: quản lý đặt 100/70/0 -> 200', put.s, 200);
+          is('Bậc hoàn: trả về các bậc xếp từ nhiều giờ đến ít giờ', tiersOf(put.j), '[[24,100],[6,70],[0,0]]');
+          is('Bậc hoàn: Admin đọc lại đúng bảng', tiersOf((await call(adm, 'GET', '/api/refunds/tiers')).j), '[[24,100],[6,70],[0,0]]');
+          is('Bậc hoàn: đã lưu vào CSDL', nTiers(), '3');
+          is('Bậc hoàn: ghi nhật ký cập nhật', Number(sql(`select count(*) from audit_logs where Action='Cập nhật bảng bậc hoàn tiền'`)), nAudit + 1);
+
+          // Cùng một chuyến cách 10 giờ: cấu hình (24h=100%, 2h=50%) cho 50%, bảng CSDL cho 70% nên kết quả 70% chứng tỏ bảng CSDL được ưu tiên.
+          const d30 = await cancelWithTrip(30, seatsOf(3, 3, 0)[0]);
+          is('Bậc CSDL: còn 30 giờ hoàn 100%', sql(`select concat(Amount,'/',ifnull(Note,'-')) from refunds where PaymentId=${d30.payId}`), `${FARE}.00/-`);
+          const d10 = await cancelWithTrip(10, seatsOf(3, 3, 0)[1]);
+          is('Bậc CSDL: còn 10 giờ hoàn 70% (không phải 50% của cấu hình)', sql(`select concat(Amount,'/',ifnull(Note,'')) from refunds where PaymentId=${d10.payId}`), `${Math.round(FARE * 0.7)}.00/Theo chính sách hoàn 70% tiền vé.`);
+          const d3 = await cancelWithTrip(3, seatsOf(3, 3, 0)[2]);
+          is('Bậc CSDL: còn 3 giờ không hoàn (0%)', sql(`select count(*) from refunds where PaymentId=${d3.payId}`), '0');
+          is('Bậc CSDL: vé vẫn được hủy dù không hoàn', sql(`select Status from tickets where Id=${d3.ticketId}`), 'Cancelled');
+
+          // Đổi bậc có hiệu lực ngay: hạ bậc 6h xuống 40%, chuyến cách 10 giờ hoàn 40%.
+          is('Bậc hoàn: đổi bậc 6h còn 40% -> 200', (await call(mg, 'PUT', '/api/refunds/tiers', [{ hoursBefore: 24, percent: 100 }, { hoursBefore: 6, percent: 40 }])).s, 200);
+          const e10 = await cancelWithTrip(10, seatsOf(3, 3, 0)[0]);
+          is('Bậc CSDL: sau khi đổi, còn 10 giờ hoàn 40%', sql(`select concat(Amount,'/',ifnull(Note,'')) from refunds where PaymentId=${e10.payId}`), `${Math.round(FARE * 0.4)}.00/Theo chính sách hoàn 40% tiền vé.`);
+
+          // Gửi danh sách rỗng thì bảng CSDL trống và quay về cấu hình (24h=100%, 2h=50%).
+          const clr = await call(mg, 'PUT', '/api/refunds/tiers', []);
+          is('Bậc hoàn: gửi danh sách rỗng -> 200 và bảng trống', `${clr.s}/${nTiers()}`, '200/0');
+          const f10 = await cancelWithTrip(10, seatsOf(3, 3, 0)[1]);
+          is('Bậc hoàn: bảng trống thì quay về cấu hình, còn 10 giờ hoàn 50%', sql(`select concat(Amount,'/',ifnull(Note,'')) from refunds where PaymentId=${f10.payId}`), `${FARE / 2}.00/Theo chính sách hoàn 50% tiền vé.`);
+        } finally {
+          sql('delete from refund_tiers; insert into refund_tiers select * from qa_refund_tiers_bak; drop table qa_refund_tiers_bak');
+        }
       } else {
         console.log('  (bỏ qua chính sách hoàn theo giờ: chưa đặt REFUND_TIERS=1)');
       }
