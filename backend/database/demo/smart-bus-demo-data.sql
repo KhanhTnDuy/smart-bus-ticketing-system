@@ -709,23 +709,28 @@ CREATE TABLE `trips` (
 LOCK TABLES `trips` WRITE;
 /*!40000 ALTER TABLE `trips` DISABLE KEYS */;
 INSERT INTO `trips` (`Id`, `RouteId`, `ScheduleId`, `BusId`, `DepartureAt`, `Status`, `DelayMinutes`) VALUES
-(1, 1, NULL, 1, DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 DAY), 'Scheduled', 0),
-(2, 1, NULL, 2, DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY), 'Scheduled', 0),
-(3, 1, NULL, NULL, DATE_SUB(UTC_TIMESTAMP(), INTERVAL 12 HOUR), 'Scheduled', 0),
-(4, 1, NULL, 1, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 2 HOUR), 'Scheduled', 0),
-(5, 1, NULL, 2, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 4 HOUR), 'Scheduled', 0),
-(6, 1, NULL, 3, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 6 HOUR), 'Scheduled', 0),
-(7, 1, NULL, 4, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR), 'Scheduled', 0),
-(8, 1, NULL, 1, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 1 DAY), '00:30:00'), 'Scheduled', 0),
-(9, 1, NULL, 2, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 1 DAY), '01:30:00'), 'Scheduled', 0),
-(10, 1, NULL, 3, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 1 DAY), '03:00:00'), 'Scheduled', 0),
-(11, 1, NULL, 4, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 1 DAY), '04:00:00'), 'Scheduled', 0),
-(12, 1, NULL, 1, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 2 DAY), '00:30:00'), 'Scheduled', 0),
-(13, 1, NULL, 2, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 2 DAY), '01:30:00'), 'Scheduled', 0),
-(14, 1, NULL, 3, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 2 DAY), '03:00:00'), 'Scheduled', 0),
-(15, 1, NULL, 4, TIMESTAMP(DATE_ADD(UTC_DATE(), INTERVAL 2 DAY), '04:00:00'), 'Scheduled', 0);
+(1, 1, NULL, 1, '2026-10-14 00:30:00.000000', 'Scheduled', 0),
+(2, 1, NULL, 2, '2026-10-15 03:00:00.000000', 'Scheduled', 0),
+(3, 1, NULL, NULL, '2026-10-15 07:30:00.000000', 'Scheduled', 0),
+(4, 1, NULL, 1, '2026-10-16 00:30:00.000000', 'Scheduled', 0),
+(5, 1, NULL, 2, '2026-10-16 01:30:00.000000', 'Scheduled', 0),
+(6, 1, NULL, 3, '2026-10-16 03:00:00.000000', 'Scheduled', 0),
+(7, 1, NULL, 4, '2026-10-16 04:00:00.000000', 'Scheduled', 0),
+(8, 1, NULL, 1, '2026-10-17 00:30:00.000000', 'Scheduled', 0),
+(9, 1, NULL, 2, '2026-10-17 01:30:00.000000', 'Scheduled', 0),
+(10, 1, NULL, 3, '2026-10-17 03:00:00.000000', 'Scheduled', 0),
+(11, 1, NULL, 4, '2026-10-17 04:00:00.000000', 'Scheduled', 0),
+(12, 1, NULL, 1, '2026-10-18 00:30:00.000000', 'Scheduled', 0),
+(13, 1, NULL, 2, '2026-10-18 01:30:00.000000', 'Scheduled', 0),
+(14, 1, NULL, 3, '2026-10-19 03:00:00.000000', 'Scheduled', 0),
+(15, 1, NULL, 4, '2026-10-20 04:00:00.000000', 'Scheduled', 0);
 /*!40000 ALTER TABLE `trips` ENABLE KEYS */;
 UNLOCK TABLES;
+
+-- SCRUM-87: Dời ngày chuyến theo ngày nạp thực tế để luôn có ít nhất 4 chuyến trong tương lai
+SET @ref_date = (SELECT DATE(DepartureAt) FROM `trips` WHERE `Id` = 4);
+SET @day_diff = DATEDIFF(CURRENT_DATE(), @ref_date);
+UPDATE `trips` SET `DepartureAt` = DATE_ADD(`DepartureAt`, INTERVAL @day_diff DAY);
 DROP TABLE IF EXISTS `vouchers`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;

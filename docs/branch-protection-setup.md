@@ -1,15 +1,25 @@
-# Hướng dẫn Bật Branch Protection cho nhánh `main`
+# Hướng dẫn Bật Branch Protection cho nhánh `main` (SCRUM-90)
 
 Tài liệu này hướng dẫn chi tiết cách cấu hình **Branch Protection Rule** trên GitHub cho nhánh `main` để đảm bảo:
-- PR mới tự động kích hoạt workflow CI (Build Backend .NET + Build/Lint Frontend Vite + Chạy Regression Tests).
-- **Chặn merge khi CI đỏ**: Nút "Merge pull request" bị vô hiệu hóa (disabled) nếu bất kỳ kiểm tra nào thất bại.
-- Nhánh `main` luôn luôn xanh và ổn định.
+- PR mới tự động kích hoạt pipeline CI tại `.github/workflows/ci.yml`.
+- **Chặn merge khi CI đỏ**: Nút "Merge pull request" bị vô hiệu hóa (disabled / blocked) nếu bất kỳ kiểm tra bắt buộc nào thất bại.
+- Nhánh `main` luôn luôn xanh và ổn định, không thể merge code lỗi vào production.
+
+---
+
+## Danh sách Status Checks bắt buộc (Bắt buộc phải xanh mới được merge)
+
+Pipeline CI của dự án (tại `.github/workflows/ci.yml`, SCRUM-103) có 3 job kiểm tra độc lập:
+
+1. **`Backend build (.NET)`**: Kiểm tra biên dịch toàn bộ solution backend (.NET 10) với `dotnet build`.
+2. **`Frontend build (tsc + vite)`**: Cài đặt dependencies (`npm ci`), kiểm tra type TypeScript (`tsc`) và đóng gói Vite (`npm run build`).
+3. **`Regression tests (npm test)`**: Khởi tạo container MySQL, nạp dữ liệu và chạy toàn bộ bộ kiểm thử hồi quy (`npm run test:reset-demo`).
 
 ---
 
 ## Cách 1: Cấu hình qua giao diện GitHub Web (Khuyên dùng)
 
-> **Lưu ý**: Bạn cần quyền **Admin** hoặc **Maintainer** trên repository `smart-bus-ticketing-system`.
+> **Lưu ý**: Bạn cần quyền **Admin** hoặc **Maintainer** trên repository `KhanhTnDuy/smart-bus-ticketing-system`.
 
 1. Truy cập vào repository trên GitHub:
    `https://github.com/KhanhTnDuy/smart-bus-ticketing-system`
@@ -19,16 +29,14 @@ Tài liệu này hướng dẫn chi tiết cách cấu hình **Branch Protection
 5. Điền thông tin quy tắc:
    - **Branch name pattern**: nhập chính xác `main`.
 6. Tích chọn các mục sau:
-   - ✅ **Require a pull request before merging**: Yêu cầu mọi thay đổi vào `main` đều phải qua Pull Request.
-     - *(Tùy chọn)* *Require approvals*: Đặt `1` nếu nhóm muốn có ít nhất 1 thành viên review code trước khi gộp.
-   - ✅ **Require status checks to pass before merging**: Bắt buộc các kiểm tra CI phải pass (xanh) mới được merge.
-     - ✅ **Require branches to be up to date before merging**: Đảm bảo nhánh PR đã cập nhật code mới nhất từ `main`.
-     - Trong ô tìm kiếm status checks (*Search for status checks in the last week for this repository*), gõ và chọn:
-       - `ci / build-and-test` *(Status check tổng hợp của pipeline CI)*
-       - Hoặc có thể tích thêm:
-         - `Backend Build (.NET)`
-         - `Frontend Build & Lint (Vite)`
-         - `Automated Regression Tests`
+   - ✅ **Require a pull request before merging**: Yêu cầu mọi thay đổi vào `main` đều phải thông qua Pull Request (không commit trực tiếp vào `main`).
+     - *(Tùy chọn)* *Require approvals*: Đặt `1` nếu yêu cầu có ít nhất 1 thành viên approve trước khi gộp.
+   - ✅ **Require status checks to pass before merging**: Bắt buộc các kiểm tra CI phải pass (màu xanh) mới cho phép merge.
+     - ✅ **Require branches to be up to date before merging**: Đảm bảo nhánh PR đã cập nhật commit mới nhất từ `main`.
+     - Trong ô tìm kiếm status checks (*Search for status checks in the last week for this repository*), lần lượt tìm và tích chọn **cả 3 checks bắt buộc**:
+       - ✅ `Regression tests (npm test)`
+       - ✅ `Backend build (.NET)`
+       - ✅ `Frontend build (tsc + vite)`
    - ✅ **Do not allow bypassing the above settings**: Áp dụng quy tắc kiểm tra này cho cả Quản trị viên (Admin) để không ai có thể vô tình ép merge khi test đỏ.
 7. Cuộn xuống cuối trang và bấm **Create** (hoặc **Save changes**), nhập mật khẩu GitHub nếu được hỏi xác nhận.
 
@@ -48,7 +56,9 @@ gh api --method PUT /repos/KhanhTnDuy/smart-bus-ticketing-system/branches/main/p
   "required_status_checks": {
     "strict": true,
     "contexts": [
-      "ci / build-and-test"
+      "Regression tests (npm test)",
+      "Backend build (.NET)",
+      "Frontend build (tsc + vite)"
     ]
   },
   "enforce_admins": true,
@@ -62,15 +72,16 @@ EOF
 
 ## Kết quả sau khi kích hoạt
 
-1. **Khi tạo PR mới**:
-   - GitHub Actions sẽ tự động khởi động workflow `.github/workflows/ci.yml`.
-   - Chạy 3 luồng kiểm tra:
-     - `Backend Build (.NET)`: Biên dịch dự án backend .NET 10.
-     - `Frontend Build & Lint (Vite)`: Chạy oxlint và build TypeScript + Vite.
-     - `Automated Regression Tests`: Dựng MySQL service container, nạp dữ liệu demo động và chạy test tranh ghế (`seat-lock.mjs`) & hoàn tiền (`refund-flow.mjs`).
-2. **Nếu có bất kỳ bước nào thất bại (Đỏ)**:
-   - Trạng thái `ci / build-and-test` sẽ báo `Failure`.
-   - Nút **Merge pull request** trên GitHub sẽ bị khóa (Disabled) và hiển thị thông báo:
-     > *"Required status check 'ci / build-and-test' is failing. Merging is blocked."*
-3. **Khi tất cả kiểm tra thành công (Xanh)**:
-   - Nút **Merge pull request** chuyển sang màu xanh và cho phép gộp code vào `main`.
+1. **Khi tạo PR mới vào `main`**:
+   - GitHub Actions tự động kích hoạt workflow `.github/workflows/ci.yml`.
+   - 3 luồng kiểm tra chạy song song / theo thứ tự:
+     - `Backend build (.NET)`
+     - `Frontend build (tsc + vite)`
+     - `Regression tests (npm test)`
+2. **Nếu có bất kỳ bước nào thất bại (Đỏ ❌)**:
+   - GitHub hiển thị trạng thái check bị fail.
+   - Nút **Merge pull request** trên giao diện GitHub bị khóa hoàn toàn (Disabled) với thông báo:
+     > *"Required status checks must pass before merging. Merging is blocked."*
+   - Không ai (kể cả Admin) có thể merge khi chưa sửa hết lỗi.
+3. **Khi tất cả 3 kiểm tra thành công (Xanh ✅)**:
+   - Nút **Merge pull request** chuyển sang màu xanh và cho phép gộp code an toàn vào `main`.
