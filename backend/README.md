@@ -226,11 +226,55 @@ dotnet user-secrets set "Payments:VnPay:TxnRefPrefix" "<tiền tố riêng của
 `Payments:VnPay:ReturnUrl` mặc định là `http://localhost:5173/passenger/payment-result`. Để VNPay gọi được IPN cần địa chỉ công khai
 (vd. ngrok) khai ở trang quản trị merchant: `https://<địa chỉ>/api/payments/vnpay/ipn`.
 
-Chưa cấu hình `TmnCode`/`HashSecret` thì thanh toán VNPay trả 503. MoMo, ZaloPay, chuyển khoản chưa nối cổng thật: chỉ chạy bằng
-bộ giả lập khi `Payments:Simulator:Enabled=true` (đã bật sẵn ở `appsettings.Development.json`, phải tắt ở môi trường thật).
+Chưa cấu hình `TmnCode`/`HashSecret` thì thanh toán VNPay trả 503. MoMo, ZaloPay chưa nối cổng thật: chỉ chạy bằng
+bộ giả lập khi `Payments:Simulator:Enabled=true` **và** đang chạy ở môi trường `Development` (xem mục dưới).
 
 Thanh toán về sau khi hết hạn giữ chỗ, hoặc hai giao dịch cùng thanh toán thành công cho một lượt đặt, không xuất thêm vé: hệ thống tự mở
 yêu cầu hoàn tiền `PaymentFailed` cho khoản dư. `HoldExpiryService` chạy nền mỗi 60 giây để chuyển lượt đặt quá hạn sang `Expired` và nhả ghế.
+
+## Biến cấu hình thanh toán (SCRUM-88)
+
+Không đặt khóa thật vào file nằm trong git. Mọi giá trị dưới đây đặt qua **biến môi trường** (thay `:` bằng `__`) hoặc
+`dotnet user-secrets` trên máy dev.
+
+| Biến môi trường | Mặc định | Ý nghĩa |
+|---|---|---|
+| `Payments__Simulator__Enabled` | `false` (`true` ở `appsettings.Development.json`) | Bộ giả lập cho phương thức chưa nối cổng thật. Chỉ có tác dụng ở `Development` |
+| `Payments__VnPay__TmnCode` | rỗng | Mã merchant VNPay. Thiếu thì `POST /api/payments` với VNPay trả 503 |
+| `Payments__VnPay__HashSecret` | rỗng | Khóa ký chữ ký VNPay |
+| `Payments__VnPay__PayUrl` | sandbox `vpcpay.html` | Trang thanh toán của VNPay |
+| `Payments__VnPay__ReturnUrl` | `http://localhost:5173/passenger/payment-result` | Trang frontend khách quay về |
+| `Payments__VnPay__TxnRefPrefix` | `SB` | Tiền tố mã giao dịch, đặt khác nhau giữa các máy dev dùng chung `TmnCode` |
+| `Payments__VnPay__RefundUrl` | sandbox `merchant_webapi` | Địa chỉ API hoàn tiền |
+| `Payments__VnPay__RefundDateSource` | `Create` | Mốc ngày gửi khi hoàn tiền |
+| `BankTransfer__BankId` | rỗng | Mã VietQR (MB, VCB, ACB...) hoặc mã BIN |
+| `BankTransfer__BankName` | rỗng | Tên ngân hàng hiển thị cho khách |
+| `BankTransfer__AccountNumber` | rỗng | Số tài khoản nhận tiền |
+| `BankTransfer__AccountName` | rỗng | Tên chủ tài khoản, in hoa không dấu |
+| `BankTransfer__MemoPrefix` | `SBV` | Tiền tố nội dung chuyển khoản |
+| `BankTransfer__QrTemplate` | `compact2` | Kiểu ảnh VietQR |
+| `BankTransfer__WebhookApiKey` | rỗng | Khóa webhook báo có tiền (SePay). Trống thì chỉ xác nhận bằng tay |
+| `Refunds__AutoProcess` | `true` | Tự gọi API hoàn tiền VNPay; tắt thì quản lý duyệt tay |
+| `Refunds__Tiers__0__HoursBefore` / `__Percent` | rỗng | Bảng phí hoàn vé theo giờ trước giờ chạy |
+
+Thiếu `BankTransfer__AccountNumber`/`AccountName`/`BankId` thì chuyển khoản trả 503; thiếu cấu hình VNPay thì VNPay trả 503.
+Hai phương thức này không rơi về bộ giả lập.
+
+### Bộ giả lập chỉ chạy ở Development
+
+`PaymentSimulator` (`Services/Payments/PaymentSimulator.cs`) chốt giao dịch **mà không thu tiền**, nên chỉ bật khi
+`Payments:Simulator:Enabled=true` **và** `ASPNETCORE_ENVIRONMENT=Development`. Ngoài `Development`:
+
+- bật trong cấu hình → **máy chủ từ chối khởi động** kèm thông báo chỉ rõ biến phải bỏ, thay vì âm thầm xác nhận vé chưa trả tiền;
+- không bật → `POST /api/payments` với MoMo/ZaloPay trả 400 "Phương thức này chưa được hỗ trợ".
+
+Kiểm chứng:
+
+```bash
+cd backend/SmartBusTicketing.Api
+ASPNETCORE_ENVIRONMENT=Production Payments__Simulator__Enabled=true Jwt__Key="<khóa ít nhất 32 byte>"   dotnet run --no-launch-profile
+# Unhandled exception. System.InvalidOperationException: Payments:Simulator:Enabled đang bật ngoài môi trường Development...
+```
 
 ## Địa chỉ công khai cho IPN VNPay (SCRUM-105)
 
