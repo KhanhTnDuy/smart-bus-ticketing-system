@@ -38,8 +38,8 @@ echo "⏳ Đang nạp dữ liệu vào MySQL..."
 echo "✅ Nạp dữ liệu thành công!"
 echo "--------------------------------------------------------------------"
 
-# SCRUM-87: Dời ngày chuyến theo hôm nay để luôn có ít nhất 4 chuyến tương lai
-SHIFT_SQL="SET @ref_date = (SELECT DATE(DepartureAt) FROM trips WHERE Id = 4); SET @day_diff = DATEDIFF(CURRENT_DATE(), @ref_date); UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL @day_diff DAY);"
+# SCRUM-87: Dời ngày chuyến theo hôm nay để luôn có ít nhất 4 chuyến tương lai (thêm ORDER BY DepartureAt DESC tránh trùng IX_trips_BusId_DepartureAt)
+SHIFT_SQL="SET @ref_date = (SELECT DATE(DepartureAt) FROM trips WHERE Id = 4); SET @day_diff = DATEDIFF(CURRENT_DATE(), @ref_date); UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL @day_diff DAY) ORDER BY DepartureAt DESC;"
 "${MYSQL_CMD[@]}" -D "${DATABASE}" -e "${SHIFT_SQL}"
 
 # Kiểm tra và đảm bảo có ít nhất 4 chuyến tương lai (> UTC_TIMESTAMP + 30 phút)
@@ -47,7 +47,7 @@ CHECK_SQL="SELECT COUNT(*) FROM trips WHERE Status='Scheduled' AND BusId IS NOT 
 FUTURE_COUNT=$("${MYSQL_CMD[@]}" -N -D "${DATABASE}" -e "${CHECK_SQL}")
 
 while [ "${FUTURE_COUNT:-0}" -lt 4 ]; do
-  "${MYSQL_CMD[@]}" -D "${DATABASE}" -e "UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL 1 DAY);"
+  "${MYSQL_CMD[@]}" -D "${DATABASE}" -e "UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL 1 DAY) ORDER BY DepartureAt DESC;"
   FUTURE_COUNT=$("${MYSQL_CMD[@]}" -N -D "${DATABASE}" -e "${CHECK_SQL}")
 done
 
