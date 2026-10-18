@@ -423,33 +423,4 @@ public static class DbSeeder
             logger.LogWarning(ex, "Bỏ qua khởi tạo dữ liệu mẫu voucher: {Message}", ex.Message);
         }
     }
-
-    /// <summary>
-    /// Đảm bảo bảng refund_tiers có ít nhất dữ liệu mặc định khi chưa có bậc nào (SCRUM-92).
-    /// Chỉ chạy nếu bảng rỗng (idempotent).
-    /// </summary>
-    public static async Task SeedRefundTiersAsync(AppDbContext db, CancellationToken ct = default)
-    {
-        try
-        {
-            if (await db.RefundTiers.AnyAsync(ct)) return;
-            db.RefundTiers.AddRange(
-                new RefundTierRow { HoursBefore = 24, Percent = 100, UpdatedAt = DateTime.UtcNow },
-                new RefundTierRow { HoursBefore = 2,  Percent = 50,  UpdatedAt = DateTime.UtcNow }
-            );
-            await db.SaveChangesAsync(ct);
-        }
-        catch
-        {
-            // Bỏ qua nếu bảng chưa tồn tại hoặc lỗi kết nối
-        }
-    }
-
-    public static async Task SeedRefundTiersAsync(WebApplication app, CancellationToken ct = default)
-    {
-        using var scope = app.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await SeedRefundTiersAsync(db, ct);
-    }
 }
-
