@@ -1096,6 +1096,18 @@ try {
     is('Webhook: không xác thực thì giao dịch không đổi', stat(t3.j?.id), 'Pending');
     is('Webhook: tiền chuyển đi (out) bị bỏ qua', (await webhook(incoming(m3, FARE, { transferType: 'out' }))).j?.reason, 'not-incoming');
     is('Webhook: tài khoản khác bị bỏ qua', (await webhook(incoming(m3, FARE, { accountNumber: '9999999999' }))).j?.reason, 'other-account');
+    is('Webhook: thiếu tài khoản không được chốt', (await webhook(incoming(m3, FARE, { accountNumber: null }))).j?.reason, 'missing-account');
+    is('Webhook: tài khoản rỗng không được chốt', (await webhook(incoming(m3, FARE, { accountNumber: '  ' }))).j?.reason, 'missing-account');
+    for (const id of [null, '', 0, -1, 'invalid']) {
+      is(`Webhook: mã giao dịch không hợp lệ (${id})`, (await webhook(incoming(m3, FARE, { id }))).j?.reason, 'bad-transaction-id');
+    }
+    for (const amount of [0, -FARE, FARE + 0.5, 'invalid']) {
+      is(`Webhook: số tiền không hợp lệ (${amount})`, (await webhook(incoming(m3, amount))).j?.reason, 'bad-amount');
+    }
+    is('Webhook: payload không hợp lệ giữ giao dịch Pending', stat(t3.j?.id), 'Pending');
+    const ambiguous = await webhook(incoming(`${m3} ${again.j?.transfer?.memo}`, FARE));
+    is('Webhook: nhiều mã thanh toán cần đối soát tay', ambiguous.j?.reason, 'ambiguous-memo');
+    is('Webhook: không chọn nhầm khi nhiều mã', stat(t3.j?.id), 'Pending');
     is('Webhook: không có mã nội dung', (await webhook(incoming('chuyen tien an trua', FARE))).j?.reason, 'no-memo');
     is('Webhook: mã không tồn tại', (await webhook(incoming('SBVAAAAAAAA', FARE))).j?.reason, 'unknown-memo');
     const wrong = await webhook(incoming(m3, FARE + 1000));
