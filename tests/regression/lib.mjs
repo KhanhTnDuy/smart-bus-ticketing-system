@@ -33,6 +33,7 @@ export const sql = (q) => {
 const TABLES = ['refunds', 'invoices', 'payments', 'ticket_scans', 'notifications', 'ticket_change_requests', 'tickets', 'bookings', 'audit_logs', 'accounts'];
 const baseline = {};
 for (const t of TABLES) baseline[t] = Number(sql(`select coalesce(max(Id),0) from ${t}`));
+const tripsBaseline = Number(sql('select coalesce(max(Id),0) from trips')); // chuyến do kịch bản dựng thêm (ensureFutureTrips) cũng được dọn
 
 try {
   const h = await fetch(`${B}/api/health`);
@@ -85,10 +86,31 @@ export async function createPassengers(adminTok, n) {
   return out;
 }
 
-/** Chuyến còn ở tương lai (ít nhất 30 phút), đã gán xe, đang Scheduled, sớm nhất trước. */
-export const futureTrips = (count) => sql(
+/**
+ * Chuyến còn ở tương lai (ít nhất 30 phút), đã gán xe, đang Scheduled, sớm nhất trước.
+ * Bộ dữ liệu demo có ngày chuyến cố định nên có thể đã hết chuyến tương lai: khi thiếu, dựng thêm chuyến tạm (xe Active có sơ đồ ghế,
+ * kèm tài xế và phụ xe) trên tuyến 1 và dọn ở finish(), để kịch bản chạy được vào bất kỳ ngày nào.
+ */
+const queryFuture = (count) => sql(
   "select Id from trips where Status='Scheduled' and BusId is not null and DepartureAt > date_add(utc_timestamp(), interval 30 minute) order by DepartureAt, Id limit " + count,
 ).split('\n').filter(Boolean).map(Number);
+
+export function futureTrips(count) {
+  let ids = queryFuture(count);
+  if (ids.length >= count) return ids;
+  const buses = sql("select b.Id from buses b where b.Status='Active' and exists (select 1 from seats s where s.BusId=b.Id) order by b.Id").split('\n').filter(Boolean).map(Number);
+  const driver = sql("select Id from accounts where Role='Driver' order by Id limit 1");
+  const conductor = sql("select Id from accounts where Role='Conductor' order by Id limit 1");
+  if (!buses.length || !driver) return ids;
+  for (let i = ids.length; i < count; i++) {
+    // Mỗi chuyến một xe và một ngày riêng (từ ngày mai), không trùng chuyến nào có sẵn.
+    sql(`insert into trips (RouteId, ScheduleId, BusId, DepartureAt, Status, DelayMinutes) values (1, NULL, ${buses[i % buses.length]}, date_add(utc_timestamp(), interval ${i + 1} day), 'Scheduled', 0)`);
+    const id = Number(sql('select max(Id) from trips'));
+    sql(`insert into trip_staff (TripId, AccountId, Duty) values (${id}, ${driver}, 'Driver')${conductor ? `, (${id}, ${conductor}, 'Conductor')` : ''}`);
+  }
+  ids = queryFuture(count);
+  return ids;
+}
 
 /** Điểm lên (đầu tuyến) và điểm xuống (cuối tuyến) của chuyến. */
 export function endStops(tripId) {
@@ -133,6 +155,9 @@ export function finish(restore = []) {
   let cleanupFailed = false;
   try {
     const del = TABLES.map((t) => `delete from ${t} where Id>${baseline[t]}`);
+    // Chuyến dựng thêm phải xóa trước tài khoản (khóa ngoại trip_staff) và sau vé, đặt chỗ (khóa ngoại tới chuyến).
+    del.splice(del.indexOf(`delete from accounts where Id>${baseline.accounts}`), 0,
+      `delete from trip_staff where TripId>${tripsBaseline}`, `delete from trips where Id>${tripsBaseline}`);
     sql([...del, ...restore].join('; '));
     console.log('\nđã dọn dữ liệu thử');
   } catch (e) {

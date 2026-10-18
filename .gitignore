@@ -31,3 +31,6 @@ Thumbs.db
 
 # Giấy tờ người dùng tải lên (dữ liệu cá nhân), không đưa vào repo
 App_Data/
+
+# Nhật ký chạy bộ kiểm thử (tests/run-all.mjs)
+tests/results/
