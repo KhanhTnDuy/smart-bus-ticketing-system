@@ -102,6 +102,26 @@ Tất cả các tài khoản demo đều dùng chung mật khẩu mặc định:
 
 ---
 
+### 1.5. Lệnh kiểm thử hồi quy tự động (Automated Regression Testing)
+
+Hệ thống cung cấp các kịch bản kiểm thử tích hợp tự động gọi trực tiếp API backend và kiểm tra dữ liệu trong CSDL MySQL (bao gồm kiểm tra ma trận phân quyền 5 vai, luồng giữ/nhả ghế, luồng hoàn tiền và quét vé QR):
+
+- **Kiểm thử hồi quy toàn bộ hệ thống (180+ test cases)**:
+  ```bash
+  CONFIRM_TEST_DB=1 node tests/regression/regress.mjs
+  ```
+- **Kiểm thử giữ ghế & nhả ghế đồng thời (Seat Lock)**:
+  ```bash
+  node tests/regression/seat-lock.mjs
+  ```
+- **Kiểm thử luồng hủy vé & xử lý hoàn tiền (Refund Flow)**:
+  ```bash
+  node tests/regression/refund-flow.mjs
+  ```
+- Chi tiết từng kịch bản, các biến môi trường cấu hình và cơ chế tự động khôi phục dữ liệu xem tại: `tests/regression/README.md`.
+
+---
+
 ## 2. Kiến trúc hệ thống 3 lớp & Danh mục công nghệ
 
 ### 2.1. Sơ đồ kiến trúc 3 lớp (3-Tier Architecture)
@@ -226,7 +246,7 @@ Kịch bản chuẩn từng bước để nhóm thực hiện demo mượt mà, 
 
 ---
 
-### 4.2. Xử lý 4 lỗi kinh điển thường gặp
+### 4.2. Xử lý 5 sự cố thường gặp (Troubleshooting)
 
 #### 1. Lỗi không kết nối được MySQL (`Unable to connect to any of the specified MySQL hosts`)
 - **Nguyên nhân**: Dịch vụ MySQL chưa được bật, hoặc sai cổng (Port), Username, Password trong chuỗi kết nối.
