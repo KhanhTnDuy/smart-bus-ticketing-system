@@ -79,8 +79,19 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
 
 var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException("Connection string 'Default' not found.");
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+try 
+{
+    var serverVersion = ServerVersion.AutoDetect(connectionString);
+    builder.Services.AddDbContext<AppDbContext>(options =>
+        options.UseMySql(connectionString, serverVersion));
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"[CẢNH BÁO] Không kết nối được Database lúc khởi động: {ex.Message}");
+    var fallbackVersion = new MySqlServerVersion(new Version(8, 0, 0));
+    builder.Services.AddDbContext<AppDbContext>(options =>
+        options.UseMySql(connectionString, fallbackVersion));
+}
 
 var app = builder.Build();
 
