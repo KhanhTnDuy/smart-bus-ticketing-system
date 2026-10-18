@@ -39,7 +39,11 @@ public sealed class BankTransferOptions
     public string WebhookApiKey { get; set; } = string.Empty;
 
     public bool IsConfigured =>
-        !string.IsNullOrWhiteSpace(BankId) && !string.IsNullOrWhiteSpace(AccountNumber) && !string.IsNullOrWhiteSpace(AccountName);
+        Regex.IsMatch(BankId.Trim(), "^[A-Za-z0-9]{2,20}$")
+        && Regex.IsMatch(AccountNumber.Trim(), "^[0-9]{1,34}$")
+        && !string.IsNullOrWhiteSpace(AccountName)
+        && Regex.IsMatch(MemoPrefix.Trim(), "^[A-Za-z][A-Za-z0-9]{1,11}$")
+        && QrTemplate is "compact2" or "compact" or "qr_only" or "print";
 
     public bool WebhookEnabled => IsConfigured && !string.IsNullOrWhiteSpace(WebhookApiKey);
 }

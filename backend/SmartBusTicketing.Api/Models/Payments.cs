@@ -92,3 +92,16 @@ public class MonthlyPass
     public ICollection<Payment> Payments { get; set; } = new List<Payment>();
     public ICollection<TicketScan> Scans { get; set; } = new List<TicketScan>();
 }
+
+/// <summary>
+/// Bậc chính sách hoàn tiền lưu trong CSDL (bảng refund_tiers).
+/// Mỗi bậc: hủy vé khi còn ít nhất HoursBefore giờ trước giờ xe chạy thì hoàn Percent%.
+/// </summary>
+public class RefundTierRow
+{
+    public int Id { get; set; }
+    public int HoursBefore { get; set; }
+    public int Percent { get; set; }
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+

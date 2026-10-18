@@ -10,7 +10,6 @@ import {
   Compass,
   CreditCard,
   MessageSquareWarning,
-  Star,
   Calendar,
   Bus,
   ChevronDown,
@@ -19,7 +18,6 @@ import {
   Layers,
   Ticket,
   QrCode,
-  Radio,
   AlertTriangle,
   Receipt,
   UserCheck,
@@ -83,6 +81,7 @@ export const Navbar: React.FC = () => {
   const isManagerOpsActive =
     location.pathname.startsWith('/manager/ticket-requests') ||
     location.pathname.startsWith('/manager/refunds') ||
+    location.pathname.startsWith('/manager/invoices') ||
     location.pathname.startsWith('/manager/bank-transfers') ||
     location.pathname.startsWith('/manager/incidents') ||
     location.pathname.startsWith('/manager/complaints') ||
@@ -99,7 +98,6 @@ export const Navbar: React.FC = () => {
   const isPassengerSupportActive =
     location.pathname.startsWith('/passenger/complaints') ||
     location.pathname.startsWith('/passenger/discount') ||
-    location.pathname.startsWith('/passenger/rating') ||
     location.pathname === '/incident/report';
 
   return (
@@ -198,14 +196,6 @@ export const Navbar: React.FC = () => {
                   {activeDropdown === 'adminOps' && (
                     <div className="absolute left-0 mt-1 w-56 bg-[#09254d] dark:bg-[#061530] text-white rounded-md shadow-2xl border border-blue-900/60 py-1.5 z-50 animate-fadeIn">
                       <NavLink
-                        to="/tracking"
-                        onClick={() => setActiveDropdown(null)}
-                        className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-blue-800/50 hover:text-white"
-                      >
-                        <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
-                        <span>Theo dõi xe GPS</span>
-                      </NavLink>
-                      <NavLink
                         to="/manager/ticket-requests"
                         onClick={() => setActiveDropdown(null)}
                         className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-blue-800/50 hover:text-white"
@@ -228,6 +218,14 @@ export const Navbar: React.FC = () => {
                       >
                         <RotateCcw className="w-4 h-4 text-amber-400" />
                         <span>Xử lý hoàn tiền</span>
+                      </NavLink>
+                      <NavLink
+                        to="/manager/invoices"
+                        onClick={() => setActiveDropdown(null)}
+                        className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-blue-800/50 hover:text-white"
+                      >
+                        <FileText className="w-4 h-4 text-sky-400" />
+                        <span>Hóa đơn điện tử</span>
                       </NavLink>
                       <NavLink
                         to="/manager/incidents"
@@ -514,6 +512,20 @@ export const Navbar: React.FC = () => {
                         <RotateCcw className="w-4 h-4 text-amber-400" />
                         <span>Xử lý hoàn tiền vé</span>
                       </NavLink>
+                      <NavLink
+                        to="/manager/invoices"
+                        onClick={() => setActiveDropdown(null)}
+                        className={({ isActive }) =>
+                          `flex items-center gap-2.5 px-4 py-2 text-xs font-medium transition-colors ${
+                            isActive
+                              ? 'bg-blue-800/80 text-amber-300 font-semibold'
+                              : 'text-slate-200 hover:bg-blue-800/50 hover:text-white'
+                          }`
+                        }
+                      >
+                        <FileText className="w-4 h-4 text-sky-400" />
+                        <span>Hóa đơn điện tử</span>
+                      </NavLink>
 
                       <NavLink
                         to="/manager/incidents"
@@ -564,20 +576,6 @@ export const Navbar: React.FC = () => {
                   )}
                 </div>
 
-                {/* 4. Theo dõi GPS trực tuyến */}
-                <NavLink
-                  to="/tracking"
-                  className={({ isActive }) =>
-                    `flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold uppercase tracking-wider transition-colors ${
-                      isActive
-                        ? 'bg-institutional-800 text-amber-300 shadow-inner'
-                        : 'text-slate-100 hover:bg-white/10 hover:text-white'
-                    }`
-                  }
-                >
-                  <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                  <span>Theo dõi GPS</span>
-                </NavLink>
 
                 {/* 5. Báo cáo & Thống kê Dropdown */}
                 <div className="relative">
@@ -683,19 +681,6 @@ export const Navbar: React.FC = () => {
                   <span>Quét QR vé</span>
                 </NavLink>
 
-                <NavLink
-                  to="/tracking"
-                  className={({ isActive }) =>
-                    `flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold uppercase tracking-wider transition-colors ${
-                      isActive
-                        ? 'bg-institutional-800 text-amber-300 shadow-inner'
-                        : 'text-slate-100 hover:bg-white/10 hover:text-white'
-                    }`
-                  }
-                >
-                  <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                  <span>Theo dõi GPS</span>
-                </NavLink>
 
                 <NavLink
                   to="/incident/report"
@@ -832,20 +817,6 @@ export const Navbar: React.FC = () => {
                   )}
                 </div>
 
-                {/* 4. Theo dõi GPS */}
-                <NavLink
-                  to="/tracking"
-                  className={({ isActive }) =>
-                    `flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold uppercase tracking-wider transition-colors ${
-                      isActive
-                        ? 'bg-institutional-800 text-amber-300 shadow-inner'
-                        : 'text-slate-100 hover:bg-white/10 hover:text-white'
-                    }`
-                  }
-                >
-                  <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                  <span>Theo dõi GPS</span>
-                </NavLink>
 
                 {/* 5. Hỗ trợ & Đóng góp Dropdown */}
                 <div className="relative">
@@ -914,20 +885,6 @@ export const Navbar: React.FC = () => {
                         <span>Gửi khiếu nại</span>
                       </NavLink>
 
-                      <NavLink
-                        to="/passenger/rating"
-                        onClick={() => setActiveDropdown(null)}
-                        className={({ isActive }) =>
-                          `flex items-center gap-2.5 px-4 py-2 text-xs font-medium transition-colors ${
-                            isActive
-                              ? 'bg-blue-800/80 text-amber-300 font-semibold'
-                              : 'text-slate-200 hover:bg-blue-800/50 hover:text-white'
-                          }`
-                        }
-                      >
-                        <Star className="w-4 h-4 text-amber-300" />
-                        <span>Đánh giá chuyến đi</span>
-                      </NavLink>
                     </div>
                   )}
                 </div>
@@ -1018,13 +975,6 @@ export const Navbar: React.FC = () => {
                 Vận hành & Giám sát
               </div>
               <NavLink
-                to="/tracking"
-                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
-              >
-                <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
-                <span>Theo dõi xe GPS</span>
-              </NavLink>
-              <NavLink
                 to="/manager/ticket-requests"
                 className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
               >
@@ -1044,6 +994,13 @@ export const Navbar: React.FC = () => {
               >
                 <RotateCcw className="w-4 h-4 text-amber-400" />
                 <span>Xử lý hoàn tiền</span>
+              </NavLink>
+              <NavLink
+                to="/manager/invoices"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <FileText className="w-4 h-4 text-sky-400" />
+                <span>Hóa đơn điện tử</span>
               </NavLink>
               <NavLink
                 to="/manager/incidents"
@@ -1197,6 +1154,13 @@ export const Navbar: React.FC = () => {
                 <span>Xử lý hoàn tiền vé</span>
               </NavLink>
               <NavLink
+                to="/manager/invoices"
+                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
+              >
+                <FileText className="w-4 h-4 text-sky-400" />
+                <span>Hóa đơn điện tử</span>
+              </NavLink>
+              <NavLink
                 to="/manager/incidents"
                 className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
               >
@@ -1209,13 +1173,6 @@ export const Navbar: React.FC = () => {
               >
                 <MessageSquareWarning className="w-4 h-4 text-amber-400" />
                 <span>Khiếu nại & đánh giá</span>
-              </NavLink>
-              <NavLink
-                to="/tracking"
-                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
-              >
-                <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
-                <span>Theo dõi GPS trực tuyến</span>
               </NavLink>
             </>
           )}
@@ -1239,13 +1196,6 @@ export const Navbar: React.FC = () => {
               >
                 <QrCode className="w-4 h-4 text-amber-400" />
                 <span>Quét mã QR vé xe</span>
-              </NavLink>
-              <NavLink
-                to="/tracking"
-                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-semibold uppercase text-slate-100 hover:bg-blue-800"
-              >
-                <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
-                <span>Theo dõi GPS xe</span>
               </NavLink>
               <NavLink
                 to="/incident/report"
@@ -1292,13 +1242,6 @@ export const Navbar: React.FC = () => {
                 <TicketPercent className="w-4 h-4 text-pink-400" />
                 <span>Ưu đãi & Voucher</span>
               </NavLink>
-              <NavLink
-                to="/tracking"
-                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
-              >
-                <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
-                <span>Theo dõi xe buýt GPS</span>
-              </NavLink>
 
               <div className="pt-2 pb-1 px-3 text-[10px] font-bold text-amber-400 uppercase tracking-wider">
                 Thanh toán & Hóa đơn
@@ -1341,13 +1284,6 @@ export const Navbar: React.FC = () => {
               >
                 <MessageSquareWarning className="w-4 h-4 text-amber-400" />
                 <span>Gửi khiếu nại dịch vụ</span>
-              </NavLink>
-              <NavLink
-                to="/passenger/rating"
-                className="flex items-center gap-3 px-4 py-2 rounded text-xs font-medium text-slate-200 hover:bg-blue-800"
-              >
-                <Star className="w-4 h-4 text-amber-300" />
-                <span>Đánh giá chất lượng</span>
               </NavLink>
             </>
           )}

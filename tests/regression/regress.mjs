@@ -161,7 +161,10 @@ if (process.env.CONFIRM_TEST_DB !== '1') {
 }
 
 const sql = (q) => {
-  const args = ['-h', DB.host, '-P', DB.port, '-u', DB.user, ...(DB.password ? [`-p${DB.password}`] : []), '-N', '-D', DB.name, '-e', q];
+  // --default-character-set=utf8mb4: thiếu cờ này thì mysql gửi truy vấn theo bảng mã của console Windows,
+  // nên mọi điều kiện có chữ tiếng Việt (vd. Action='Thêm bậc giá theo km') không khớp dòng nào và phép kiểm báo sai.
+  const args = ['-h', DB.host, '-P', DB.port, '-u', DB.user, ...(DB.password ? [`-p${DB.password}`] : []),
+    '--default-character-set=utf8mb4', '-N', '-D', DB.name, '-e', q];
   const r = spawnSync(DB.bin, args, { encoding: 'utf8' });
   if (r.status !== 0) throw new Error(`mysql lỗi: ${(r.stderr || r.error?.message || '').trim()}`);
   return r.stdout.trim();
@@ -207,6 +210,17 @@ const login = async (identity, password = PASSWORD) => {
 const T = {};
 const seatsOf = (busId, n, off = 0) => sql(`select Id from seats where BusId=${busId} order by Id limit ${n} offset ${off}`).split('\n').map(Number);
 const iso = (d) => new Date(d).toISOString();
+
+// Fixture không phụ thuộc id hay ngày cố định của một bộ dữ liệu: ngày tính từ hôm nay, xe lấy từ CSDL.
+// Nhờ vậy cùng một kịch bản chạy được trên dữ liệu seed lẫn dữ liệu demo (backend/database/demo) vào bất kỳ ngày nào.
+const DAY = { gen: 30, tripA: 40, tripB: 41, other: 42, empty: 45, stats: 51 };
+const dayStr = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+const dayAt = (n) => `${dayStr(n)}T01:00:00Z`;
+// Xe đang hoạt động và có sơ đồ ghế: chuyến A dùng xe có id lớn nhất, chuyến B dùng xe có id nhỏ nhất (khác nhau để kiểm đổi vé giữa hai xe).
+const activeBuses = sql("select b.Id from buses b where b.Status='Active' and exists (select 1 from seats s where s.BusId=b.Id) order by b.Id").split('\n').map(Number).filter(Boolean);
+if (activeBuses.length < 2) { console.error('Cần ít nhất 2 xe Active có sơ đồ ghế trong CSDL.'); process.exit(2); }
+const BUS_A = activeBuses[activeBuses.length - 1];
+const BUS_B = activeBuses[0];
 
 try {
   // ============================================================
@@ -277,24 +291,24 @@ try {
   is('lịch trình trùng giờ -> 409', (await call(mg, 'POST', '/api/schedules', { routeId: 1, firstDeparture: '18:30', lastDeparture: '19:30', frequencyMinutes: 30, daysOfWeek: ['MON'] })).s, 409);
   is('không chọn ngày -> 400', (await call(mg, 'POST', '/api/schedules', { routeId: 1, firstDeparture: '22:00', lastDeparture: '23:00', frequencyMinutes: 30, daysOfWeek: [] })).s, 400);
   is('tài xế tạo lịch -> 403', (await call(d1, 'POST', '/api/schedules', { routeId: 1, firstDeparture: '22:00', lastDeparture: '23:00', frequencyMinutes: 30, daysOfWeek: ['MON'] })).s, 403);
-  const dry = await call(mg, 'POST', `/api/schedules/${T.schId}/generate-trips`, { fromDate: '2026-11-02', toDate: '2026-11-03', dryRun: true });
+  const dry = await call(mg, 'POST', `/api/schedules/${T.schId}/generate-trips`, { fromDate: dayStr(DAY.gen), toDate: dayStr(DAY.gen + 1), dryRun: true });
   is('xem trước sinh chuyến (2 ngày x 3 chuyến)', dry.j?.created, 6);
   is('xem trước không ghi CSDL', sql(`select count(*) from trips where ScheduleId=${T.schId}`), '0');
-  const gen = await call(mg, 'POST', `/api/schedules/${T.schId}/generate-trips`, { fromDate: '2026-11-02', toDate: '2026-11-03', dryRun: false });
+  const gen = await call(mg, 'POST', `/api/schedules/${T.schId}/generate-trips`, { fromDate: dayStr(DAY.gen), toDate: dayStr(DAY.gen + 1), dryRun: false });
   is('sinh chuyến thật', gen.j?.created, 6);
-  is('sinh lại không trùng', (await call(mg, 'POST', `/api/schedules/${T.schId}/generate-trips`, { fromDate: '2026-11-02', toDate: '2026-11-03', dryRun: false })).j?.skipped, 6);
-  is('quá 31 ngày -> 400', (await call(mg, 'POST', `/api/schedules/${T.schId}/generate-trips`, { fromDate: '2026-11-02', toDate: '2026-12-31', dryRun: true })).s, 400);
+  is('sinh lại không trùng', (await call(mg, 'POST', `/api/schedules/${T.schId}/generate-trips`, { fromDate: dayStr(DAY.gen), toDate: dayStr(DAY.gen + 1), dryRun: false })).j?.skipped, 6);
+  is('quá 31 ngày -> 400', (await call(mg, 'POST', `/api/schedules/${T.schId}/generate-trips`, { fromDate: dayStr(DAY.gen), toDate: dayStr(DAY.gen + 59), dryRun: true })).s, 400);
 
   // ============================================================
   sec('F. Chuyến xe và phân công');
-  const trip = await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: '2026-11-10T01:00:00Z', busId: 6, driverId: 3, conductorId: 5 });
+  const trip = await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: dayAt(DAY.tripA), busId: BUS_A, driverId: 3, conductorId: 5 });
   is('tạo chuyến kèm xe, tài xế, phụ xe', trip.s, 201);
   const tripA = trip.j?.tripId;
-  is('trùng tài xế -> 409', (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: '2026-11-10T01:10:00Z', driverId: 3 })).s, 409);
-  is('trùng xe -> 409', (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: '2026-11-10T01:10:00Z', busId: 6 })).s, 409);
-  is('hành khách làm tài xế -> 400', (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: '2026-11-12T01:00:00Z', driverId: 7 })).s, 400);
-  is('tên tài xế bịa -> 404', (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: '2026-11-12T01:00:00Z', driverName: 'Ten Bia Dat' })).s, 404);
-  is('biển số bịa -> 404', (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: '2026-11-12T01:00:00Z', busPlate: '99X-000.00' })).s, 404);
+  is('trùng tài xế -> 409', (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: dayAt(DAY.tripA).replace('01:00','01:10'), driverId: 3 })).s, 409);
+  is('trùng xe -> 409', (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: dayAt(DAY.tripA).replace('01:00','01:10'), busId: BUS_A })).s, 409);
+  is('hành khách làm tài xế -> 400', (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: dayAt(DAY.other), driverId: 7 })).s, 400);
+  is('tên tài xế bịa -> 404', (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: dayAt(DAY.other), driverName: 'Ten Bia Dat' })).s, 404);
+  is('biển số bịa -> 404', (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: dayAt(DAY.other), busPlate: '99X-000.00' })).s, 404);
   is('thiếu giờ -> 400', (await call(mg, 'POST', '/api/assignments', { routeId: 1 })).s, 400);
   const mine1 = await call(d1, 'GET', '/api/assignments');
   check('tài xế 1 thấy chuyến của mình', mine1.j?.data?.some((x) => x.tripId === tripA));
@@ -303,24 +317,32 @@ try {
   is('lịch trực tài xế', (await call(d1, 'GET', '/api/assignments/my-schedule')).s, 200);
   is('hành khách xem phân công -> 403', (await call(p1, 'GET', '/api/assignments')).s, 403);
   is('tài xế đổi chuyến -> 403', (await call(d1, 'PUT', `/api/assignments/${tripA}/trip`, { status: 4 })).s, 403);
-  is('khả dụng: xe/nhân sự', (await call(mg, 'GET', `/api/assignments/available-staff?duty=0&departureAt=2026-11-10T01:00:00Z&routeId=1`)).s, 200);
+  is('khả dụng: xe/nhân sự', (await call(mg, 'GET', `/api/assignments/available-staff?duty=0&departureAt=${dayAt(DAY.tripA)}&routeId=1`)).s, 200);
   const nt = await call(d1, 'GET', '/api/notifications/my');
   check('tài xế 1 nhận thông báo được phân công', nt.j?.items?.some((n) => n.title.includes('phân công')));
 
   // ============================================================
   sec('G. Đặt vé và thanh toán');
-  const seatsA = seatsOf(6, 8);
-  const search = await call(p1, 'GET', '/api/trips/search?from=1&to=2&date=2026-11-10');
+  const seatsA = seatsOf(BUS_A, 8);
+  // Giá một vé chặng 1 -> 2 do máy chủ tính (giá cố định của seed hay bảng giá theo km của dữ liệu demo đều được): đặt thử rồi nhả ghế.
+  const probe = await call(p1, 'POST', '/api/bookings', { tripId: tripA, seatIds: [seatsA[7]], boardStopId: 1, alightStopId: 2 });
+  const FARE = Number(probe.j?.finalAmount);
+  await call(p1, 'POST', `/api/bookings/${probe.j?.bookingId}/cancel`);
+  if (!(FARE > 0)) { console.error('Không xác định được giá vé chặng 1 -> 2 để dùng làm chuẩn.'); process.exit(2); }
+  const search = await call(p1, 'GET', `/api/trips/search?from=1&to=2&date=${dayStr(DAY.tripA)}`);
   is('tìm chuyến', search.s, 200);
   is('xem sơ đồ ghế', (await call(p1, 'GET', `/api/trips/${tripA}/seats`)).s, 200);
   is('đặt quá 4 ghế -> 400', (await call(p1, 'POST', '/api/bookings', { tripId: tripA, seatIds: seatsA.slice(0, 5), boardStopId: 1, alightStopId: 2 })).s, 400);
-  is('đặt chuyến đã khởi hành -> 400', (await call(p1, 'POST', '/api/bookings', { tripId: 4, seatIds: [190], boardStopId: 1, alightStopId: 2 })).s, 400);
+  // Chuyến đã khởi hành tự tạo (xe A, 2 giờ trước) thay vì dựa vào chuyến id 4 của một bộ dữ liệu cụ thể.
+  sql(`insert into trips (RouteId, ScheduleId, BusId, DepartureAt, Status, DelayMinutes) values (1, NULL, ${BUS_A}, DATE_SUB(UTC_TIMESTAMP(), interval 2 hour), 'Scheduled', 0)`);
+  const pastTrip = Number(sql('select max(Id) from trips'));
+  is('đặt chuyến đã khởi hành -> 400', (await call(p1, 'POST', '/api/bookings', { tripId: pastTrip, seatIds: [seatsA[0]], boardStopId: 1, alightStopId: 2 })).s, 400);
   is('ghế không thuộc xe -> 4xx', ((await call(p1, 'POST', '/api/bookings', { tripId: tripA, seatIds: [1], boardStopId: 1, alightStopId: 2 })).s >= 400) ? 1 : 0, 1);
   is('thứ tự trạm sai -> 400', (await call(p1, 'POST', '/api/bookings', { tripId: tripA, seatIds: [seatsA[0]], boardStopId: 2, alightStopId: 1 })).s, 400);
   const b1 = await call(p1, 'POST', '/api/bookings', { tripId: tripA, seatIds: seatsA.slice(0, 3), boardStopId: 1, alightStopId: 2 });
   is('đặt 3 ghế', b1.s, 200);
   const bk1 = b1.j?.bookingId;
-  is('tiền do máy chủ tính', b1.j?.finalAmount, 21000);
+  is('tiền do máy chủ tính', b1.j?.finalAmount, FARE * 3);
   is('p2 đặt trùng ghế -> 409', (await call(p2, 'POST', '/api/bookings', { tripId: tripA, seatIds: [seatsA[0]], boardStopId: 1, alightStopId: 2 })).s, 409);
   is('tài xế đặt vé -> 403', (await call(d1, 'POST', '/api/bookings', { tripId: tripA, seatIds: [seatsA[5]], boardStopId: 1, alightStopId: 2 })).s, 403);
   is('vé giữ chỗ là Held', sql(`select distinct Status from tickets where BookingId=${bk1}`), 'Held');
@@ -359,7 +381,7 @@ try {
   is('duyệt lần hai -> 400', (await call(mg, 'POST', `/api/ticket-change-requests/${c1.j?.changeRequestId}/approve`)).s, 400);
   is('vé thành Cancelled', sql(`select Status from tickets where Id=${tks[0]}`), 'Cancelled');
   const rf = sql(`select Id,Amount,Status from refunds order by Id desc limit 1`).split('\t');
-  is('tạo yêu cầu hoàn tiền 7.000 đ', `${rf[1]}`, '7000.00');
+  is('tạo yêu cầu hoàn tiền một vé', `${rf[1]}`, `${FARE}.00`);
   is('hoàn tiền ở trạng thái Pending', rf[2], 'Pending');
   is('hành khách xử lý hoàn tiền -> 403', (await call(p1, 'PATCH', `/api/refunds/${rf[0]}/process`, { approve: true })).s, 403);
   is('từ chối không lý do -> 400', (await call(mg, 'PATCH', `/api/refunds/${rf[0]}/process`, { approve: false })).s, 400);
@@ -369,8 +391,8 @@ try {
   const c2 = await call(p1, 'POST', `/api/tickets/${tks[1]}/cancel`, { reason: 'Muon huy tiep' });
   is('quản lý từ chối yêu cầu hủy', (await call(mg, 'POST', `/api/ticket-change-requests/${c2.j?.changeRequestId}/reject`)).s, 200);
   is('vé giữ nguyên sau khi bị từ chối', sql(`select Status from tickets where Id=${tks[1]}`), 'Valid');
-  const tripB = (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: '2026-11-11T01:00:00Z', busId: 1, driverId: 4 })).j?.tripId;
-  const seatsB = seatsOf(1, 4);
+  const tripB = (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: dayAt(DAY.tripB), busId: BUS_B, driverId: 4 })).j?.tripId;
+  const seatsB = seatsOf(BUS_B, 4);
   const ex = await call(p1, 'POST', `/api/tickets/${tks[1]}/exchange`, { newTripId: tripB, newSeatId: seatsB[0], reason: 'Doi chuyen' });
   is('p1 xin đổi vé sang chuyến khác', ex.s, 200);
   is('quản lý duyệt đổi vé', (await call(mg, 'POST', `/api/ticket-change-requests/${ex.j?.changeRequestId}/approve`)).s, 200);
@@ -458,9 +480,9 @@ try {
   is('quản lý duyệt', (await call(mg, 'POST', `/api/discount-applications/${app.j?.id}/review`, { approve: true, validUntil: '2027-06-30' })).s, 200);
   is('duyệt lần hai -> 409', (await call(mg, 'POST', `/api/discount-applications/${app.j?.id}/review`, { approve: true })).s, 409);
   const disc = await call(p2, 'POST', '/api/bookings', { tripId: tripB, seatIds: [seatsB[2]], boardStopId: 1, alightStopId: 2 });
-  is('giá ưu đãi 50% khi đặt vé', disc.j?.finalAmount, 3500);
+  is('giá ưu đãi 50% khi đặt vé', disc.j?.finalAmount, FARE / 2);
   const bkDisc = disc.j?.bookingId;
-  check('p1 vẫn giá thường', (await call(p1, 'POST', '/api/bookings', { tripId: tripB, seatIds: [seatsB[3]], boardStopId: 1, alightStopId: 2 })).j?.finalAmount === 7000);
+  check('p1 vẫn giá thường', (await call(p1, 'POST', '/api/bookings', { tripId: tripB, seatIds: [seatsB[3]], boardStopId: 1, alightStopId: 2 })).j?.finalAmount === FARE);
 
   // ============================================================
   sec('N. Hủy chuyến hoàn tiền');
@@ -471,7 +493,7 @@ try {
   check('sinh hoàn tiền TripCancelled', Number(sql('select count(*) from refunds')) > refundsBefore && sql("select count(*) from refunds where Reason='TripCancelled'") !== '0');
   check('p2 nhận thông báo hủy chuyến', (await call(p2, 'GET', '/api/notifications/my')).j?.items?.some((n) => n.title.includes('hủy')));
   is('không xóa chuyến đã có vé -> 409', (await call(mg, 'DELETE', `/api/assignments/${tripA}/trip`)).s, 409);
-  const emptyTrip = (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: '2026-11-15T01:00:00Z' })).j?.tripId;
+  const emptyTrip = (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: dayAt(DAY.empty) })).j?.tripId;
   is('xóa chuyến chưa có vé', (await call(mg, 'DELETE', `/api/assignments/${emptyTrip}/trip`)).s, 204);
 
   // ============================================================
@@ -484,7 +506,7 @@ try {
   is('doanh thu: hành khách -> 403', (await call(p1, 'GET', '/api/reports/revenue')).s, 403);
   is('doanh thu: tài xế -> 403', (await call(d1, 'GET', '/api/reports/revenue')).s, 403);
   is('doanh thu: ngày sai -> 400', (await call(mg, 'GET', '/api/reports/revenue?startDate=x')).s, 400);
-  const occ = await call(mg, 'GET', '/api/reports/occupancy?startDate=2026-11-10&endDate=2026-11-10');
+  const occ = await call(mg, 'GET', `/api/reports/occupancy?startDate=${dayStr(DAY.tripA)}&endDate=${dayStr(DAY.tripA)}`);
   is('lấp đầy 200', occ.s, 200);
   const t = occ.j?.trips?.find((x) => x.tripId === tripA);
   is("lấp đầy chuyến A: 1 vé Valid + 1 ghế giữ chỗ của p2 (vé hủy, vé đã đổi không tính)", t?.occupiedSeats, 2);
@@ -507,7 +529,7 @@ try {
   if (!VNPAY_SECRET) {
     console.log('  (bỏ qua: chưa đặt VNPAY_SECRET)');
   } else {
-    const seatsV = seatsOf(6, 12, 8);
+    const seatsV = seatsOf(BUS_A, 12, 8);
     const book = async (tok, seats) => (await call(tok, 'POST', '/api/bookings', { tripId: tripA, seatIds: seats, boardStopId: 1, alightStopId: 2 })).j;
     const payV = (tok, id) => call(tok, 'POST', '/api/payments', { bookingId: id, method: 1 });
     const urlParams = (u) => Object.fromEntries(new URL(u).searchParams);
@@ -528,7 +550,7 @@ try {
     is('VNPay: giao dịch Pending', pv1.j?.status, 'Pending');
     check('VNPay: có PaymentUrl sandbox', pv1.j?.paymentUrl?.startsWith('https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?'));
     const up = pv1.j?.paymentUrl ? urlParams(pv1.j.paymentUrl) : {};
-    is('VNPay: số tiền gửi cổng nhân 100', up.vnp_Amount, '700000');
+    is('VNPay: số tiền gửi cổng nhân 100', up.vnp_Amount, String(FARE * 100));
     is('VNPay: chữ ký URL khớp bản tính độc lập', up.vnp_SecureHash, vnpSign(Object.fromEntries(Object.entries(up).filter(([k]) => k !== 'vnp_SecureHash'))).vnp_SecureHash);
     check('VNPay: hạn thanh toán không quá hạn giữ chỗ', Number(up.vnp_ExpireDate) > Number(up.vnp_CreateDate));
     is('VNPay: lượt đặt vẫn Pending khi chưa trả tiền', sql(`select Status from bookings where Id=${v1.bookingId}`), 'Pending');
@@ -537,30 +559,30 @@ try {
     const ref1 = up.vnp_TxnRef;
 
     // 2. Lời gọi sai: chữ ký, số tiền, mã lạ. Không được đổi gì.
-    const forged = { ...cb(ref1, 7000), vnp_SecureHash: 'a'.repeat(128) };
+    const forged = { ...cb(ref1, FARE), vnp_SecureHash: 'a'.repeat(128) };
     is('VNPay IPN: chữ ký sai -> 97', (await ipn(forged)).j?.RspCode, '97');
-    is('VNPay IPN: sửa số tiền sau khi ký -> 97', (await ipn({ ...cb(ref1, 7000), vnp_Amount: '100' })).j?.RspCode, '97');
+    is('VNPay IPN: sửa số tiền sau khi ký -> 97', (await ipn({ ...cb(ref1, FARE), vnp_Amount: '100' })).j?.RspCode, '97');
     is('VNPay IPN: số tiền khác giao dịch -> 04', (await ipn(cb(ref1, 1000))).j?.RspCode, '04');
-    is('VNPay IPN: mã giao dịch lạ -> 01', (await ipn(cb('KHONGTONTAI', 7000))).j?.RspCode, '01');
-    is('VNPay IPN: thiếu chữ ký -> 97', (await ipn({ vnp_TxnRef: ref1, vnp_Amount: '700000', vnp_ResponseCode: '00' })).j?.RspCode, '97');
+    is('VNPay IPN: mã giao dịch lạ -> 01', (await ipn(cb('KHONGTONTAI', FARE))).j?.RspCode, '01');
+    is('VNPay IPN: thiếu chữ ký -> 97', (await ipn({ vnp_TxnRef: ref1, vnp_Amount: String(FARE * 100), vnp_ResponseCode: '00' })).j?.RspCode, '97');
     is('VNPay return: chữ ký sai -> 400', (await ret(forged)).s, 400);
     is('VNPay: các lời gọi sai không đổi giao dịch', stat(pv1.j?.id), 'Pending');
 
     // 3. Khách hủy ở trang ngân hàng (mã 24): giao dịch Failed, lượt đặt giữ chỗ, thử lại được.
-    const fail = await ipn(cb(ref1, 7000, { vnp_ResponseCode: '24', vnp_TransactionStatus: '02' }));
+    const fail = await ipn(cb(ref1, FARE, { vnp_ResponseCode: '24', vnp_TransactionStatus: '02' }));
     is('VNPay IPN: giao dịch thất bại vẫn trả 00 cho cổng', fail.j?.RspCode, '00');
     is('VNPay: giao dịch Failed', stat(pv1.j?.id), 'Failed');
     check('VNPay: lưu lý do thất bại', (sql(`select FailureReason from payments where Id=${pv1.j?.id}`) || '').length > 0);
     is('VNPay: lượt đặt vẫn Pending sau khi thất bại', sql(`select Status from bookings where Id=${v1.bookingId}`), 'Pending');
     is('VNPay: vé vẫn Held sau khi thất bại', sql(`select distinct Status from tickets where BookingId=${v1.bookingId}`), 'Held');
-    is('VNPay: IPN thành công đến sau giao dịch đã Failed -> 02', (await ipn(cb(ref1, 7000))).j?.RspCode, '02');
+    is('VNPay: IPN thành công đến sau giao dịch đã Failed -> 02', (await ipn(cb(ref1, FARE))).j?.RspCode, '02');
 
     // 4. Thử lại: giao dịch mới, mã mới, rồi thanh toán thành công qua ReturnUrl (máy dev không nhận được IPN).
     const pv1b = await payV(p1, v1.bookingId);
     is('VNPay: thử lại thanh toán -> 201', pv1b.s, 201);
     const ref1b = urlParams(pv1b.j?.paymentUrl).vnp_TxnRef;
     check('VNPay: mã giao dịch thử lại khác lần trước', ref1b && ref1b !== ref1);
-    const ok1 = await ret(cb(ref1b, 7000, { vnp_TransactionNo: '14999001' }));
+    const ok1 = await ret(cb(ref1b, FARE, { vnp_TransactionNo: '14999001' }));
     is('VNPay return: thanh toán thành công', ok1.j?.success, true);
     is('VNPay: giao dịch Success', stat(pv1b.j?.id), 'Success');
     is('VNPay: lưu mã giao dịch của cổng', sql(`select ProviderTxnId from payments where Id=${pv1b.j?.id}`), '14999001');
@@ -568,8 +590,8 @@ try {
     is('VNPay: lượt đặt Confirmed', sql(`select Status from bookings where Id=${v1.bookingId}`), 'Confirmed');
     is('VNPay: vé chuyển Valid', sql(`select distinct Status from tickets where BookingId=${v1.bookingId}`), 'Valid');
     is('VNPay: có đúng một hóa đơn', sql(`select count(*) from invoices where PaymentId=${pv1b.j?.id}`), '1');
-    is('VNPay IPN lặp lại sau khi đã chốt -> 02', (await ipn(cb(ref1b, 7000))).j?.RspCode, '02');
-    is('VNPay return lặp lại vẫn báo thành công', (await ret(cb(ref1b, 7000))).j?.success, true);
+    is('VNPay IPN lặp lại sau khi đã chốt -> 02', (await ipn(cb(ref1b, FARE))).j?.RspCode, '02');
+    is('VNPay return lặp lại vẫn báo thành công', (await ret(cb(ref1b, FARE))).j?.success, true);
     is('VNPay: lặp lại không sinh thêm hóa đơn', sql(`select count(*) from invoices where PaymentId=${pv1b.j?.id}`), '1');
     is('VNPay: thanh toán lượt đặt đã trả -> 409', (await payV(p1, v1.bookingId)).s, 409);
     is('VNPay: lịch sử thấy 2 giao dịch (Failed + Success)', (await call(p1, 'GET', '/api/payments/my')).j?.filter((x) => x.bookingId === v1.bookingId).length, 2);
@@ -578,7 +600,7 @@ try {
     const v2 = await book(p1, [seatsV[1]]);
     const pv2 = await payV(p1, v2.bookingId);
     const ref2 = urlParams(pv2.j?.paymentUrl).vnp_TxnRef;
-    const sig2 = cb(ref2, 7000, { vnp_TransactionNo: '14999002' });
+    const sig2 = cb(ref2, FARE, { vnp_TransactionNo: '14999002' });
     const race = await Promise.all([ipn(sig2), ret(sig2), ipn(sig2), ret(sig2), ipn(sig2)]);
     check('VNPay: gọi đồng thời không lỗi 5xx', race.every((r) => r.s < 500));
     is('VNPay: gọi đồng thời chỉ một lần chốt, một hóa đơn', sql(`select count(*) from invoices where PaymentId=${pv2.j?.id}`), '1');
@@ -589,16 +611,16 @@ try {
     const pv3 = await payV(p1, v3.bookingId);
     const ref3 = urlParams(pv3.j?.paymentUrl).vnp_TxnRef;
     sql(`update bookings set HoldExpiresAt='2020-01-01' where Id=${v3.bookingId}`);
-    const late = await ret(cb(ref3, 7000, { vnp_TransactionNo: '14999003' }));
+    const late = await ret(cb(ref3, FARE, { vnp_TransactionNo: '14999003' }));
     is('VNPay: thanh toán trễ không báo thành công', late.j?.success, false);
     check('VNPay: báo khách khoản này sẽ được hoàn', /hoàn/.test(late.j?.message ?? ''));
     is('VNPay: lượt đặt hết hạn không được xác nhận', sql(`select Status from bookings where Id=${v3.bookingId}`) === 'Confirmed' ? 'Confirmed' : 'khong', 'khong');
     check('VNPay: vé không thành Valid', sql(`select count(*) from tickets where BookingId=${v3.bookingId} and Status='Valid'`) === '0');
     is('VNPay: giao dịch trễ vẫn ghi nhận Success (tiền đã thu)', stat(pv3.j?.id), 'Success');
-    check('VNPay: tự mở một yêu cầu hoàn tiền 7.000 đ', /^7000\.00\/(Pending|Success)$/.test(sql(`select concat(Amount,'/',Status) from refunds where PaymentId=${pv3.j?.id}`)));
+    check('VNPay: tự mở một yêu cầu hoàn tiền một vé', new RegExp(`^${FARE}\.00/(Pending|Success)$`).test(sql(`select concat(Amount,'/',Status) from refunds where PaymentId=${pv3.j?.id}`)));
     is('VNPay: không có hóa đơn cho giao dịch trễ', sql(`select count(*) from invoices where PaymentId=${pv3.j?.id}`), '0');
     check('VNPay: quản lý được báo có hoàn tiền cần xử lý', Number(sql(`select count(*) from notifications where Title like '%Hoàn tiền thanh toán trễ%'`)) > 0);
-    is('VNPay: IPN lặp lại cho giao dịch trễ không tạo thêm hoàn tiền', (await ipn(cb(ref3, 7000))).j?.RspCode === '02' && sql(`select count(*) from refunds where PaymentId=${pv3.j?.id}`) === '1' ? 1 : 0, 1);
+    is('VNPay: IPN lặp lại cho giao dịch trễ không tạo thêm hoàn tiền', (await ipn(cb(ref3, FARE))).j?.RspCode === '02' && sql(`select count(*) from refunds where PaymentId=${pv3.j?.id}`) === '1' ? 1 : 0, 1);
 
     // 7. Hai giao dịch cùng thanh toán thành công cho một lượt đặt: giao dịch đến sau được hoàn.
     const v4 = await book(p1, [seatsV[3]]);
@@ -607,8 +629,8 @@ try {
     const ref4a = urlParams(pv4a.j?.paymentUrl).vnp_TxnRef;
     const ref4b = urlParams(pv4b.j?.paymentUrl).vnp_TxnRef;
     is('VNPay: hai lần mở thanh toán song song cho phép', pv4b.s, 201);
-    await ret(cb(ref4a, 7000, { vnp_TransactionNo: '14999004' }));
-    await ret(cb(ref4b, 7000, { vnp_TransactionNo: '14999005' }));
+    await ret(cb(ref4a, FARE, { vnp_TransactionNo: '14999004' }));
+    await ret(cb(ref4b, FARE, { vnp_TransactionNo: '14999005' }));
     is('VNPay: lượt đặt Confirmed một lần', sql(`select Status from bookings where Id=${v4.bookingId}`), 'Confirmed');
     is('VNPay: đúng một hóa đơn cho lượt đặt', sql(`select count(*) from invoices i join payments p on p.Id=i.PaymentId where p.BookingId=${v4.bookingId}`), '1');
     is('VNPay: giao dịch thứ hai được mở hoàn tiền', sql(`select count(*) from refunds r join payments p on p.Id=r.PaymentId where p.BookingId=${v4.bookingId}`), '1');
@@ -656,10 +678,10 @@ try {
     const ref7 = urlParams(pv7.j?.paymentUrl).vnp_TxnRef;
     await call(p1, 'POST', `/api/bookings/${v7.bookingId}/cancel`);
     is('Hủy giữ chỗ: giao dịch đang chờ không bị đánh Failed', stat(pv7.j?.id), 'Pending');
-    const late7 = await ret(cb(ref7, 7000, { vnp_TransactionNo: '14999007' }));
+    const late7 = await ret(cb(ref7, FARE, { vnp_TransactionNo: '14999007' }));
     is('Hủy giữ chỗ: trả tiền sau khi hủy không báo thành công', late7.j?.success, false);
     is('Hủy giữ chỗ: không có vé Valid cho lượt đặt đã hủy', sql(`select count(*) from tickets where BookingId=${v7.bookingId} and Status='Valid'`), '0');
-    check('Hủy giữ chỗ: tiền về sau khi hủy được mở hoàn tiền', /^7000\.00\/(Pending|Success)$/.test(sql(`select concat(Amount,'/',Status) from refunds where PaymentId=${pv7.j?.id}`)));
+    check('Hủy giữ chỗ: tiền về sau khi hủy được mở hoàn tiền', new RegExp(`^${FARE}\.00/(Pending|Success)$`).test(sql(`select concat(Amount,'/',Status) from refunds where PaymentId=${pv7.j?.id}`)));
   }
 
   // ============================================================
@@ -669,7 +691,7 @@ try {
   } else {
     const sink = await startSmtpSink(SMTP_SINK_PORT);
     try {
-      const seatsM = seatsOf(6, 4, 16);
+      const seatsM = seatsOf(BUS_A, 4, 16);
       const bookM = async (tok, seat) => (await call(tok, 'POST', '/api/bookings', { tripId: tripA, seatIds: [seat], boardStopId: 1, alightStopId: 2 })).j;
       const payM = (tok, id) => call(tok, 'POST', '/api/payments', { bookingId: id, method: 0 });
       const waitFor = async (cond, ms = 20000) => { for (let t = 0; t < ms; t += 250) { if (cond()) return true; await new Promise((r) => setTimeout(r, 250)); } return false; };
@@ -688,7 +710,7 @@ try {
       check('Email: tiêu đề có số hóa đơn', mail1.subject.includes(pay1.j?.invoiceNo ?? '@@'));
       check('Email: nội dung có số hóa đơn', mail1.body.includes(pay1.j?.invoiceNo ?? '@@'));
       check('Email: nội dung có mã đặt chỗ', mail1.body.includes(pay1.j?.bookingCode ?? '@@'));
-      check('Email: nội dung có số tiền', mail1.body.includes('7.000'));
+      check('Email: nội dung có số tiền', mail1.body.includes(FARE.toLocaleString('vi-VN')));
       check('Email: có liên kết xem vé', mail1.body.includes('/passenger/tickets'));
       check('Email: không chứa mã QR hay chuỗi mã vé', !/[0-9a-f]{32}/.test(mail1.body));
       check('Email: hóa đơn đánh dấu đã gửi', await waitFor(() => sql(`select SentAt is not null from invoices where Id=${pay1.j?.invoiceId}`) === '1'));
@@ -759,7 +781,7 @@ try {
     sql(`update refunds set Status='Failed', Note='bo qua trong test' where Status='Pending' and PaymentId in (select Id from payments where Method='VnPay')`);
     const rs = await startRefundSink(REFUND_SINK_PORT, VNPAY_SECRET);
     try {
-      const seatsR = seatsOf(6, 4, 20);
+      const seatsR = seatsOf(BUS_A, 4, 20);
       const wait = async (cond, ms = 40000) => { for (let t = 0; t < ms; t += 500) { if (cond()) return true; await new Promise((r) => setTimeout(r, 500)); } return false; };
       const bookR = async (tok, seats) => (await call(tok, 'POST', '/api/bookings', { tripId: tripA, seatIds: seats, boardStopId: 1, alightStopId: 2 })).j;
       const payR = (tok, id) => call(tok, 'POST', '/api/payments', { bookingId: id, method: 1 });
@@ -781,14 +803,14 @@ try {
       const pa = await payR(p1, ba.bookingId);
       const refA = refOf(pa);
       sql(`update bookings set HoldExpiresAt='2020-01-01' where Id=${ba.bookingId}`);
-      await ret(signed(refA, 7000, { vnp_TransactionNo: '14999101' }));
+      await ret(signed(refA, FARE, { vnp_TransactionNo: '14999101' }));
       const rfA = Number(sql(`select Id from refunds where PaymentId=${pa.j?.id}`));
       check('Hoàn tự động: yêu cầu hoàn tới API VNPay', await wait(() => rs.requests.length >= 1));
       const qa = rs.requests[0] ?? {};
       is('Hoàn tự động: hoàn toàn bộ (loại 02)', qa.vnp_TransactionType, '02');
       is('Hoàn tự động: lệnh refund', qa.vnp_Command, 'refund');
       is('Hoàn tự động: mã giao dịch gốc', qa.vnp_TxnRef, refA);
-      is('Hoàn tự động: số tiền nhân 100', qa.vnp_Amount, '700000');
+      is('Hoàn tự động: số tiền nhân 100', qa.vnp_Amount, String(FARE * 100));
       is('Hoàn tự động: mã giao dịch VNPay gốc', qa.vnp_TransactionNo, '14999101');
       is('Hoàn tự động: ngày giao dịch gốc (ngày tạo)', qa.vnp_TransactionDate, sql(`select GatewayCreateDate from payments where Id=${pa.j?.id}`));
       is('Hoàn tự động: mã yêu cầu cố định theo khoản hoàn', qa.vnp_RequestId, `RF${rfA}`);
@@ -807,7 +829,7 @@ try {
       // 2. Khách hủy 1 trong 2 vé đã thanh toán, quản lý duyệt: tự hoàn một phần (loại 03), giao dịch vẫn Success.
       const bb = await bookR(p1, [seatsR[1], seatsR[2]]);
       const pb = await payR(p1, bb.bookingId);
-      await ret(signed(refOf(pb), 14000, { vnp_TransactionNo: '14999102' }));
+      await ret(signed(refOf(pb), FARE * 2, { vnp_TransactionNo: '14999102' }));
       const tkB = sql(`select Id from tickets where BookingId=${bb.bookingId} order by Id`).split('\n').map(Number);
       const cancelB = await call(p1, 'POST', `/api/tickets/${tkB[0]}/cancel`, { reason: 'Doi ke hoach di chuyen' });
       is('Hoàn tự động: khách gửi yêu cầu hủy 1 vé', cancelB.s, 200);
@@ -817,14 +839,14 @@ try {
       check('Hoàn tự động: duyệt hủy vé kéo theo yêu cầu hoàn tới cổng', await wait(() => rs.requests.length > reqsBefore));
       const qb = rs.requests[rs.requests.length - 1] ?? {};
       is('Hoàn tự động: hoàn một phần (loại 03)', qb.vnp_TransactionType, '03');
-      is('Hoàn tự động: hoàn đúng tiền của một vé', qb.vnp_Amount, '700000');
+      is('Hoàn tự động: hoàn đúng tiền của một vé', qb.vnp_Amount, String(FARE * 100));
       check('Hoàn tự động: hoàn một phần thành công', await wait(statusIs(rfB, 'Success')));
       is('Hoàn tự động: giao dịch vẫn Success khi mới hoàn một phần', sql(`select Status from payments where Id=${pb.j?.id}`), 'Success');
 
       // 3. Các tình huống lỗi trên một giao dịch riêng, mỗi lần chèn đúng một khoản hoàn để dễ theo dõi.
       const bp = await bookR(p1, [seatsR[3]]);
       const pp = await payR(p1, bp.bookingId);
-      await ret(signed(refOf(pp), 7000, { vnp_TransactionNo: '14999103' }));
+      await ret(signed(refOf(pp), FARE, { vnp_TransactionNo: '14999103' }));
       const insertRefund = (amount) => {
         sql(`insert into refunds (PaymentId, Amount, Reason, Status, CreatedAt, Attempts) values (${pp.j?.id}, ${amount}, 'PaymentFailed', 'Pending', UTC_TIMESTAMP(), 0)`);
         return Number(sql('select max(Id) from refunds'));
@@ -898,8 +920,9 @@ try {
       // 4. Chính sách hoàn theo giờ (chỉ khi backend chạy với Refunds__Tiers: 24h=100%, 2h=50%). Dùng thanh toán giả lập để
       // tách khỏi cổng; hủy vé do khách nên áp chính sách, quản lý duyệt hủy là lúc tính tiền hoàn.
       if (REFUND_TIERS) {
+        let tripSeq = 0; // lệch vài phút để hai chuyến cùng số giờ trên cùng xe không trùng khóa (BusId, DepartureAt)
         const cancelWithTrip = async (hoursAhead, seat) => {
-          sql(`insert into trips (RouteId, ScheduleId, BusId, DepartureAt, Status, DelayMinutes) values (1, NULL, 3, DATE_ADD(UTC_TIMESTAMP(), interval ${hoursAhead} hour), 'Scheduled', 0)`);
+          sql(`insert into trips (RouteId, ScheduleId, BusId, DepartureAt, Status, DelayMinutes) values (1, NULL, 3, DATE_ADD(DATE_ADD(UTC_TIMESTAMP(), interval ${hoursAhead} hour), interval ${++tripSeq} minute), 'Scheduled', 0)`);
           const tid = Number(sql('select max(Id) from trips'));
           const bk = (await call(p1, 'POST', '/api/bookings', { tripId: tid, seatIds: [seat], boardStopId: 1, alightStopId: 2 })).j;
           const pay = await call(p1, 'POST', '/api/payments', { bookingId: bk.bookingId, method: 0 });
@@ -910,12 +933,58 @@ try {
         };
         const [t5, t1, t30] = [seatsOf(3, 3, 0)[0], seatsOf(3, 3, 0)[1], seatsOf(3, 3, 0)[2]];
         const c5 = await cancelWithTrip(5, t5);
-        is('Chính sách: còn 5 giờ hoàn 50%', sql(`select concat(Amount,'/',ifnull(Note,'')) from refunds where PaymentId=${c5.payId}`), '3500.00/Theo chính sách hoàn 50% tiền vé.');
+        is('Chính sách: còn 5 giờ hoàn 50%', sql(`select concat(Amount,'/',ifnull(Note,'')) from refunds where PaymentId=${c5.payId}`), `${FARE / 2}.00/Theo chính sách hoàn 50% tiền vé.`);
         const c1 = await cancelWithTrip(1, t1);
         is('Chính sách: còn dưới 2 giờ không hoàn', sql(`select count(*) from refunds where PaymentId=${c1.payId}`), '0');
         is('Chính sách: vé vẫn được hủy dù không hoàn', sql(`select Status from tickets where Id=${c1.ticketId}`), 'Cancelled');
         const c30 = await cancelWithTrip(30, t30);
-        is('Chính sách: còn 30 giờ hoàn 100%', sql(`select concat(Amount,'/',ifnull(Note,'-')) from refunds where PaymentId=${c30.payId}`), '7000.00/-');
+        is('Chính sách: còn 30 giờ hoàn 100%', sql(`select concat(Amount,'/',ifnull(Note,'-')) from refunds where PaymentId=${c30.payId}`), `${FARE}.00/-`);
+
+        // 4b. Bảng phí hoàn lưu trong CSDL (SCRUM-92): quản lý đổi qua API, ưu tiên hơn cấu hình, áp dụng ngay không cần khởi động lại.
+        sql('drop table if exists qa_refund_tiers_bak; create table qa_refund_tiers_bak as select * from refund_tiers');
+        try {
+          const tiersOf = (j) => JSON.stringify((j ?? []).map((t) => [t.hoursBefore, t.percent]));
+          const nTiers = () => sql('select count(*) from refund_tiers');
+          is('Bậc hoàn: không đăng nhập xem -> 401', (await call(null, 'GET', '/api/refunds/tiers')).s, 401);
+          is('Bậc hoàn: hành khách xem -> 403', (await call(p1, 'GET', '/api/refunds/tiers')).s, 403);
+          is('Bậc hoàn: tài xế sửa -> 403', (await call(d1, 'PUT', '/api/refunds/tiers', [{ hoursBefore: 12, percent: 10 }])).s, 403);
+          sql('delete from refund_tiers');
+          is('Bậc hoàn: số giờ âm -> 400', (await call(mg, 'PUT', '/api/refunds/tiers', [{ hoursBefore: -1, percent: 50 }])).s, 400);
+          is('Bậc hoàn: phần trăm trên 100 -> 400', (await call(mg, 'PUT', '/api/refunds/tiers', [{ hoursBefore: 5, percent: 101 }])).s, 400);
+          is('Bậc hoàn: phần trăm âm -> 400', (await call(mg, 'PUT', '/api/refunds/tiers', [{ hoursBefore: 5, percent: -1 }])).s, 400);
+          is('Bậc hoàn: hai bậc cùng số giờ -> 400', (await call(mg, 'PUT', '/api/refunds/tiers', [{ hoursBefore: 5, percent: 50 }, { hoursBefore: 5, percent: 60 }])).s, 400);
+          is('Bậc hoàn: yêu cầu sai không làm đổi bảng', nTiers(), '0');
+
+          const nAudit = Number(sql(`select count(*) from audit_logs where Action='Cập nhật bảng bậc hoàn tiền'`));
+          const put = await call(mg, 'PUT', '/api/refunds/tiers', [{ hoursBefore: 0, percent: 0 }, { hoursBefore: 24, percent: 100 }, { hoursBefore: 6, percent: 70 }]);
+          is('Bậc hoàn: quản lý đặt 100/70/0 -> 200', put.s, 200);
+          is('Bậc hoàn: trả về các bậc xếp từ nhiều giờ đến ít giờ', tiersOf(put.j), '[[24,100],[6,70],[0,0]]');
+          is('Bậc hoàn: Admin đọc lại đúng bảng', tiersOf((await call(adm, 'GET', '/api/refunds/tiers')).j), '[[24,100],[6,70],[0,0]]');
+          is('Bậc hoàn: đã lưu vào CSDL', nTiers(), '3');
+          is('Bậc hoàn: ghi nhật ký cập nhật', Number(sql(`select count(*) from audit_logs where Action='Cập nhật bảng bậc hoàn tiền'`)), nAudit + 1);
+
+          // Cùng một chuyến cách 10 giờ: cấu hình (24h=100%, 2h=50%) cho 50%, bảng CSDL cho 70% nên kết quả 70% chứng tỏ bảng CSDL được ưu tiên.
+          const d30 = await cancelWithTrip(30, seatsOf(3, 3, 0)[0]);
+          is('Bậc CSDL: còn 30 giờ hoàn 100%', sql(`select concat(Amount,'/',ifnull(Note,'-')) from refunds where PaymentId=${d30.payId}`), `${FARE}.00/-`);
+          const d10 = await cancelWithTrip(10, seatsOf(3, 3, 0)[1]);
+          is('Bậc CSDL: còn 10 giờ hoàn 70% (không phải 50% của cấu hình)', sql(`select concat(Amount,'/',ifnull(Note,'')) from refunds where PaymentId=${d10.payId}`), `${Math.round(FARE * 0.7)}.00/Theo chính sách hoàn 70% tiền vé.`);
+          const d3 = await cancelWithTrip(3, seatsOf(3, 3, 0)[2]);
+          is('Bậc CSDL: còn 3 giờ không hoàn (0%)', sql(`select count(*) from refunds where PaymentId=${d3.payId}`), '0');
+          is('Bậc CSDL: vé vẫn được hủy dù không hoàn', sql(`select Status from tickets where Id=${d3.ticketId}`), 'Cancelled');
+
+          // Đổi bậc có hiệu lực ngay: hạ bậc 6h xuống 40%, chuyến cách 10 giờ hoàn 40%.
+          is('Bậc hoàn: đổi bậc 6h còn 40% -> 200', (await call(mg, 'PUT', '/api/refunds/tiers', [{ hoursBefore: 24, percent: 100 }, { hoursBefore: 6, percent: 40 }])).s, 200);
+          const e10 = await cancelWithTrip(10, seatsOf(3, 3, 0)[0]);
+          is('Bậc CSDL: sau khi đổi, còn 10 giờ hoàn 40%', sql(`select concat(Amount,'/',ifnull(Note,'')) from refunds where PaymentId=${e10.payId}`), `${Math.round(FARE * 0.4)}.00/Theo chính sách hoàn 40% tiền vé.`);
+
+          // Gửi danh sách rỗng thì bảng CSDL trống và quay về cấu hình (24h=100%, 2h=50%).
+          const clr = await call(mg, 'PUT', '/api/refunds/tiers', []);
+          is('Bậc hoàn: gửi danh sách rỗng -> 200 và bảng trống', `${clr.s}/${nTiers()}`, '200/0');
+          const f10 = await cancelWithTrip(10, seatsOf(3, 3, 0)[1]);
+          is('Bậc hoàn: bảng trống thì quay về cấu hình, còn 10 giờ hoàn 50%', sql(`select concat(Amount,'/',ifnull(Note,'')) from refunds where PaymentId=${f10.payId}`), `${FARE / 2}.00/Theo chính sách hoàn 50% tiền vé.`);
+        } finally {
+          sql('delete from refund_tiers; insert into refund_tiers select * from qa_refund_tiers_bak; drop table qa_refund_tiers_bak');
+        }
       } else {
         console.log('  (bỏ qua chính sách hoàn theo giờ: chưa đặt REFUND_TIERS=1)');
       }
@@ -962,9 +1031,9 @@ try {
     is('Chuyển khoản: tài khoản nhận', tr.accountNumber, '0123456789');
     is('Chuyển khoản: tên chủ tài khoản', tr.accountName, 'NGUYEN VAN TEST');
     is('Chuyển khoản: tên ngân hàng', tr.bankName, 'MB Bank');
-    is('Chuyển khoản: số tiền do máy chủ tính', tr.amount, 7000);
+    is('Chuyển khoản: số tiền do máy chủ tính', tr.amount, FARE);
     is('Chuyển khoản: ảnh VietQR điền sẵn tài khoản, số tiền, nội dung',
-      tr.qrUrl, `https://img.vietqr.io/image/MB-0123456789-compact2.png?amount=7000&addInfo=${tr.memo}&accountName=NGUYEN%20VAN%20TEST`);
+      tr.qrUrl, `https://img.vietqr.io/image/MB-0123456789-compact2.png?amount=${FARE}&addInfo=${tr.memo}&accountName=NGUYEN%20VAN%20TEST`);
     check('Chuyển khoản: hạn chờ bằng hạn giữ chỗ', Math.abs(new Date(tr.expiresAt) - new Date(t1.j?.holdExpiresAt)) < 1000);
     is('Chuyển khoản: không có đường dẫn cổng', t1.j?.paymentUrl ?? null, null);
     is('Chuyển khoản: lượt đặt vẫn Pending khi chưa nhận tiền', sql(`select Status from bookings where Id=${b1.bookingId}`), 'Pending');
@@ -1009,7 +1078,7 @@ try {
     check('Chuyển khoản trễ: báo khoản sẽ được hoàn', /hoàn/.test(late2.j?.message ?? ''));
     is('Chuyển khoản trễ: không có vé Valid', sql(`select count(*) from tickets where BookingId=${b2.bookingId} and Status='Valid'`), '0');
     const rf2 = Number(sql(`select Id from refunds where PaymentId=${t2.j?.id}`));
-    is('Chuyển khoản trễ: tự mở khoản hoàn 7.000 đ', sql(`select concat(Amount,'/',Status) from refunds where Id=${rf2}`), '7000.00/Pending');
+    is('Chuyển khoản trễ: tự mở khoản hoàn một vé', sql(`select concat(Amount,'/',Status) from refunds where Id=${rf2}`), `${FARE}.00/Pending`);
     await new Promise((r) => setTimeout(r, 12000));
     const rl = (await call(mg, 'GET', '/api/refunds')).j?.find((x) => x.id === rf2);
     is('Chuyển khoản trễ: không có cổng nên không tự hoàn', rl?.status, 'Pending');
@@ -1021,19 +1090,31 @@ try {
     const b3 = await bookB(p1, seatsB[2]);
     const t3 = await payB(p1, b3.bookingId);
     const m3 = t3.j?.transfer?.memo ?? 'SBVXXXXXXXX';
-    is('Webhook: không có khóa -> 401', (await webhook(incoming(m3, 7000), '')).s, 401);
-    is('Webhook: sai khóa -> 401', (await webhook(incoming(m3, 7000), 'Apikey sai-khoa')).s, 401);
-    is('Webhook: sai kiểu khóa -> 401', (await webhook(incoming(m3, 7000), `Bearer ${BANK_WEBHOOK_KEY}`)).s, 401);
+    is('Webhook: không có khóa -> 401', (await webhook(incoming(m3, FARE), '')).s, 401);
+    is('Webhook: sai khóa -> 401', (await webhook(incoming(m3, FARE), 'Apikey sai-khoa')).s, 401);
+    is('Webhook: sai kiểu khóa -> 401', (await webhook(incoming(m3, FARE), `Bearer ${BANK_WEBHOOK_KEY}`)).s, 401);
     is('Webhook: không xác thực thì giao dịch không đổi', stat(t3.j?.id), 'Pending');
-    is('Webhook: tiền chuyển đi (out) bị bỏ qua', (await webhook(incoming(m3, 7000, { transferType: 'out' }))).j?.reason, 'not-incoming');
-    is('Webhook: tài khoản khác bị bỏ qua', (await webhook(incoming(m3, 7000, { accountNumber: '9999999999' }))).j?.reason, 'other-account');
-    is('Webhook: không có mã nội dung', (await webhook(incoming('chuyen tien an trua', 7000))).j?.reason, 'no-memo');
-    is('Webhook: mã không tồn tại', (await webhook(incoming('SBVAAAAAAAA', 7000))).j?.reason, 'unknown-memo');
-    const wrong = await webhook(incoming(m3, 6000));
+    is('Webhook: tiền chuyển đi (out) bị bỏ qua', (await webhook(incoming(m3, FARE, { transferType: 'out' }))).j?.reason, 'not-incoming');
+    is('Webhook: tài khoản khác bị bỏ qua', (await webhook(incoming(m3, FARE, { accountNumber: '9999999999' }))).j?.reason, 'other-account');
+    is('Webhook: thiếu tài khoản không được chốt', (await webhook(incoming(m3, FARE, { accountNumber: null }))).j?.reason, 'missing-account');
+    is('Webhook: tài khoản rỗng không được chốt', (await webhook(incoming(m3, FARE, { accountNumber: '  ' }))).j?.reason, 'missing-account');
+    for (const id of [null, '', 0, -1, 'invalid']) {
+      is(`Webhook: mã giao dịch không hợp lệ (${id})`, (await webhook(incoming(m3, FARE, { id }))).j?.reason, 'bad-transaction-id');
+    }
+    for (const amount of [0, -FARE, FARE + 0.5, 'invalid']) {
+      is(`Webhook: số tiền không hợp lệ (${amount})`, (await webhook(incoming(m3, amount))).j?.reason, 'bad-amount');
+    }
+    is('Webhook: payload không hợp lệ giữ giao dịch Pending', stat(t3.j?.id), 'Pending');
+    const ambiguous = await webhook(incoming(`${m3} ${again.j?.transfer?.memo}`, FARE));
+    is('Webhook: nhiều mã thanh toán cần đối soát tay', ambiguous.j?.reason, 'ambiguous-memo');
+    is('Webhook: không chọn nhầm khi nhiều mã', stat(t3.j?.id), 'Pending');
+    is('Webhook: không có mã nội dung', (await webhook(incoming('chuyen tien an trua', FARE))).j?.reason, 'no-memo');
+    is('Webhook: mã không tồn tại', (await webhook(incoming('SBVAAAAAAAA', FARE))).j?.reason, 'unknown-memo');
+    const wrong = await webhook(incoming(m3, FARE + 1000));
     is('Webhook: lệch số tiền -> 200 nhưng không khớp', wrong.j?.reason, 'amount-mismatch');
     is('Webhook: lệch số tiền thì giao dịch vẫn Pending', stat(t3.j?.id), 'Pending');
     check('Webhook: lệch số tiền được báo cho quản lý', Number(sql("select count(*) from notifications where Title='Chuyển khoản lệch số tiền'")) > 0);
-    const w3 = incoming(`CK ve xe ${m3.slice(0, 5).toLowerCase()} ${m3.slice(5)} cam on`, 7000, { id: 555123 });
+    const w3 = incoming(`CK ve xe ${m3.slice(0, 5).toLowerCase()} ${m3.slice(5)} cam on`, FARE, { id: 555123 });
     const hit = await webhook(w3);
     is('Webhook: nội dung bị chèn dấu cách vẫn khớp', hit.j?.matched, true);
     is('Webhook: kết quả Confirmed', hit.j?.outcome, 'Confirmed');
@@ -1050,11 +1131,11 @@ try {
     // 5b. Mã giao dịch ngân hàng đã dùng thì không xác nhận được giao dịch khác, dù nội dung và số tiền khớp.
     const b4 = await bookB(p1, seatsB[3]);
     const t4 = await payB(p1, b4.bookingId);
-    const reuse = await webhook(incoming(t4.j?.transfer?.memo, 7000, { id: 555123 }));
+    const reuse = await webhook(incoming(t4.j?.transfer?.memo, FARE, { id: 555123 }));
     is('Webhook: tái dùng mã giao dịch ngân hàng bị coi là trùng', reuse.j?.duplicate, true);
     is('Webhook: giao dịch khác không bị xác nhận bằng mã đã dùng', stat(t4.j?.id), 'Pending');
     // Hai webhook cùng lúc cho cùng một khoản: chỉ một hóa đơn.
-    const race = incoming(t4.j?.transfer?.memo, 7000, { id: 555777 });
+    const race = incoming(t4.j?.transfer?.memo, FARE, { id: 555777 });
     const rr = await Promise.all([webhook(race), webhook(race), webhook(race)]);
     check('Webhook: gọi đồng thời không lỗi 5xx', rr.every((x) => x.s < 500));
     is('Webhook: gọi đồng thời chỉ một hóa đơn', sql(`select count(*) from invoices where PaymentId=${t4.j?.id}`), '1');
@@ -1065,7 +1146,7 @@ try {
     const t5 = await payB(p1, b5.bookingId);
     sql(`update payments set Status='Failed', FailureReason='Hết thời gian chờ thanh toán.' where Id=${t5.j?.id}`);
     sql(`update bookings set HoldExpiresAt='2020-01-01' where Id=${b5.bookingId}`);
-    const late5 = await webhook(incoming(t5.j?.transfer?.memo ?? 'SBVXXXXXXXX', 7000, { id: 555888 }));
+    const late5 = await webhook(incoming(t5.j?.transfer?.memo ?? 'SBVXXXXXXXX', FARE, { id: 555888 }));
     is('Chuyển khoản quá hạn: webhook vẫn nhận tiền', late5.j?.matched, true);
     is('Chuyển khoản quá hạn: kết quả mở khoản hoàn', late5.j?.outcome, 'RefundQueued');
     is('Chuyển khoản quá hạn: giao dịch ghi nhận Success (tiền đã vào)', stat(t5.j?.id), 'Success');
@@ -1093,6 +1174,18 @@ try {
   {
     const bandOf = (list, km) => list.find((b) => km > Number(b.fromKm) && (b.toKm === null || km <= Number(b.toKm)))?.price;
     const stopsKm = (routeId) => sql(`select concat(StopId,':',ifnull(DistanceFromStartKm,'null')) from route_stops where RouteId=${routeId} order by StopOrder`).split('\n');
+
+    // Dữ liệu demo đã có sẵn bảng giá km và chỉ có một tuyến. Nhóm này cần bảng giá rỗng và một tuyến 12 km nên: cất bảng giá có sẵn
+    // (khôi phục khi dọn dẹp) và tự dựng tuyến 12 km nếu chưa có tuyến id 2 (CSDL seed đã có sẵn).
+    if (sql('select count(*) from distance_fares') !== '0') {
+      sql('drop table if exists qa_distance_fares_bak; create table qa_distance_fares_bak as select * from distance_fares; delete from distance_fares');
+      T.fareBak = true;
+    }
+    let R2 = 2;
+    if (sql('select count(*) from routes where Id=2') === '0') {
+      R2 = (await call(mg, 'POST', '/api/routes', { code: 'QAR2', name: 'Tuyen thu 12 km', startPoint: 'A', endPoint: 'B', distanceKm: 12, active: true })).j?.id;
+      await call(mg, 'PUT', `/api/routes/${R2}/stops`, { stops: [{ stopId: 1, minutesFromStart: 0 }, { stopId: 2, minutesFromStart: 10 }, { stopId: 4, minutesFromStart: 30 }] });
+    }
 
     // 0. Chưa lập bảng giá; km từng trạm đã được hệ thống tính sẵn từ tọa độ và độ dài tuyến.
     is('Giá km: chưa lập bảng giá thì danh sách rỗng', (await call(null, 'GET', '/api/distance-fares')).j?.length, 0);
@@ -1146,16 +1239,16 @@ try {
       Math.round(Number(bandOf(list, stuLeg.distanceKm)) * 0.5));
     const longest = matrix.legs.reduce((a, b) => (b.distanceKm > a.distanceKm ? b : a));
     is('Giá km: chặng dài nhất là cả tuyến', longest.distanceKm, Number(sql('select DistanceKm from routes where Id=1')));
-    const km2 = stopsKm(2).map((x) => Number(x.split(':')[1]));
+    const km2 = stopsKm(R2).map((x) => Number(x.split(':')[1]));
     is('Giá km: tuyến 2 dài đúng 12 km (mốc ranh giới)', km2[km2.length - 1], 12);
-    const m2 = (await call(null, 'GET', '/api/distance-fares/routes/2')).j;
+    const m2 = (await call(null, 'GET', `/api/distance-fares/routes/${R2}`)).j;
     const full2 = m2.legs.find((l) => l.distanceKm === 12);
     is('Giá km: đúng 12 km tính bậc 8-12 (9.000), không phải bậc sau', full2?.prices.find((x) => x.passengerTypeCode === 'STANDARD')?.price, 9000);
 
     // 4. Tìm chuyến hiện km và giá theo km (tuyến 1 trạm 1 -> 2).
     const leg12 = matrix.legs.find((l) => l.fromStopId === 1 && l.toStopId === 2);
     const priceStd12 = Number(leg12.prices.find((x) => x.passengerTypeCode === 'STANDARD').price);
-    const srch = await call(p1, 'GET', '/api/trips/search?from=1&to=2&date=2026-11-10');
+    const srch = await call(p1, 'GET', `/api/trips/search?from=1&to=2&date=${dayStr(DAY.tripA)}`);
     const trip = srch.j?.find?.((x) => x.id === tripA) ?? (srch.j?.data ?? []).find((x) => x.id === tripA);
     is('Giá km: tìm chuyến trả giá theo km', trip?.price, priceStd12);
     is('Giá km: tìm chuyến trả số km hành trình', trip?.distanceKm, leg12.distanceKm);
@@ -1163,10 +1256,10 @@ try {
       Math.round(priceStd12 * 0.5));
 
     // 5. Đặt vé tính tiền theo km của chặng khách chọn, không theo giá cố định của tuyến.
-    sql("insert into trips (RouteId, ScheduleId, BusId, DepartureAt, Status, DelayMinutes) values (2, NULL, 3, DATE_ADD(UTC_TIMESTAMP(), interval 5 day), 'Scheduled', 0)");
+    sql(`insert into trips (RouteId, ScheduleId, BusId, DepartureAt, Status, DelayMinutes) values (${R2}, NULL, 3, DATE_ADD(UTC_TIMESTAMP(), interval 5 day), 'Scheduled', 0)`);
     const tid2 = Number(sql('select max(Id) from trips'));
     const seats3 = seatsOf(3, 6, 12);
-    const stops2 = sql('select StopId from route_stops where RouteId=2 order by StopOrder').split('\n').map(Number);
+    const stops2 = sql(`select StopId from route_stops where RouteId=${R2} order by StopOrder`).split('\n').map(Number);
     const bookKm = async (seats, a, b) => (await call(p1, 'POST', '/api/bookings', { tripId: tid2, seatIds: seats, boardStopId: a, alightStopId: b })).j;
     const legPrice = (a, b) => Number(m2.legs.find((l) => l.fromStopId === a && l.toStopId === b).prices.find((x) => x.passengerTypeCode === 'STANDARD').price);
     const bFull = await bookKm([seats3[0]], stops2[0], stops2[2]);
@@ -1183,7 +1276,7 @@ try {
     is('Giá km: hành khách xóa bậc -> 403', (await call(p1, 'DELETE', '/api/distance-fares/1')).s, 403);
     const bOld = await bookKm([seats3[4]], stops2[0], stops2[2]);
     // Giá cũ của tuyến 2 là giá cố định trong bảng fares (seed_sprint2); tuyến không có giá thì mới dùng giá dự phòng 7.000 đ.
-    const oldFare = Number(sql("select Price from fares where RouteId=2 and PassengerTypeId=1 and TicketType='Single' order by EffectiveFrom desc limit 1") || 7000);
+    const oldFare = Number(sql(`select Price from fares where RouteId=${R2} and PassengerTypeId=1 and TicketType='Single' order by EffectiveFrom desc limit 1`) || 7000);
     is('Giá km: hết bảng giá thì quay về giá cố định cũ của tuyến', bOld?.finalAmount, oldFare);
     is('Giá km: bảng giá rỗng lại', (await call(null, 'GET', '/api/distance-fares')).j?.length, 0);
 
@@ -1248,9 +1341,18 @@ try {
   const valExp = await call(p1, 'POST', '/api/vouchers/validate', { code: 'QA_EXPIRED' });
   check('voucher hết hạn không hợp lệ', valExp.j?.isValid === false);
 
+  // Kho voucher của hành khách: danh sách quản trị (GET /api/vouchers) chỉ Admin/Quản lý nên có endpoint riêng chỉ trả mã đang dùng được.
+  is('kho voucher: không đăng nhập -> 401', (await call(null, 'GET', '/api/vouchers/available')).s, 401);
+  is('kho voucher: hành khách xem danh sách quản trị -> 403', (await call(p1, 'GET', '/api/vouchers')).s, 403);
+  const avail = await call(p1, 'GET', '/api/vouchers/available');
+  is('kho voucher: hành khách xem mã khả dụng -> 200', avail.s, 200);
+  check('kho voucher: có mã QA_VC10 còn hạn', (avail.j ?? []).some((v) => v.code === 'QA_VC10'));
+  check('kho voucher: không có mã hết hạn QA_EXPIRED', !(avail.j ?? []).some((v) => v.code === 'QA_EXPIRED'));
+  check('kho voucher: mọi mã trả về đều ACTIVE', (avail.j ?? []).every((v) => v.status === 'ACTIVE' && v.isActive === true));
+
   // 3. Đặt vé áp dụng voucher (SCRUM-67)
-  const tripQ = (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: '2026-11-21T01:00:00Z', busId: 1, driverId: 4 })).j?.tripId;
-  const seatsQ = seatsOf(1, 4, 10);
+  const tripQ = (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: dayAt(DAY.stats), busId: BUS_B, driverId: 4 })).j?.tripId;
+  const seatsQ = seatsOf(BUS_B, 4, 10);
   // Đặt với voucher hết hạn -> 400
   const bookExp = await call(p1, 'POST', '/api/bookings', {
     tripId: tripQ,
@@ -1366,6 +1468,7 @@ try {
       `delete from routes where Id>${b.routes}`,
       `delete from buses where Id>${b.buses}`,
       `delete from stops where Id>${b.stops}`,
+      ...(T.fareBak ? ['delete from distance_fares', 'insert into distance_fares select * from qa_distance_fares_bak', 'drop table qa_distance_fares_bak'] : []),
     ].join('; '),
   );
   console.log('\nđã dọn dữ liệu thử');
