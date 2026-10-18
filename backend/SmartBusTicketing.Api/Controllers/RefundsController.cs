@@ -140,4 +140,62 @@ public class RefundsController(AppDbContext db, AuditLogService audit, RefundExe
 
         return Ok(await Project(db.Refunds.AsNoTracking().Where(r => r.Id == id)).FirstAsync(ct));
     }
+
+    // ─── Refund Tier endpoints ────────────────────────────────────────────
+
+    /// <summary>Lấy danh sách bậc phí hoàn tiền hiện tại.</summary>
+    [HttpGet("tiers")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<ActionResult<IReadOnlyList<RefundTierDto>>> GetTiers(CancellationToken ct)
+    {
+        var tiers = await db.RefundTiers
+            .AsNoTracking()
+            .OrderByDescending(t => t.HoursBefore)
+            .Select(t => new RefundTierDto(t.Id, t.HoursBefore, t.Percent))
+            .ToListAsync(ct);
+        return Ok(tiers);
+    }
+
+    /// <summary>Thay thế toàn bộ bậc phí hoàn tiền (idempotent replace).</summary>
+    [HttpPut("tiers")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<ActionResult<IReadOnlyList<RefundTierDto>>> PutTiers(
+        [FromBody] List<RefundTierRequest> tiers, CancellationToken ct)
+    {
+        if (tiers.Any(t => t.HoursBefore < 0 || t.Percent < 0 || t.Percent > 100))
+            return BadRequest(new { message = "Số giờ phải >= 0, phần trăm từ 0–100." });
+        if (tiers.GroupBy(t => t.HoursBefore).Any(g => g.Count() > 1))
+            return BadRequest(new { message = "Không được có hai bậc cùng số giờ." });
+
+        var actorId = User.AccountId();
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var existing = await db.RefundTiers.ToListAsync(ct);
+        db.RefundTiers.RemoveRange(existing);
+        await db.SaveChangesAsync(ct);
+
+        var now = DateTime.UtcNow;
+        db.RefundTiers.AddRange(tiers.Select(t => new RefundTierRow
+        {
+            HoursBefore = t.HoursBefore,
+            Percent = t.Percent,
+            UpdatedAt = now,
+        }));
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+
+        if (actorId is not null)
+            await audit.WriteAsync(actorId, User.Username() ?? "system",
+                "Cập nhật bảng bậc hoàn tiền",
+                AuditActionType.Payment, "REFUND-TIERS", AuditStatus.Success,
+                $"Số bậc mới: {tiers.Count}", ct);
+
+        var saved = await db.RefundTiers
+            .AsNoTracking()
+            .OrderByDescending(t => t.HoursBefore)
+            .Select(t => new RefundTierDto(t.Id, t.HoursBefore, t.Percent))
+            .ToListAsync(ct);
+        return Ok(saved);
+    }
 }
+
