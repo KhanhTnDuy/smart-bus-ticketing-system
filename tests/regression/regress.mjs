@@ -1341,6 +1341,15 @@ try {
   const valExp = await call(p1, 'POST', '/api/vouchers/validate', { code: 'QA_EXPIRED' });
   check('voucher hết hạn không hợp lệ', valExp.j?.isValid === false);
 
+  // Kho voucher của hành khách: danh sách quản trị (GET /api/vouchers) chỉ Admin/Quản lý nên có endpoint riêng chỉ trả mã đang dùng được.
+  is('kho voucher: không đăng nhập -> 401', (await call(null, 'GET', '/api/vouchers/available')).s, 401);
+  is('kho voucher: hành khách xem danh sách quản trị -> 403', (await call(p1, 'GET', '/api/vouchers')).s, 403);
+  const avail = await call(p1, 'GET', '/api/vouchers/available');
+  is('kho voucher: hành khách xem mã khả dụng -> 200', avail.s, 200);
+  check('kho voucher: có mã QA_VC10 còn hạn', (avail.j ?? []).some((v) => v.code === 'QA_VC10'));
+  check('kho voucher: không có mã hết hạn QA_EXPIRED', !(avail.j ?? []).some((v) => v.code === 'QA_EXPIRED'));
+  check('kho voucher: mọi mã trả về đều ACTIVE', (avail.j ?? []).every((v) => v.status === 'ACTIVE' && v.isActive === true));
+
   // 3. Đặt vé áp dụng voucher (SCRUM-67)
   const tripQ = (await call(mg, 'POST', '/api/assignments', { routeId: 1, departureAt: dayAt(DAY.stats), busId: BUS_B, driverId: 4 })).j?.tripId;
   const seatsQ = seatsOf(BUS_B, 4, 10);

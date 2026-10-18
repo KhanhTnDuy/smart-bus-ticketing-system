@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Compass,
   Calendar,
@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { PaymentMethod, ValidateVoucherResult } from '../../types';
+import { PaymentMethod, ValidateVoucherResult, Voucher } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Badge } from '../../components/common/Badge';
 import { ApiError } from '../../api/client';
@@ -122,18 +122,43 @@ export const RouteBookingPage: React.FC = () => {
   const [transferPay, setTransferPay] = useState<PaymentDto | null>(null);
   const [holdNow, setHoldNow] = useState(() => Date.now());
 
+  const [searchParams] = useSearchParams();
+  const urlVoucher = searchParams.get('voucher') || '';
+
   // Voucher & Discount (SCRUM-66 & SCRUM-67)
-  const [voucherCodeInput, setVoucherCodeInput] = useState('');
+  const [voucherCodeInput, setVoucherCodeInput] = useState<string>(urlVoucher);
   const [appliedVoucher, setAppliedVoucher] = useState<ValidateVoucherResult | null>(null);
   const [isValidatingVoucher, setIsValidatingVoucher] = useState(false);
+  const [isVoucherModalOpen, setIsVoucherModalOpen] = useState(false);
+  const [activeVouchers, setActiveVouchers] = useState<Voucher[]>([]);
 
   const voucherDiscount = appliedVoucher?.discountAmount ?? 0;
   const finalCalculatedAmount = Math.max(0, totalCalculatedAmount - voucherDiscount);
 
-  const handleApplyVoucher = async () => {
-    const code = voucherCodeInput.trim();
+  // Nạp danh sách voucher từ máy chủ để hiển thị trong ví voucher
+  useEffect(() => {
+    let isMounted = true;
+    voucherApi
+      .getAvailableVouchers()
+      .then((data) => {
+        if (isMounted) setActiveVouchers(data || []);
+      })
+      .catch(() => {
+        if (isMounted) setActiveVouchers([]);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleApplyVoucher = async (codeToApply?: string) => {
+    const code = (codeToApply || voucherCodeInput).trim().toUpperCase();
     if (!code) {
       warning('Vui lòng nhập mã giảm giá.');
+      return;
+    }
+    if (totalCalculatedAmount <= 0) {
+      warning('Vui lòng chọn ghế trước khi áp dụng mã giảm giá.');
       return;
     }
     setIsValidatingVoucher(true);
@@ -141,6 +166,8 @@ export const RouteBookingPage: React.FC = () => {
       const res = await voucherApi.validateVoucher(code, totalCalculatedAmount);
       if (res.isValid) {
         setAppliedVoucher(res);
+        setVoucherCodeInput(res.voucher?.code || code);
+        setIsVoucherModalOpen(false);
         success(res.message);
       } else {
         setAppliedVoucher(null);
@@ -159,6 +186,39 @@ export const RouteBookingPage: React.FC = () => {
     setVoucherCodeInput('');
     info('Đã hủy áp dụng mã giảm giá.');
   };
+
+  // Tự động kiểm tra và áp dụng mã nếu được truyền qua query params
+  useEffect(() => {
+    if (urlVoucher && !appliedVoucher && totalCalculatedAmount > 0) {
+      void handleApplyVoucher(urlVoucher);
+    }
+  }, [urlVoucher, totalCalculatedAmount]);
+
+  // Cập nhật lại số tiền giảm khi số ghế thay đổi
+  useEffect(() => {
+    if (appliedVoucher) {
+      if (totalCalculatedAmount <= 0) {
+        setAppliedVoucher(null);
+        return;
+      }
+      const code = appliedVoucher.voucher?.code;
+      if (code) {
+        voucherApi
+          .validateVoucher(code, totalCalculatedAmount)
+          .then((res) => {
+            if (res.isValid) {
+              setAppliedVoucher(res);
+            } else {
+              setAppliedVoucher(null);
+              warning(`Mã ưu đãi [${code}] không còn hợp lệ: ${res.message}`);
+            }
+          })
+          .catch(() => {
+            setAppliedVoucher(null);
+          });
+      }
+    }
+  }, [totalCalculatedAmount]);
 
   // Nạp tuyến và trạm của từng tuyến một lần khi vào trang.
   useEffect(() => {
@@ -1294,11 +1354,20 @@ export const RouteBookingPage: React.FC = () => {
 
           {/* Mã giảm giá / Voucher Section (SCRUM-66 & SCRUM-67) */}
           <div className="p-4 rounded-xl border border-sky-100 dark:border-sky-900/40 bg-gradient-to-r from-sky-50/50 to-indigo-50/40 dark:from-sky-950/20 dark:to-indigo-950/20 space-y-3">
-            <div className="flex items-center gap-2">
-              <Tag className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                Mã giảm giá (Voucher)
-              </label>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Tag className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                  Mã giảm giá (Voucher)
+                </label>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsVoucherModalOpen(true)}
+                className="text-xs text-sky-600 dark:text-sky-400 hover:underline font-semibold flex items-center gap-1"
+              >
+                <span>Chọn voucher khả dụng</span>
+              </button>
             </div>
 
             <div className="flex gap-2">
@@ -1321,7 +1390,7 @@ export const RouteBookingPage: React.FC = () => {
               ) : (
                 <button
                   type="button"
-                  onClick={handleApplyVoucher}
+                  onClick={() => void handleApplyVoucher()}
                   disabled={isValidatingVoucher || !voucherCodeInput.trim()}
                   className="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm"
                 >
@@ -1601,6 +1670,89 @@ export const RouteBookingPage: React.FC = () => {
             </div>
           </div>
         )}
+      </Modal>
+ 
+      {/* VOUCHER PICKER MODAL */}
+      <Modal
+        isOpen={isVoucherModalOpen}
+        onClose={() => setIsVoucherModalOpen(false)}
+        title="Danh Sách Mã Giảm Giá Khả Dụng"
+      >
+        <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Chọn một trong các mã ưu đãi đang áp dụng dưới đây để nhận mức giá tốt nhất cho chuyến xe của bạn:
+          </p>
+
+          {activeVouchers.length === 0 ? (
+            <div className="text-center py-6 text-xs text-slate-400">
+              Hiện tại không có mã giảm giá nào còn hiệu lực.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {activeVouchers.map((v) => {
+                const isCurrent = appliedVoucher?.voucher?.code === v.code;
+                const remaining = v.remainingCount ?? (v.usageLimit - v.usedCount);
+
+                return (
+                  <div
+                    key={v.id}
+                    className={`p-3.5 rounded-xl border transition-all ${
+                      isCurrent
+                        ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 ring-2 ring-emerald-500/30'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 hover:border-sky-400 hover:shadow-sm'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1 flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono font-bold text-xs px-2.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                            {v.code}
+                          </span>
+                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                            {v.discountType === 'Percent'
+                              ? `Giảm ${v.discountValue}%`
+                              : `Giảm ${v.discountValue.toLocaleString('vi-VN')}đ trực tiếp`}
+                          </span>
+                        </div>
+                        {v.description && (
+                          <p className="text-xs text-slate-700 dark:text-slate-300">
+                            {v.description}
+                          </p>
+                        )}
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400 pt-1">
+                          <span>Hạn dùng: <strong>{new Date(v.endAt).toLocaleDateString('vi-VN')}</strong></span>
+                          {v.usageLimit > 0 && (
+                            <>
+                              <span>•</span>
+                              <span>Còn <strong>{remaining}</strong> lượt</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 flex flex-col items-end gap-1.5">
+                        {isCurrent ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 px-2.5 py-1 bg-emerald-100 dark:bg-emerald-950 rounded">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Đang dùng
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void handleApplyVoucher(v.code)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-institutional-700 hover:bg-institutional-800 transition-colors shadow-sm"
+                          >
+                            Áp dụng
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </Modal>
 
     </div>
