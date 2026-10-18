@@ -295,6 +295,16 @@ cũng gọi được API của máy bạn.
 
 ## Giữ ghế khi thanh toán
 
+`GET /api/trips/{id}/seats` (công khai) trả `status` của từng ghế, phân biệt ba trạng thái (SCRUM-96):
+
+| `status` | `isAvailable` | Nghĩa | Hiển thị trên sơ đồ ghế |
+|---|---|---|---|
+| `Available` | true | Còn trống | Viền xám, nhấp để chọn |
+| `Held` | false | Khách khác đang thanh toán, còn hạn giữ chỗ | Viền cam nét đứt kèm biểu tượng đồng hồ, "Đang giữ chỗ" |
+| `Sold` | false | Lượt đặt đã trả tiền (Confirmed) hoặc vé đã quét | Nền hồng, "Đã bán" |
+
+Ghế `Held` tự trở lại `Available` khi hết 10 phút giữ chỗ, còn `Sold` thì chỉ trống lại khi quản lý duyệt hủy vé.
+
 Ghế được giữ **từ lúc khách bấm "Tiếp tục thanh toán"** (bước chọn ghế → thanh toán): `POST /api/bookings` tạo lượt đặt `Pending` với
 `HoldExpiresAt` = 10 phút sau, vé ở trạng thái `Held`. Trang thanh toán đếm ngược 10 phút. Ghế được nhả khi:
 
