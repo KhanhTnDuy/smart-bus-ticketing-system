@@ -2,7 +2,7 @@
  * API Service cho Báo cáo Doanh thu Bán vé xe buýt.
  *
  * Kết nối với endpoint ASP.NET Core `/api/reports/revenue` (hoặc tương đương).
- * Có fallback tự động sang dữ liệu nội bộ trong DataContext khi backend chưa triển khai controller.
+ * Chỉ đọc từ máy chủ: không có dữ liệu mẫu hay bản sao cục bộ dự phòng.
  */
 
 import { api } from './client';
