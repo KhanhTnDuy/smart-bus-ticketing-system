@@ -87,21 +87,25 @@ export const QrScannerPage: React.FC = () => {
       await loadHistory();
     } catch (err) {
       setLast(null);
-      let msg = err instanceof Error ? err.message : 'Không quét được vé.';
-      if (err instanceof ApiError && err.status === 403) {
-        msg = err.message && !err.message.includes('HTTP 403')
-          ? err.message
-          : 'Nhân viên không được phân công phục vụ chuyến này.';
-      } else if (/403|Forbidden|không có quyền|không được phân công/i.test(msg)) {
-        msg = 'Nhân viên không được phân công phục vụ chuyến này.';
-      } else if (err instanceof ApiError && err.status === 400) {
-        msg = err.message && !err.message.includes('HTTP 400')
-          ? err.message
-          : 'Dữ liệu quét vé không hợp lệ. Vui lòng kiểm tra lại.';
-      } else if (/400|Bad Request/i.test(msg)) {
-        msg = 'Dữ liệu quét vé không hợp lệ. Vui lòng kiểm tra lại.';
-      } else if (/500|Internal/i.test(msg)) {
-        msg = 'Hệ thống máy chủ đang bận. Vui lòng thử lại sau.';
+      let msg = 'Không quét được vé.';
+      if (err instanceof ApiError) {
+        if (err.status === 403) {
+          msg = err.message && !err.message.includes('HTTP 403')
+            ? err.message
+            : 'Nhân viên không được phân công phục vụ chuyến này.';
+        } else if (err.status === 400) {
+          msg = err.message && !err.message.includes('HTTP 400')
+            ? err.message
+            : 'Dữ liệu quét vé không hợp lệ. Vui lòng kiểm tra lại.';
+        } else if (err.status === 404) {
+          msg = err.message || 'Không tìm thấy chuyến hoặc dữ liệu vé.';
+        } else if (err.status >= 500) {
+          msg = 'Hệ thống máy chủ đang bận. Vui lòng thử lại sau.';
+        } else {
+          msg = err.message || `Yêu cầu thất bại (HTTP ${err.status}).`;
+        }
+      } else if (err instanceof Error) {
+        msg = err.message;
       }
       setErrorMessage(msg);
       showError(msg);
