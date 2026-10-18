@@ -6,10 +6,11 @@
 // Quy tắc đối chiếu (mô tả endpoint được phép / không được phép với từng vai):
 //   - Không được phép và chưa đăng nhập -> 401; không được phép và đã đăng nhập sai vai -> 403.
 //   - Được phép -> mã bất kỳ khác 401/403 (dữ liệu gửi lên là id không tồn tại và thân rỗng nên chỉ mong 400/404/200, không tạo dữ liệu thật).
-//   - Endpoint được phép mà trả 5xx với dữ liệu rỗng chỉ được in cảnh báo, không tính lỗi phân quyền.
+//   - Endpoint được phép mà trả 5xx với dữ liệu rỗng cũng là lỗi (tiêu chí SCRUM-95: không endpoint nào trả 500).
+//   - Kết quả ghi thành bảng ma trận markdown (MATRIX_OUT, mặc định tests/results/ma-tran-phan-quyen.md).
 // Ngoài ra có lớp kiểm độc lập với attribute (để không "tự chấm bài mình"): endpoint ghi dữ liệu (POST/PUT/PATCH/DELETE) không được
 // công khai trừ danh sách cho phép, và các tài nguyên nhạy cảm phải đúng vai theo chính sách dưới đây.
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sec, check, is, call, login, finish } from './lib.mjs';
@@ -96,10 +97,13 @@ for (const r of ROLES) tokens[r] = await login(WHO[r]);
 // ------------------------------------------------------------------------------------------------
 sec('Lớp 1: ma trận 5 vai + chưa đăng nhập, đối chiếu với attribute của từng endpoint');
 const warns = [];
+const matrix = []; // mỗi dòng: { tag, cells: { vai: '✓' | '✗ 401' | '✗ 403' | '401 (khóa)' } }
 let cells = 0;
 const mismatch = [];
 for (const ep of endpoints) {
   const tag = `${ep.method} ${ep.path}`;
+  const row = { tag, cells: {} };
+  matrix.push(row);
   for (const who of [null, ...ROLES]) {
     const keyed = KEYED.some((re) => re.test(tag));
     const ok = allowed(ep, who) && !keyed;
@@ -112,6 +116,7 @@ for (const ep of endpoints) {
     const good = keyed ? r.s === 401
       : ok ? r.s !== 401 && (r.s !== 403 || INLINE_403.some((re) => re.test(tag)))
         : r.s === (who ? 403 : 401);
+    row.cells[who ?? 'Ẩn danh'] = keyed ? '🔑 khóa API' : ok ? (good ? '✓' : '⚠ ' + r.s) : (good ? '✗ ' + r.s : '⚠ ' + r.s);
     if (!good) mismatch.push(`${tag} [${who ?? 'ẩn danh'}] mong ${expect}, được ${r.s}`);
     if (ok && r.s >= 500) warns.push(`${tag} [${who ?? 'ẩn danh'}] -> ${r.s} với dữ liệu rỗng`);
   }
@@ -119,8 +124,30 @@ for (const ep of endpoints) {
 check(`${cells} ô (endpoint x vai) khớp attribute`, mismatch.length === 0, `${mismatch.length} ô sai`);
 for (const m of mismatch.slice(0, 40)) console.log(`  FAIL ${m}`);
 if (mismatch.length > 40) console.log(`  ... và ${mismatch.length - 40} ô sai khác`);
-for (const w of warns.slice(0, 15)) console.log(`  cảnh báo: ${w}`);
-if (warns.length) console.log(`  (${warns.length} cảnh báo 5xx với dữ liệu rỗng, không tính lỗi phân quyền)`);
+// Tiêu chí SCRUM-95: không endpoint nào trả 500, kể cả với vai được phép (gửi id không tồn tại và thân rỗng thì phải là 400/404, không phải lỗi máy chủ).
+check('không endpoint nào trả 5xx với dữ liệu rỗng', warns.length === 0, warns.slice(0, 10).join('; '));
+
+// Bảng ma trận kết quả: ✓ = được phép (không bị 401/403), ✗ 401/403 = bị chặn đúng mã, ⚠ = lệch so với attribute.
+const NL = String.fromCharCode(10);
+const cols = ['Ẩn danh', ...ROLES];
+const md = [
+  '# Ma trận phân quyền vai x endpoint (SCRUM-95)',
+  '',
+  'Sinh tự động bởi `tests/regression/permissions.mjs`: ' + endpoints.length + ' endpoint x 6 (5 vai và chưa đăng nhập) = ' + cells + ' ô, mỗi ô là một lời gọi thật.',
+  '',
+  '`✓` được phép (không bị 401/403) · `✗ 401` chưa đăng nhập bị chặn · `✗ 403` sai vai bị chặn · `🔑` webhook tự xác thực bằng khóa riêng (thiếu khóa thì 401 với mọi vai) · `⚠` lệch so với attribute.',
+  '',
+  '| Endpoint | ' + cols.join(' | ') + ' |',
+  '|---|' + cols.map(() => '---').join('|') + '|',
+  ...matrix.map((r) => '| `' + r.tag + '` | ' + cols.map((c) => r.cells[c] ?? '').join(' | ') + ' |'),
+  '',
+  mismatch.length ? 'Ô lệch: ' + mismatch.length : 'Không có ô lệch, không có endpoint nào trả 5xx.',
+  '',
+].join(NL);
+const out = process.env.MATRIX_OUT || join(dirname(fileURLToPath(import.meta.url)), '../results/ma-tran-phan-quyen.md');
+mkdirSync(dirname(out), { recursive: true });
+writeFileSync(out, md);
+console.log('  ghi bảng ma trận: ' + out);
 
 // ------------------------------------------------------------------------------------------------
 sec('Lớp 2: chính sách độc lập với attribute');
