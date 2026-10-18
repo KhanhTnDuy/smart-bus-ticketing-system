@@ -76,7 +76,8 @@ cd backend/SmartBusTicketing.Api
 dotnet run --urls http://localhost:5180
 ```
 - API endpoint chạy tại: **`http://localhost:5180`**
-- Swagger UI (tài liệu API): **`http://localhost:5180/swagger`** (chế độ Development)
+- Tài liệu OpenAPI Specification (JSON schema chuẩn .NET 10): **`http://localhost:5180/openapi/v1.json`** (chế độ Development).
+  > 💡 **Lưu ý về Swagger 404**: ASP.NET Core trên .NET 10 mặc định sử dụng module OpenAPI gốc (`Microsoft.AspNetCore.OpenApi` và `MapOpenApi()`) để cung cấp đặc tả OpenAPI 3.0 tại endpoint `/openapi/v1.json`, không cài đặt UI bên thứ ba Swashbuckle tại `/swagger`. Bạn có thể mở trực tiếp URL JSON này trên trình duyệt hoặc import vào Postman / Swagger Editor để tra cứu đầy đủ các API.
 
 #### 🔹 Terminal 2: Chạy Frontend (React + Vite)
 ```bash
@@ -248,6 +249,12 @@ Kịch bản chuẩn từng bước để nhóm thực hiện demo mượt mà, 
 - **Cách khắc phục**:
   - Đảm bảo database đã được tạo và nạp dữ liệu từ `backend/database/demo/smart-bus-demo-data.sql`.
   - Hoặc khởi động backend ở môi trường `Development`, `DbSeeder` sẽ tự động tạo tài khoản `admin` với mật khẩu mặc định `Admin@12345`.
+
+#### 5. Truy cập `http://localhost:5180/swagger` báo lỗi 404 Not Found
+- **Nguyên nhân**: Backend ASP.NET Core sử dụng module OpenAPI gốc của .NET 10 (`builder.Services.AddOpenApi()` & `app.MapOpenApi()`), trả về tài liệu OpenAPI JSON chuẩn thay vì giao diện HTML Swashbuckle UI truyền thống.
+- **Cách khắc phục**:
+  - Truy cập đúng endpoint OpenAPI chính thức của hệ thống: **`http://localhost:5180/openapi/v1.json`**.
+  - Dán URL trên vào Swagger Editor trực tuyến (https://editor.swagger.io) hoặc import vào Postman / Scalar để xem tài liệu API dạng giao diện tương tác.
 
 ---
 
