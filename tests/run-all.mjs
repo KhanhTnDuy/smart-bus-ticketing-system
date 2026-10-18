@@ -2,15 +2,17 @@
 //
 // Việc kịch bản làm thay người chạy:
 //   1. (tùy chọn --reset-demo) nạp lại CSDL từ backend/database/demo/smart-bus-demo-data.sql;
-//   2. dựng backend ở chế độ Development với đúng cấu hình các nhóm kiểm cần (giả lập thanh toán, khóa VNPay thử, SMTP và API hoàn tiền giả,
+//   2. áp các migration EF còn thiếu vào CSDL (dotnet ef database update) để PR có migration mới không đỏ oan;
+//   3. dựng backend ở chế độ Development với đúng cấu hình các nhóm kiểm cần (giả lập thanh toán, khóa VNPay thử, SMTP và API hoàn tiền giả,
 //      tài khoản ngân hàng giả, bảng phí hoàn theo giờ) rồi chờ /api/health;
-//   3. chạy lần lượt: seat-lock, refund-flow, permissions (backend không có bảng phí hoàn) rồi regress đủ mọi nhóm (backend có bảng phí hoàn);
-//   4. in bảng tổng kết, dừng backend, mã thoát khác 0 nếu có phép kiểm lỗi.
+//   4. chạy lần lượt: seat-lock, refund-flow, permissions (backend không có bảng phí hoàn) rồi regress đủ mọi nhóm (backend có bảng phí hoàn);
+//   5. in bảng tổng kết, dừng backend, mã thoát khác 0 nếu có phép kiểm lỗi.
 // Mỗi kịch bản tự ghi mốc id trước khi chạy và xóa mọi dòng mới sau khi chạy nên dữ liệu gốc không đổi.
 //
 // Tùy chọn:  --reset-demo   nạp lại dữ liệu demo trước khi chạy (XÓA và nạp lại CSDL, chỉ dùng trên CSDL dev/thử)
 //            --only a,b     chỉ chạy các kịch bản có tên đó (seat-lock, refund-flow, permissions, invoices, regress, config/no-mock-data, config/frontend-role-mapping, config/payment-simulator-guard, config/deploy-config)
 //            --no-backend   không tự dựng backend, dùng backend đang chạy ở API_URL (tự lo cấu hình)
+//            --no-migrate   không áp migration (mặc định áp migration còn thiếu; cần công cụ dotnet-ef: dotnet tool install --global dotnet-ef)
 // Biến môi trường: API_URL (mặc định http://localhost:5180), MYSQL_BIN, MYSQL_HOST/PORT/USER/PASSWORD/DB (như lib.mjs).
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -174,6 +176,14 @@ try {
     console.log('Biên dịch backend ...');
     const b = spawnSync('dotnet', ['build', join(ROOT, 'backend', 'SmartBusTicketing.slnx'), '--nologo', '-v', 'q'], { encoding: 'utf8' });
     if (b.status !== 0) throw new Error('Biên dịch backend lỗi: ' + (b.stdout || '').split('\n').slice(-15).join(' | '));
+  }
+  if (!flag('--no-backend') && !flag('--no-migrate')) {
+    // Backend không tự migrate: PR thêm migration mới sẽ thiếu bảng nếu CSDL chưa được cập nhật.
+    console.log('Áp migration còn thiếu ...');
+    const efEnv = { ...backendEnv(false) };
+    const ef = spawnSync('dotnet', ['ef', 'database', 'update', '--project', join(ROOT, 'backend', 'SmartBusTicketing.Api'), '--no-build'], { encoding: 'utf8', env: efEnv });
+    if (ef.status !== 0) throw new Error('Áp migration lỗi (cần dotnet-ef: dotnet tool install --global dotnet-ef): ' + `${ef.stdout || ''}${ef.stderr || ''}`.trim().split('
+').slice(-8).join(' | '));
   }
   let i = 0;
   for (const phase of PHASES) {
