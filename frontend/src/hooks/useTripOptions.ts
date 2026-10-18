@@ -41,7 +41,7 @@ export const useTripOptions = (role: Role | null) => {
     (async () => {
       try {
         let list: TripOption[] = [];
-        if (role === 'DRIVER') {
+        if (role === 'DRIVER' || role === 'CONDUCTOR') {
           const rows = await api.get<MyScheduleRow[]>('/api/assignments/my-schedule');
           list = rows
             .filter((r) => r.status !== 3 && r.status !== 4 && r.status !== 'Completed' && r.status !== 'Cancelled')

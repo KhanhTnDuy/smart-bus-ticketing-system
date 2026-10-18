@@ -70,6 +70,10 @@ export const Badge: React.FC<BadgeProps> = ({
         badgeStyle =
           'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800';
         break;
+      case 'CONDUCTOR':
+        badgeStyle =
+          'bg-teal-100 text-teal-800 border-teal-300 dark:bg-teal-950/70 dark:text-teal-300 dark:border-teal-800';
+        break;
       case 'PASSENGER':
         badgeStyle =
           'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/70 dark:text-amber-300 dark:border-amber-800';
@@ -372,6 +376,8 @@ export const Badge: React.FC<BadgeProps> = ({
         return 'Quản lý vận hành';
       case 'DRIVER':
         return 'Tài xế';
+      case 'CONDUCTOR':
+        return 'Phụ xe';
       case 'PASSENGER':
         return 'Hành khách';
       case 'ACTIVE':

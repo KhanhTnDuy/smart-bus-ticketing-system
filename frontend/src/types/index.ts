@@ -1,4 +1,4 @@
-export type Role = 'ADMIN' | 'MANAGER' | 'DRIVER' | 'PASSENGER';
+export type Role = 'ADMIN' | 'MANAGER' | 'DRIVER' | 'CONDUCTOR' | 'PASSENGER';
 
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'LOCKED';
 

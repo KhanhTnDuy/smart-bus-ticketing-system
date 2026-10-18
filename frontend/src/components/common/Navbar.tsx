@@ -674,9 +674,9 @@ export const Navbar: React.FC = () => {
             )}
 
             {/* ============================================================== */}
-            {/* DRIVER ROUTES */}
+            {/* DRIVER & CONDUCTOR ROUTES */}
             {/* ============================================================== */}
-            {role === 'DRIVER' && (
+            {(role === 'DRIVER' || role === 'CONDUCTOR') && (
               <>
                 <NavLink
                   to="/driver/schedule"
@@ -954,6 +954,8 @@ export const Navbar: React.FC = () => {
                 ? 'ĐIỀU HÀNH TUYẾN'
                 : role === 'DRIVER'
                 ? 'TÀI XẾ VẬN HÀNH'
+                : role === 'CONDUCTOR'
+                ? 'PHỤ XE SOÁT VÉ'
                 : 'HÀNH KHÁCH'}
             </span>
           </div>
@@ -967,6 +969,8 @@ export const Navbar: React.FC = () => {
                 ? 'QUẢN LÝ TUYẾN'
                 : role === 'DRIVER'
                 ? 'TÀI XẾ'
+                : role === 'CONDUCTOR'
+                ? 'PHỤ XE'
                 : 'HÀNH KHÁCH'}
             </span>
             <button
@@ -1242,8 +1246,8 @@ export const Navbar: React.FC = () => {
             </>
           )}
 
-          {/* Mobile DRIVER */}
-          {role === 'DRIVER' && (
+          {/* Mobile DRIVER & CONDUCTOR */}
+          {(role === 'DRIVER' || role === 'CONDUCTOR') && (
             <>
               <div className="pt-2 pb-1 px-3 text-[10px] font-bold text-amber-400 uppercase tracking-wider">
                 Nhiệm vụ vận hành

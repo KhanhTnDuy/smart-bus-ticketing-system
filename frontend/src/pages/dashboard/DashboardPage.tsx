@@ -279,8 +279,8 @@ export const DashboardPage: React.FC = () => {
                 </>
               )}
 
-              {/* DRIVER SPRINT 2 SHORTCUTS */}
-              {role === 'DRIVER' && (
+              {/* DRIVER & CONDUCTOR SPRINT 2 SHORTCUTS */}
+              {(role === 'DRIVER' || role === 'CONDUCTOR') && (
                 <>
                   <button
                     type="button"

@@ -84,7 +84,7 @@ export const useDashboardData = (role: Role | null | undefined): DashboardData =
 
     const load = async () => {
       const manager = isStaffManager(role);
-      const canSeeTrips = manager || role === 'DRIVER';
+      const canSeeTrips = manager || role === 'DRIVER' || role === 'CONDUCTOR';
 
       const [routesR, faresR, accountsR, tripsR, changeR, feedbackR, auditR, ticketsR] =
         await Promise.allSettled([

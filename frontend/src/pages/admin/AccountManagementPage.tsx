@@ -280,6 +280,7 @@ export const AccountManagementPage: React.FC = () => {
               <option value="ADMIN">Quản trị viên (Admin)</option>
               <option value="MANAGER">Quản lý tuyến (Manager)</option>
               <option value="DRIVER">Tài xế (Driver)</option>
+              <option value="CONDUCTOR">Phụ xe (Conductor)</option>
               <option value="PASSENGER">Hành khách (Passenger)</option>
             </select>
           </div>
@@ -546,6 +547,7 @@ export const AccountManagementPage: React.FC = () => {
               >
                 <option value="PASSENGER">Hành khách (PASSENGER)</option>
                 <option value="DRIVER">Tài xế xe buýt (DRIVER)</option>
+                <option value="CONDUCTOR">Phụ xe soát vé (CONDUCTOR)</option>
                 <option value="MANAGER">Quản lý tuyến & hạ tầng (MANAGER)</option>
                 <option value="ADMIN">Quản trị viên hệ thống (ADMIN)</option>
               </select>
@@ -770,6 +772,7 @@ export const AccountManagementPage: React.FC = () => {
                 <option value="ADMIN">Quản trị viên (ADMIN)</option>
                 <option value="MANAGER">Quản lý tuyến (MANAGER)</option>
                 <option value="DRIVER">Tài xế (DRIVER)</option>
+                <option value="CONDUCTOR">Phụ xe (CONDUCTOR)</option>
                 <option value="PASSENGER">Hành khách (PASSENGER)</option>
               </select>
             </div>
@@ -852,7 +855,7 @@ export const AccountManagementPage: React.FC = () => {
                 Chọn vai trò mới:
               </label>
               <div className="space-y-2">
-                {(['ADMIN', 'MANAGER', 'DRIVER', 'PASSENGER'] as Role[]).map((r) => {
+                {(['ADMIN', 'MANAGER', 'DRIVER', 'CONDUCTOR', 'PASSENGER'] as Role[]).map((r) => {
                   const label =
                     r === 'ADMIN'
                       ? 'Quản trị viên (Toàn quyền hệ thống & Audit Logs)'
@@ -860,6 +863,8 @@ export const AccountManagementPage: React.FC = () => {
                       ? 'Quản lý tuyến (Tuyến, Trạm dừng, Giá vé, Khiếu nại)'
                       : r === 'DRIVER'
                       ? 'Tài xế vận hành (Theo dõi lịch trình & trạm đón)'
+                      : r === 'CONDUCTOR'
+                      ? 'Phụ xe soát vé (Soát vé QR & hỗ trợ chuyến)'
                       : 'Hành khách (Gửi khiếu nại & Đánh giá chuyến đi)';
 
                   return (

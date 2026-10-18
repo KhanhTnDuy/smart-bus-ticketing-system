@@ -108,8 +108,8 @@ export const AppRoutes: React.FC = () => {
           <Route path="/manager/occupancy" element={<OccupancyReportPage />} />
         </Route>
 
-        {/* DRIVER ROUTES (Sprint 1 & Sprint 2) */}
-        <Route element={<RoleGuard allowedRoles={['DRIVER', 'ADMIN']} />}>
+        {/* DRIVER & CONDUCTOR ROUTES (Sprint 1 & Sprint 2) */}
+        <Route element={<RoleGuard allowedRoles={['DRIVER', 'CONDUCTOR', 'ADMIN']} />}>
           <Route path="/driver/schedule" element={<DriverSchedulePage />} />
           {/* Sprint 2 Driver Features */}
           <Route path="/driver/qr-scanner" element={<QrScannerPage />} />

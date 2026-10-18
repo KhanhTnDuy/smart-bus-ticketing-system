@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Scan, CheckCircle2, XCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Scan, CheckCircle2, XCircle, AlertTriangle, RefreshCw, ShieldAlert, Camera } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -16,7 +16,7 @@ import {
 const CARD = 'bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm';
 
 const RESULT_LABEL: Record<ScanResultName, string> = {
-  Valid: 'Hợp lệ',
+  Valid: 'Hợp lệ — Mời lên xe',
   Invalid: 'Không hợp lệ',
   AlreadyUsed: 'Đã sử dụng',
   WrongTrip: 'Sai chuyến',
@@ -24,11 +24,11 @@ const RESULT_LABEL: Record<ScanResultName, string> = {
 };
 
 const RESULT_STYLE: Record<ScanResultName, string> = {
-  Valid: 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-200',
-  AlreadyUsed: 'border-amber-400 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200',
-  WrongTrip: 'border-amber-400 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200',
-  Expired: 'border-rose-400 bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-200',
-  Invalid: 'border-rose-400 bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-200',
+  Valid: 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200',
+  AlreadyUsed: 'border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200',
+  WrongTrip: 'border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200',
+  Expired: 'border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200',
+  Invalid: 'border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200',
 };
 
 export const QrScannerPage: React.FC = () => {
@@ -88,7 +88,7 @@ export const QrScannerPage: React.FC = () => {
       setLast(null);
       let msg = err instanceof Error ? err.message : 'Không quét được vé.';
       if (/403|Forbidden/i.test(msg)) {
-        msg = 'Bạn không được phân công cho chuyến này nên không thể soát vé.';
+        msg = 'Nhân viên không được phân công phục vụ chuyến này.';
       } else if (/400|Bad Request/i.test(msg)) {
         msg = 'Dữ liệu quét vé không hợp lệ. Vui lòng kiểm tra lại.';
       } else if (/500|Internal/i.test(msg)) {
@@ -127,7 +127,7 @@ export const QrScannerPage: React.FC = () => {
               <select
                 value={tripId}
                 onChange={(e) => setTripId(e.target.value)}
-                className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white"
+                className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white text-sm min-h-[46px]"
               >
                 <option value="">-- Chọn chuyến --</option>
                 {tripOptions.map((t) => (
@@ -150,27 +150,35 @@ export const QrScannerPage: React.FC = () => {
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 placeholder="Quét bằng đầu đọc mã vạch hoặc dán mã QR rồi nhấn Enter"
-                className="w-full p-3 rounded-lg border-2 border-amber-400 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white font-mono"
+                className="w-full p-3.5 rounded-xl border-2 border-amber-400 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white font-mono text-base min-h-[50px]"
               />
             </label>
 
             <button
               type="submit"
               disabled={isScanning || !tripId}
-              className="w-full py-3 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white font-bold rounded-lg flex items-center justify-center gap-2"
+              className="w-full py-3.5 px-4 min-h-[50px] bg-amber-500 hover:bg-amber-600 active:bg-amber-700 disabled:opacity-60 text-white font-bold text-base rounded-xl flex items-center justify-center gap-2 shadow-sm transition-colors"
             >
-              <Scan className="w-4 h-4" />
+              <Scan className="w-5 h-5" />
               {isScanning ? 'Đang kiểm tra...' : 'Kiểm tra vé'}
             </button>
           </form>
 
+          {/* Lưu ý camera trên thiết bị di động */}
+          <div className="p-3.5 rounded-xl border border-blue-200 dark:border-blue-800/60 bg-blue-50/70 dark:bg-blue-950/20 text-xs text-blue-900 dark:text-blue-200 flex items-start gap-2.5">
+            <Camera className="w-4 h-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+            <div>
+              <span className="font-semibold">Lưu ý camera di động:</span> Trình duyệt điện thoại yêu cầu kết nối bảo mật HTTPS trên môi trường Production để cấp quyền truy cập camera quét trực tiếp. Trên môi trường thử nghiệm localhost, phụ xe có thể dùng camera ảo, đầu đọc mã vạch chuyên dụng hoặc dán/nhập mã QR nhanh vào ô trên.
+            </div>
+          </div>
+
           {errorMessage && (
-            <div className="p-5 rounded-xl border-2 border-rose-400 bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-200">
+            <div className="p-5 rounded-xl border-2 border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200 shadow-sm animate-in fade-in">
               <div className="flex items-center gap-3">
-                <XCircle className="w-8 h-8 shrink-0 text-rose-600 dark:text-rose-400" />
+                <ShieldAlert className="w-8 h-8 shrink-0 text-rose-600 dark:text-rose-400" />
                 <div>
-                  <div className="text-lg font-bold">Không thể soát vé</div>
-                  <div className="text-sm">{errorMessage}</div>
+                  <div className="text-lg font-bold">Cảnh báo phân quyền & soát vé</div>
+                  <div className="text-sm font-medium">{errorMessage}</div>
                 </div>
               </div>
             </div>

@@ -180,7 +180,7 @@ export const RoleAssignmentPage: React.FC = () => {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
-                      {(['ADMIN', 'MANAGER', 'DRIVER', 'PASSENGER'] as Role[]).map((r) => {
+                      {(['ADMIN', 'MANAGER', 'DRIVER', 'CONDUCTOR', 'PASSENGER'] as Role[]).map((r) => {
                         const isCurrent = user.role === r;
                         return (
                           <button

@@ -462,7 +462,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // SPRINT 1: USER / ACCOUNT OPERATIONS
   // ------------------------------------------
   const addAccount = (userData: Omit<User, 'id' | 'createdAt'>) => {
-    const validRoles: Role[] = ['ADMIN', 'MANAGER', 'DRIVER', 'PASSENGER'];
+    const validRoles: Role[] = ['ADMIN', 'MANAGER', 'DRIVER', 'CONDUCTOR', 'PASSENGER'];
     if (!validRoles.includes(userData.role)) {
       return { success: false, message: 'Vai trò người dùng không hợp lệ.' };
     }
@@ -509,7 +509,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (updates.role) {
-      const validRoles: Role[] = ['ADMIN', 'MANAGER', 'DRIVER', 'PASSENGER'];
+      const validRoles: Role[] = ['ADMIN', 'MANAGER', 'DRIVER', 'CONDUCTOR', 'PASSENGER'];
       if (!validRoles.includes(updates.role)) {
         return { success: false, message: 'Vai trò được chọn không hợp lệ.' };
       }
@@ -570,7 +570,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Không tìm thấy tài khoản.' };
     }
 
-    const validRoles: Role[] = ['ADMIN', 'MANAGER', 'DRIVER', 'PASSENGER'];
+    const validRoles: Role[] = ['ADMIN', 'MANAGER', 'DRIVER', 'CONDUCTOR', 'PASSENGER'];
     if (!validRoles.includes(newRole)) {
       return { success: false, message: 'Vai trò không hợp lệ.' };
     }

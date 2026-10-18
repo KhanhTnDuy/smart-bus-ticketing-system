@@ -8,8 +8,8 @@
 import { api, setToken } from './client';
 import { Role, User, UserStatus } from '../types';
 
-/** Vai trò trong backend: enum AccountRole { Admin, Manager, Driver, Passenger }. */
-export type AccountRoleName = 'Admin' | 'Manager' | 'Driver' | 'Passenger';
+/** Vai trò trong backend: enum AccountRole { Admin, Manager, Driver, Conductor, Passenger }. */
+export type AccountRoleName = 'Admin' | 'Manager' | 'Driver' | 'Conductor' | 'Passenger';
 
 export interface AccountDto {
   id: number;
@@ -33,10 +33,11 @@ const ROLE_BY_NAME: Record<string, Role> = {
   admin: 'ADMIN',
   manager: 'MANAGER',
   driver: 'DRIVER',
+  conductor: 'CONDUCTOR',
   passenger: 'PASSENGER',
 };
 
-const ROLE_BY_INDEX: Role[] = ['ADMIN', 'MANAGER', 'DRIVER', 'PASSENGER'];
+const ROLE_BY_INDEX: Role[] = ['ADMIN', 'MANAGER', 'DRIVER', 'CONDUCTOR', 'PASSENGER'];
 
 export const toRole = (role: AccountRoleName | number): Role => {
   if (typeof role === 'number') return ROLE_BY_INDEX[role] ?? 'PASSENGER';

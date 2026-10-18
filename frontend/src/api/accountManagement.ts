@@ -58,6 +58,8 @@ export const roleToBackend = (role: Role): BackendAccountRole => {
       return BackendAccountRole.Manager;
     case 'DRIVER':
       return BackendAccountRole.Driver;
+    case 'CONDUCTOR':
+      return BackendAccountRole.Conductor;
     default:
       return BackendAccountRole.Passenger;
   }
@@ -69,13 +71,13 @@ export const backendToRole = (role: BackendAccountRole | number | string): Role 
     if (r === 'ADMIN' || r === '0') return 'ADMIN';
     if (r === 'MANAGER' || r === '1') return 'MANAGER';
     if (r === 'DRIVER' || r === '2') return 'DRIVER';
-    if (r === 'CONDUCTOR' || r === '3') return 'DRIVER'; // Map to driver/staff
+    if (r === 'CONDUCTOR' || r === '3') return 'CONDUCTOR';
     return 'PASSENGER';
   }
   if (role === BackendAccountRole.Admin || role === 0) return 'ADMIN';
   if (role === BackendAccountRole.Manager || role === 1) return 'MANAGER';
   if (role === BackendAccountRole.Driver || role === 2) return 'DRIVER';
-  if (role === BackendAccountRole.Conductor || role === 3) return 'DRIVER';
+  if (role === BackendAccountRole.Conductor || role === 3) return 'CONDUCTOR';
   return 'PASSENGER';
 };
 
