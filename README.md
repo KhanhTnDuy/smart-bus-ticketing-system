@@ -26,6 +26,7 @@ Kiểm thử cấu hình (`tests/config/`) không cần CSDL, tự khởi độn
 
 ```bash
 node tests/config/payment-simulator-guard.mjs   # SCRUM-88: giả lập thanh toán không bật được ngoài Development
+node tests/config/deploy-config.mjs            # SCRUM-106: cấu hình triển khai (cần MySQL đang chạy)
 ```
 
 Chi tiết từng kịch bản, biến môi trường và ma trận kiểm thử thanh toán xem `tests/regression/README.md`.
