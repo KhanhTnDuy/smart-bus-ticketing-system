@@ -203,7 +203,39 @@ export const sendInvoiceEmail = (id: number, email?: string) =>
 
 export const listMyInvoices = (signal?: AbortSignal) => api.get<InvoiceDto[]>('/api/invoices/my', undefined, signal);
 
-export const listAllInvoices = (signal?: AbortSignal) => api.get<InvoiceDto[]>('/api/invoices', undefined, signal);
+/**
+ * Bộ lọc hóa đơn cho quản trị. `from`/`to` là **ngày khởi hành của chuyến** (yyyy-MM-dd, giờ VN) — cùng mốc với
+ * báo cáo doanh thu, nhờ vậy tổng tiền hóa đơn đối chiếu được với doanh thu cùng kỳ.
+ */
+export interface InvoiceFilters {
+  from?: string;
+  to?: string;
+  routeId?: string;
+  method?: string;
+  emailStatus?: string;
+  search?: string;
+}
+
+/** Tổng hợp của đúng bộ lọc đang xem: số hóa đơn và tổng tiền. */
+export interface InvoiceSummaryDto {
+  count: number;
+  total: number;
+}
+
+const invoiceQuery = (f: InvoiceFilters = {}) => ({
+  from: f.from || undefined,
+  to: f.to || undefined,
+  routeId: f.routeId && f.routeId !== 'ALL' ? f.routeId : undefined,
+  method: f.method && f.method !== 'ALL' ? f.method : undefined,
+  emailStatus: f.emailStatus && f.emailStatus !== 'ALL' ? f.emailStatus : undefined,
+  search: f.search?.trim() || undefined,
+});
+
+export const listAllInvoices = (filters: InvoiceFilters = {}, signal?: AbortSignal) =>
+  api.get<InvoiceDto[]>('/api/invoices', invoiceQuery(filters), signal);
+
+export const getInvoiceSummary = (filters: InvoiceFilters = {}, signal?: AbortSignal) =>
+  api.get<InvoiceSummaryDto>('/api/invoices/summary', invoiceQuery(filters), signal);
 
 export const listRefunds = (signal?: AbortSignal) => api.get<RefundDto[]>('/api/refunds', undefined, signal);
 
