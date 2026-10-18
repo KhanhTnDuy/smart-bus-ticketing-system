@@ -107,7 +107,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   if (!response.ok) {
     if (response.status === 401) throw new ApiError(401, 'Bạn cần đăng nhập lại để thực hiện thao tác này.');
-    if (response.status === 403) throw new ApiError(403, 'Bạn không có quyền thực hiện thao tác này.');
+    if (response.status === 403) {
+      const serverMsg = await extractMessage(response);
+      throw new ApiError(403, serverMsg && serverMsg !== `Yêu cầu thất bại (HTTP ${response.status}).` ? serverMsg : 'Bạn không có quyền thực hiện thao tác này.');
+    }
     throw new ApiError(response.status, await extractMessage(response));
   }
 
@@ -138,7 +141,10 @@ export async function fetchBlob(path: string, signal?: AbortSignal): Promise<Blo
   }
   if (!response.ok) {
     if (response.status === 401) throw new ApiError(401, 'Bạn cần đăng nhập lại để thực hiện thao tác này.');
-    if (response.status === 403) throw new ApiError(403, 'Bạn không có quyền xem tệp này.');
+    if (response.status === 403) {
+      const serverMsg = await extractMessage(response);
+      throw new ApiError(403, serverMsg && serverMsg !== `Yêu cầu thất bại (HTTP ${response.status}).` ? serverMsg : 'Bạn không có quyền xem tệp này.');
+    }
     throw new ApiError(response.status, await extractMessage(response));
   }
   return response.blob();
@@ -161,6 +167,10 @@ export async function uploadFile<T>(path: string, file: File): Promise<T> {
   }
   if (!response.ok) {
     if (response.status === 401) throw new ApiError(401, 'Bạn cần đăng nhập lại để thực hiện thao tác này.');
+    if (response.status === 403) {
+      const serverMsg = await extractMessage(response);
+      throw new ApiError(403, serverMsg && serverMsg !== `Yêu cầu thất bại (HTTP ${response.status}).` ? serverMsg : 'Bạn không có quyền thực hiện thao tác này.');
+    }
     if (response.status === 413) throw new ApiError(413, 'Tệp quá lớn, tối đa 5 MB.');
     throw new ApiError(response.status, await extractMessage(response));
   }
