@@ -22,6 +22,12 @@ CONFIRM_TEST_DB=1 npm test                 # chạy trên CSDL dev hiện tại 
 CONFIRM_TEST_DB=1 npm run test:reset-demo  # nạp lại dữ liệu demo trước (xóa và tạo lại CSDL, chỉ dùng trên CSDL dev/thử)
 ```
 
+Kiểm thử cấu hình (`tests/config/`) không cần CSDL, tự khởi động backend để kiểm tra các chốt an toàn khi triển khai:
+
+```bash
+node tests/config/payment-simulator-guard.mjs   # SCRUM-88: giả lập thanh toán không bật được ngoài Development
+```
+
 Chi tiết từng kịch bản, biến môi trường và ma trận kiểm thử thanh toán xem `tests/regression/README.md`.
 
 Quy ước báo lỗi, danh sách lỗi đã biết và kết quả chạy gần nhất: `docs/LOI-DA-BIET.md`.
