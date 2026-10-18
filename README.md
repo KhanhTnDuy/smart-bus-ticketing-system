@@ -65,6 +65,25 @@ dotnet ef database update
 
 ---
 
+### 1.2.1. Nạp lại dữ liệu demo (tự dời ngày theo hôm nay)
+
+Script nạp lại dữ liệu demo tự dời ngày các chuyến theo ngày nạp để **luôn có ít nhất 4 chuyến trong tương lai**; có sẵn 7 tài khoản demo (`admin`, `manager`, `driver1`, `driver2`, `conductor1`, `conductor2`, `passenger1`, mật khẩu chung `Admin@12345`).
+
+```bash
+# Bằng Node.js (từ thư mục gốc)
+npm run reload-demo
+# hoặc nếu MySQL có mật khẩu:
+node scripts/reload-demo.mjs -p <mat_khau_mysql>
+
+# Hoặc PowerShell (Windows):
+.ackend\database\demoeload-demo.ps1
+
+# Hoặc Bash (Linux/macOS):
+./backend/database/demo/reload-demo.sh
+```
+
+Chi tiết xem tại [`backend/database/demo/README.md`](backend/database/demo/README.md). Lệnh này xóa và tạo lại CSDL `smart_bus_ticketing`, chỉ dùng trên CSDL dev/thử.
+
 ### 1.3. Hướng dẫn sao lưu & Phục hồi cơ sở dữ liệu (Database Backup & Restore - SCRUM-106)
 
 Hệ thống cung cấp sẵn các script tự động tại `backend/database/` để thực hiện sao lưu toàn diện và phục hồi CSDL an toàn:
@@ -304,3 +323,7 @@ Kịch bản chuẩn từng bước để nhóm thực hiện demo mượt mà, 
 - **Cách khắc phục**:
   - Truy cập đúng endpoint OpenAPI chính thức của hệ thống: **`http://localhost:5180/openapi/v1.json`**.
   - Dán URL trên vào Swagger Editor trực tuyến (https://editor.swagger.io) hoặc import vào Postman / Scalar để xem tài liệu API dạng giao diện tương tác.
+
+### 4.3. Branch Protection cho nhánh `main`
+
+Hướng dẫn cấu hình Branch Protection Rule để bắt buộc các check CI (`Backend build (.NET)`, `Frontend build (tsc + vite)`, `Regression tests (npm test)`) phải xanh trước khi merge: [`docs/branch-protection-setup.md`](docs/branch-protection-setup.md).
