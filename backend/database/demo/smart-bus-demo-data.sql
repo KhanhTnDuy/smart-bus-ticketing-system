@@ -727,10 +727,11 @@ INSERT INTO `trips` (`Id`, `RouteId`, `ScheduleId`, `BusId`, `DepartureAt`, `Sta
 /*!40000 ALTER TABLE `trips` ENABLE KEYS */;
 UNLOCK TABLES;
 
--- SCRUM-87: Dời ngày chuyến theo ngày nạp thực tế để luôn có ít nhất 4 chuyến trong tương lai
+-- SCRUM-87: Dời ngày chuyến theo ngày nạp thực tế để luôn có ít nhất 4 chuyến trong tương lai (thêm ORDER BY DepartureAt DESC tránh trùng IX_trips_BusId_DepartureAt)
 SET @ref_date = (SELECT DATE(DepartureAt) FROM `trips` WHERE `Id` = 4);
 SET @day_diff = DATEDIFF(CURRENT_DATE(), @ref_date);
-UPDATE `trips` SET `DepartureAt` = DATE_ADD(`DepartureAt`, INTERVAL @day_diff DAY);
+UPDATE `trips` SET `DepartureAt` = DATE_ADD(`DepartureAt`, INTERVAL @day_diff DAY) ORDER BY `DepartureAt` DESC;
+
 DROP TABLE IF EXISTS `vouchers`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;

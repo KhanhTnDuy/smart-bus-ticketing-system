@@ -110,12 +110,12 @@ function runQuery(sql) {
 }
 
 try {
-  // SCRUM-87: Dời ngày các chuyến theo ngày hiện tại để luôn có ít nhất 4 chuyến trong tương lai
+  // SCRUM-87: Dời ngày các chuyến theo ngày hiện tại để luôn có ít nhất 4 chuyến trong tương lai (thêm ORDER BY DepartureAt DESC tránh trùng IX_trips_BusId_DepartureAt)
   console.log('🔄 Đang đồng bộ ngày chuyến theo ngày hiện tại...');
   const shiftSql = `
     SET @ref_date = (SELECT DATE(DepartureAt) FROM trips WHERE Id = 4);
     SET @day_diff = DATEDIFF(CURRENT_DATE(), @ref_date);
-    UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL @day_diff DAY);
+    UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL @day_diff DAY) ORDER BY DepartureAt DESC;
   `;
   runQuery(shiftSql);
 
@@ -129,7 +129,7 @@ try {
   `;
   let futureCount = Number(runQuery(checkFutureSql) || 0);
   while (futureCount < 4) {
-    runQuery("UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL 1 DAY);");
+    runQuery("UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL 1 DAY) ORDER BY DepartureAt DESC;");
     futureCount = Number(runQuery(checkFutureSql) || 0);
   }
 
