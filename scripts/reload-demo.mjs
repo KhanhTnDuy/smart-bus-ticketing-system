@@ -115,7 +115,8 @@ try {
   const shiftSql = `
     SET @ref_date = (SELECT DATE(DepartureAt) FROM trips WHERE Id = 4);
     SET @day_diff = DATEDIFF(CURRENT_DATE(), @ref_date);
-    UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL @day_diff DAY);
+    UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL @day_diff DAY) WHERE @day_diff > 0 ORDER BY DepartureAt DESC;
+    UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL @day_diff DAY) WHERE @day_diff < 0 ORDER BY DepartureAt ASC;
   `;
   runQuery(shiftSql);
 
@@ -129,7 +130,8 @@ try {
   `;
   let futureCount = Number(runQuery(checkFutureSql) || 0);
   while (futureCount < 4) {
-    runQuery("UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL 1 DAY);");
+    // ORDER BY DESC: dời chuyến muộn nhất trước để không đè lên khóa duy nhất (BusId, DepartureAt).
+    runQuery("UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL 1 DAY) ORDER BY DepartureAt DESC;");
     futureCount = Number(runQuery(checkFutureSql) || 0);
   }
 

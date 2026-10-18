@@ -30,20 +30,20 @@
 CREATE DATABASE /*!32312 IF NOT EXISTS*/ `smart_bus_ticketing` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci */ /*!80016 DEFAULT ENCRYPTION='N' */;
 
 USE `smart_bus_ticketing`;
-DROP TABLE IF EXISTS `__efmigrationshistory`;
+DROP TABLE IF EXISTS `__EFMigrationsHistory`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `__efmigrationshistory` (
+CREATE TABLE `__EFMigrationsHistory` (
   `MigrationId` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   `ProductVersion` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   PRIMARY KEY (`MigrationId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
-LOCK TABLES `__efmigrationshistory` WRITE;
-/*!40000 ALTER TABLE `__efmigrationshistory` DISABLE KEYS */;
-INSERT INTO `__efmigrationshistory` VALUES ('20260929075731_InitialCreate','9.0.0'),('20260930152256_AddFeedbackContent','9.0.0'),('20260930205644_AddFeedbackCreatedAt','9.0.0'),('20261004173615_AddTicketChangeRequestDetails','9.0.0'),('20261009171956_AddIncidentAndScanDetails','9.0.0'),('20261009173057_AddRefundProcessing','9.0.0'),('20261010090610_AddNotificationTitleLink','9.0.0'),('20261010093141_AddDiscountApplicationReview','9.0.0'),('20261011145251_AddPaymentGatewayFields','9.0.0'),('20261011151619_AddInvoiceEmailTracking','9.0.0'),('20261011153456_AddRefundGatewayTracking','9.0.0'),('20261011163013_AddDistanceFares','9.0.0');
-/*!40000 ALTER TABLE `__efmigrationshistory` ENABLE KEYS */;
+LOCK TABLES `__EFMigrationsHistory` WRITE;
+/*!40000 ALTER TABLE `__EFMigrationsHistory` DISABLE KEYS */;
+INSERT INTO `__EFMigrationsHistory` VALUES ('20260929075731_InitialCreate','9.0.0'),('20260930152256_AddFeedbackContent','9.0.0'),('20260930205644_AddFeedbackCreatedAt','9.0.0'),('20261004173615_AddTicketChangeRequestDetails','9.0.0'),('20261009171956_AddIncidentAndScanDetails','9.0.0'),('20261009173057_AddRefundProcessing','9.0.0'),('20261010090610_AddNotificationTitleLink','9.0.0'),('20261010093141_AddDiscountApplicationReview','9.0.0'),('20261011145251_AddPaymentGatewayFields','9.0.0'),('20261011151619_AddInvoiceEmailTracking','9.0.0'),('20261011153456_AddRefundGatewayTracking','9.0.0'),('20261011163013_AddDistanceFares','9.0.0');
+/*!40000 ALTER TABLE `__EFMigrationsHistory` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `accounts`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -730,7 +730,10 @@ UNLOCK TABLES;
 -- SCRUM-87: Dời ngày chuyến theo ngày nạp thực tế để luôn có ít nhất 4 chuyến trong tương lai
 SET @ref_date = (SELECT DATE(DepartureAt) FROM `trips` WHERE `Id` = 4);
 SET @day_diff = DATEDIFF(CURRENT_DATE(), @ref_date);
-UPDATE `trips` SET `DepartureAt` = DATE_ADD(`DepartureAt`, INTERVAL @day_diff DAY);
+-- Khóa duy nhất (BusId, DepartureAt) được kiểm từng dòng: dời tiến thì dời chuyến muộn nhất trước, dời lùi thì dời chuyến sớm nhất trước,
+-- nếu không chuyến dời tới có thể đè lên chuyến chưa kịp dời (lỗi 1062 Duplicate entry khi độ dời nhỏ hơn khoảng ngày của dữ liệu).
+UPDATE `trips` SET `DepartureAt` = DATE_ADD(`DepartureAt`, INTERVAL @day_diff DAY) WHERE @day_diff > 0 ORDER BY `DepartureAt` DESC;
+UPDATE `trips` SET `DepartureAt` = DATE_ADD(`DepartureAt`, INTERVAL @day_diff DAY) WHERE @day_diff < 0 ORDER BY `DepartureAt` ASC;
 DROP TABLE IF EXISTS `vouchers`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;

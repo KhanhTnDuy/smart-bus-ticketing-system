@@ -305,6 +305,23 @@ Không đặt khóa thật vào file nằm trong git. Mọi giá trị dưới �
 | `Refunds__AutoProcess` | `true` | Tự gọi API hoàn tiền VNPay; tắt thì quản lý duyệt tay |
 | `Refunds__Tiers__0__HoursBefore` / `__Percent` | rỗng | Bảng phí hoàn vé theo giờ trước giờ chạy |
 
+### Bảng phí hoàn vé theo giờ (SCRUM-92)
+
+Khi hành khách hủy vé, số tiền hoàn tính theo số giờ còn lại trước giờ xe chạy. Hệ thống đọc bảng phí theo thứ tự:
+
+1. Bảng `refund_tiers` trong CSDL, nếu có ít nhất một bậc (quản lý sửa qua API, áp dụng ngay, không cần khởi động lại);
+2. nếu bảng rỗng thì dùng cấu hình `Refunds__Tiers__N__HoursBefore` / `__Percent`;
+3. nếu cả hai rỗng thì hoàn 100%.
+
+Quy tắc bậc: hủy khi còn ít nhất `HoursBefore` giờ thì hoàn `Percent`%; bậc cao nhất thỏa điều kiện được chọn; còn ít giờ hơn bậc thấp nhất thì không hoàn (0%).
+Ví dụ `[24h:100%, 6h:70%, 0h:0%]`: hủy trước 24 giờ hoàn 100%, từ 6 đến dưới 24 giờ hoàn 70%, dưới 6 giờ không hoàn.
+
+| API | Vai trò | Mô tả |
+| --- | --- | --- |
+| `GET /api/refunds/tiers` | Admin, Quản lý | Xem các bậc đang lưu trong CSDL, sắp từ nhiều giờ đến ít giờ |
+| `PUT /api/refunds/tiers` | Admin, Quản lý | Thay toàn bộ bậc bằng danh sách gửi lên `[{ "hoursBefore": 24, "percent": 100 }, ...]`; gửi `[]` để quay về cấu hình. Số giờ >= 0, phần trăm 0 đến 100, không trùng số giờ (sai thì 400). Ghi nhật ký "Cập nhật bảng bậc hoàn tiền" |
+
+Migration tạo bảng: `20261018041010_AddRefundTiers` (chạy `dotnet ef database update`; `npm test` tự chạy bước này).
 Thiếu `BankTransfer__AccountNumber`/`AccountName`/`BankId` thì chuyển khoản trả 503; thiếu cấu hình VNPay thì VNPay trả 503.
 Hai phương thức này không rơi về bộ giả lập.
 
