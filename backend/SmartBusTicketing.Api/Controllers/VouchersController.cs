@@ -67,6 +67,29 @@ public sealed class VouchersController(AppDbContext db, AuditLogService audit) :
     }
 
     /// <summary>
+    /// Danh sách voucher đang dùng được (trong hạn, còn lượt) cho mọi người dùng đã đăng nhập, để hành khách xem kho ưu đãi và chọn mã khi đặt vé.
+    /// Trả cùng định dạng với danh sách quản trị nhưng chỉ gồm voucher ACTIVE.
+    /// </summary>
+    [HttpGet("available")]
+    [Authorize]
+    public async Task<ActionResult<IReadOnlyList<VoucherDto>>> GetAvailable(CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var list = await db.Vouchers
+            .AsNoTracking()
+            .Where(v => v.StartAt <= now && v.EndAt >= now)
+            .OrderByDescending(v => v.Id)
+            .Select(v => new
+            {
+                Voucher = v,
+                UsedCount = v.Bookings.Count(b => b.Status == BookingStatus.Confirmed || (b.Status == BookingStatus.Pending && b.HoldExpiresAt > now))
+            })
+            .ToListAsync(ct);
+
+        return Ok(list.Select(x => ToDto(x.Voucher, x.UsedCount, now)).Where(v => v.IsActive).ToList());
+    }
+
+    /// <summary>
     /// SCRUM-66: Xem chi tiết voucher theo ID.
     /// </summary>
     [HttpGet("{id:long}")]

@@ -1,7 +1,7 @@
 /**
  * US2 - Nguồn dữ liệu thật cho trang Nhật ký hệ thống.
  *
- * Hook này thay thế useData() (mockData) ở AuditLogPage.
+ * Hook này đọc nhật ký từ API cho AuditLogPage.
  *
  * Việc lọc được đẩy xuống backend (`GET /api/audit-logs`) thay vì lọc trên mảng
  * đã tải, vì bảng nhật ký lớn dần theo thời gian và backend đã hỗ trợ sẵn tham
