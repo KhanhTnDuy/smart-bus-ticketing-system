@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using SmartBusTicketing.Api.Models;
 
 namespace SmartBusTicketing.Api.DTOs;
@@ -163,3 +163,7 @@ public sealed class ProcessRefundRequest
     /// </summary>
     public bool ConfirmedExternally { get; init; }
 }
+
+public sealed record RefundTierDto(int Id, int HoursBefore, int Percent);
+public sealed record RefundTierRequest(int HoursBefore, int Percent);
+

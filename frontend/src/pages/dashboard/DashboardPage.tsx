@@ -14,7 +14,6 @@ import {
   AlertTriangle,
   Ticket,
   QrCode,
-  Radio,
   Receipt,
   UserCheck,
   RotateCcw,
@@ -139,24 +138,6 @@ export const DashboardPage: React.FC = () => {
                     </div>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => navigate('/tracking')}
-                    className="flex items-start gap-3 p-3.5 rounded-lg border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-[#0c1e18] hover:bg-emerald-100/70 dark:hover:bg-emerald-900/40 transition-all text-left group"
-                  >
-                    <div className="p-2.5 rounded-lg bg-emerald-600 text-white shrink-0 shadow-sm">
-                      <Radio className="w-5 h-5 animate-pulse" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 flex items-center justify-between">
-                        <span>Theo Dõi Vị Trí Xe GPS</span>
-                        <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
-                        Radar bản đồ trực tiếp vị trí xe buýt, tốc độ di chuyển và thời gian đến trạm.
-                      </p>
-                    </div>
-                  </button>
 
                   <button
                     type="button"
@@ -239,24 +220,6 @@ export const DashboardPage: React.FC = () => {
                     </div>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => navigate('/tracking')}
-                    className="flex items-start gap-3 p-3.5 rounded-lg border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-[#0c1e18] hover:bg-emerald-100/70 dark:hover:bg-emerald-900/40 transition-all text-left group"
-                  >
-                    <div className="p-2.5 rounded-lg bg-emerald-600 text-white shrink-0 shadow-sm">
-                      <Radio className="w-5 h-5 animate-pulse" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 flex items-center justify-between">
-                        <span>Giám Sát Radar GPS Xe Buýt</span>
-                        <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
-                        Bản đồ mô phỏng vị trí xe buýt trên tuyến.
-                      </p>
-                    </div>
-                  </button>
 
                   <button
                     type="button"
@@ -320,24 +283,6 @@ export const DashboardPage: React.FC = () => {
                     </div>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => navigate('/tracking')}
-                    className="flex items-start gap-3 p-3.5 rounded-lg border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-[#0c1e18] hover:bg-emerald-100/70 dark:hover:bg-emerald-900/40 transition-all text-left group sm:col-span-2"
-                  >
-                    <div className="p-2.5 rounded-lg bg-emerald-600 text-white shrink-0 shadow-sm">
-                      <Radio className="w-5 h-5 animate-pulse" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 flex items-center justify-between">
-                        <span>Giám Sát Định Vị Xe Buýt Của Ca Trực</span>
-                        <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
-                        Kiểm tra vị trí xe, khoảng cách và thời gian dự kiến đến trạm dừng tiếp theo.
-                      </p>
-                    </div>
-                  </button>
                 </>
               )}
 
@@ -540,24 +485,6 @@ export const DashboardPage: React.FC = () => {
                     </div>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => navigate('/passenger/ratings')}
-                    className="flex items-start gap-3 p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-[#0c162d] hover:bg-blue-50 dark:hover:bg-[#19274c] transition-all text-left group"
-                  >
-                    <div className="p-2.5 rounded-lg bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 shrink-0">
-                      <Star className="w-5 h-5" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-institutional-600 dark:group-hover:text-sky-400 flex items-center justify-between">
-                        <span>Đánh giá chất lượng chuyến đi</span>
-                        <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
-                        Chấm sao từ 1 đến 5 sao và đóng góp ý kiến nâng cao dịch vụ xe buýt công cộng.
-                      </p>
-                    </div>
-                  </button>
                 </>
               )}
             </div>
