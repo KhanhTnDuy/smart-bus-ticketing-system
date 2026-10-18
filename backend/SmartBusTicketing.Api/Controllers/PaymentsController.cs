@@ -21,13 +21,13 @@ namespace SmartBusTicketing.Api.Controllers;
 [Route("api/payments")]
 [Authorize]
 public class PaymentsController(
-    AppDbContext db, PaymentSettlementService settlement, VnPayClient vnPay, IConfiguration config,
+    AppDbContext db, PaymentSettlementService settlement, VnPayClient vnPay, PaymentSimulator simulator,
     IOptions<BankTransferOptions> bankOptions, AuditLogService audit) : ControllerBase
 {
     private readonly BankTransferOptions bank = bankOptions.Value;
 
-    /// <summary>Bộ giả lập cho các phương thức chưa nối cổng thật. Phải tắt ở môi trường thật.</summary>
-    private readonly bool simulatorEnabled = config.GetValue<bool>("Payments:Simulator:Enabled");
+    /// <summary>Bộ giả lập cho các phương thức chưa nối cổng thật. Chỉ bật được ở Development (xem PaymentSimulator).</summary>
+    private readonly bool simulatorEnabled = simulator.IsEnabled;
 
     private Dictionary<string, string> QueryToDictionary() =>
         Request.Query.ToDictionary(kv => kv.Key, kv => kv.Value.ToString(), StringComparer.Ordinal);
