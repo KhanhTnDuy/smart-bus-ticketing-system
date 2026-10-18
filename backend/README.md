@@ -126,6 +126,34 @@ có thêm `BankTransfer`, lưu dạng chuỗi nên không đổi cấu trúc b�
   Giá mỗi vé là số tiền thanh toán chia đều cho các vé của lượt đặt, tổng hoàn không vượt số tiền đã trả.
 - `PATCH /api/refunds/{id}/process { approve, note }` (Admin, Quản lý): duyệt thì `Success`, từ chối thì `Failed` và bắt buộc
   có `note`. Khi tổng hoàn thành công bằng số tiền đã trả, giao dịch chuyển `Refunded`. Xử lý lần hai trả 409.
+## Hóa đơn (SCRUM-99)
+
+Mỗi giao dịch thanh toán thành công sinh một hóa đơn. Hành khách xem và tải ở `/passenger/invoices`; quản trị
+xem toàn bộ ở `/manager/invoices`.
+
+| Endpoint | Quyền | Việc |
+|---|---|---|
+| `GET /api/invoices/my` | Passenger | Hóa đơn của chính mình |
+| `GET /api/invoices` | Admin, Manager | Danh sách có lọc |
+| `GET /api/invoices/summary` | Admin, Manager | Số hóa đơn và tổng tiền của **đúng bộ lọc đó** |
+| `GET /api/invoices/{id}` | chủ hóa đơn hoặc Admin/Manager | Chi tiết |
+| `POST /api/invoices/{id}/send` | chủ hóa đơn hoặc Admin/Manager | Gửi lại email hóa đơn |
+
+Tham số lọc: `from`, `to` (**ngày khởi hành của chuyến**, `yyyy-MM-dd` giờ VN), `routeId`, `method`
+(`Momo`, `VnPay`, `ZaloPay`, `BankTransfer`), `emailStatus` (`Sent`, `Pending`, `Failed`, `NoAddress`),
+`search` (số hóa đơn, mã đặt chỗ, tên khách). Tham số sai trả 400 kèm thông báo.
+
+Kỳ lọc cố ý lấy theo ngày khởi hành — **đúng mốc của báo cáo doanh thu** — nên `summary.total` của hóa đơn
+bằng `summary.totalGross` của `GET /api/reports/revenue` cùng kỳ, cùng tuyến. Trang quản trị lấy cả hai số và
+hiện "Khớp doanh thu cùng kỳ" hoặc cảnh báo lệch. Khi lọc thêm theo phương thức, tình trạng email hay từ khóa
+thì không đối chiếu, vì báo cáo doanh thu không có các tiêu chí đó.
+
+Kiểm thử: `CONFIRM_TEST_DB=1 node tests/regression/invoices.mjs` (19 phép kiểm: phân quyền, từng bộ lọc,
+tham số sai, tổng hợp khớp danh sách và khớp doanh thu).
+
+Tải hóa đơn là một tệp HTML tự chứa (`<số hóa đơn>.html`) dựng ở frontend
+(`src/components/common/invoiceDownload.ts`), dùng chung cho cả trang khách lẫn trang quản trị.
+
 ## Báo cáo doanh thu (SCRUM-82, SCRUM-86)
 
 `GET /api/reports/revenue` (Admin, Quản lý) với các tham số tùy chọn `startDate`,
