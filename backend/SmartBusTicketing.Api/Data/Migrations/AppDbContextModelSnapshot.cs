@@ -848,6 +848,31 @@ namespace SmartBusTicketing.Api.Data.Migrations
                     b.ToTable("refunds", (string)null);
                 });
 
+            modelBuilder.Entity("SmartBusTicketing.Api.Models.RefundTierRow", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("HoursBefore")
+                        .HasColumnType("int")
+                        .HasColumnName("hours_before");
+
+                    b.Property<int>("Percent")
+                        .HasColumnType("int")
+                        .HasColumnName("percent");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("refund_tiers", (string)null);
+                });
+
             modelBuilder.Entity("SmartBusTicketing.Api.Models.RouteStop", b =>
                 {
                     b.Property<long>("RouteId")
