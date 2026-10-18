@@ -33,6 +33,7 @@ public class AppDbContext : DbContext
     public DbSet<Payment> Payments => Set<Payment>();
     public DbSet<Invoice> Invoices => Set<Invoice>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<RefundTierRow> RefundTiers => Set<RefundTierRow>();
     public DbSet<MonthlyPass> MonthlyPasses => Set<MonthlyPass>();
 
     public DbSet<BusLocation> BusLocations => Set<BusLocation>();
@@ -260,6 +261,15 @@ public class AppDbContext : DbContext
             e.Property(r => r.GatewayRefId).HasMaxLength(64);
             e.HasOne(r => r.ChangeRequest).WithMany(c => c.Refunds)
                 .HasForeignKey(r => r.ChangeRequestId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<RefundTierRow>(e =>
+        {
+            e.ToTable("refund_tiers");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.HoursBefore).HasColumnName("hours_before");
+            e.Property(x => x.Percent).HasColumnName("percent");
+            e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
         });
 
         modelBuilder.Entity<MonthlyPass>(e =>
