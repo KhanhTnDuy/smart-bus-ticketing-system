@@ -35,6 +35,21 @@ Trước khi đóng một lỗi, chạy lại bộ hồi quy (`tests/regression/
 | 4 | Cảnh báo lint `react(set-state-in-effect)` ở vài trang (DataContext, StopManagementPage, DiscountVerificationPage...) | Nhẹ | Chưa xử lý | Không ảnh hưởng chạy; dọn khi có thời gian |
 | 5 | Biến import thừa (`TicketStatus`, `Filter`, `Badge`, `Clock`) ở vài trang quản lý | Nhẹ | Chưa xử lý | `npm run lint` liệt kê đủ |
 
+## Quy định: không dùng dữ liệu giả
+
+Mọi dữ liệu hiển thị hoặc ghi nhận phải đọc từ cơ sở dữ liệu qua API; frontend không có dữ liệu mẫu và không lưu dữ liệu nghiệp vụ vào `localStorage`
+(chỉ còn phiên đăng nhập và theme). Kịch bản `tests/config/no-mock-data.mjs` (trong `npm test` và CI) chặn mọi PR đem dữ liệu giả trở lại.
+
+Đã gỡ ngày 18/10: `data/mockData.ts`, `context/DataContext.tsx`, trang theo dõi xe `/tracking` và trang đánh giá chuyến đi `/passenger/rating`
+(hai trang này chạy bằng dữ liệu mẫu hoặc `localStorage`) cùng mọi liên kết tới chúng. Muốn làm lại phải nối backend:
+
+| Tính năng | Việc cần làm |
+|---|---|
+| Theo dõi xe GPS | API đọc vị trí mới nhất từ bảng `bus_locations`, API tài xế gửi vị trí; trang gọi API |
+| Đánh giá chuyến đi | Bảng đánh giá và migration, API đánh giá/xem đánh giá, phép kiểm trong `tests/regression` |
+
+Bộ giả lập thanh toán (MoMo, ZaloPay) của backend chỉ chạy ở `Development` để kiểm thử, bị chặn ở Production.
+
 ## Lỗi nghiêm trọng còn tồn đọng
 
 **Không có.** Căn cứ, chạy ngày 18/10/2026 trên `main` (sau khi gộp #131-#134, #141) bằng `CONFIRM_TEST_DB=1 npm test`:
