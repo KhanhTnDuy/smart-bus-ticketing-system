@@ -3,7 +3,7 @@
     Nạp lại dữ liệu demo Smart Bus Ticketing với các chuyến động theo thời gian thực.
 .DESCRIPTION
     Script thực thi nạp file smart-bus-demo-data.sql vào MySQL, tự động phát hiện đường dẫn mysql.exe,
-    tạo database smart_bus_ticketing, 7 tài khoản demo và ít nhất 4 chuyến trong tương lai.
+    tạo database smart_bus_ticketing, 7 tài khoản demo và dời ngày chuyến để luôn có ít nhất 4 chuyến trong tương lai.
 .PARAMETER User
     Tên tài khoản MySQL (mặc định: root).
 .PARAMETER Password
@@ -42,6 +42,7 @@ if (-not $mysqlCmd) {
     $candidatePaths = @(
         "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe",
         "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe",
+        "C:\Program Files\MySQL\MySQL Server 9.0\bin\mysql.exe",
         "C:\Program Files\MySQL\MySQL Server 8.1\bin\mysql.exe",
         "C:\Program Files\MySQL\MySQL Server 8.2\bin\mysql.exe",
         "C:\Program Files\MySQL\MySQL Server 8.3\bin\mysql.exe",
@@ -99,21 +100,44 @@ if ($process.ExitCode -ne 0) {
 
 Write-Host "✅ Nạp dữ liệu thành công!" -ForegroundColor Green
 
-# Kiểm tra số chuyến tương lai
+# SCRUM-87: Dời ngày chuyến theo hôm nay để luôn có ít nhất 4 chuyến tương lai
+$shiftTripsQuery = "SET @ref_date = (SELECT DATE(DepartureAt) FROM trips WHERE Id = 4); SET @day_diff = DATEDIFF(CURRENT_DATE(), @ref_date); UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL @day_diff DAY);"
+$shiftArgs = @("-h", $Hostname, "-P", $Port, "-u", $User, "-D", $Database, "-e", $shiftTripsQuery)
+if ($Password) { $shiftArgs += "-p$Password" }
+& $mysqlBin @shiftArgs | Out-Null
+
+# Kiểm tra số chuyến tương lai (> UTC_TIMESTAMP + 30 phút)
 $checkTripsQuery = "SELECT COUNT(*) FROM trips WHERE Status='Scheduled' AND BusId IS NOT NULL AND DepartureAt > DATE_ADD(UTC_TIMESTAMP(), INTERVAL 30 MINUTE);"
 $tripsCheckArgs = @("-h", $Hostname, "-P", $Port, "-u", $User, "-N", "-D", $Database, "-e", $checkTripsQuery)
 if ($Password) { $tripsCheckArgs += "-p$Password" }
 
 $checkProc = Start-Process -FilePath $mysqlBin -ArgumentList $tripsCheckArgs -NoNewWindow -Wait -PassThru -RedirectStandardOutput "$env:TEMP\trips_check.txt" -RedirectStandardError "$env:TEMP\trips_err.txt"
+$futureCount = 0
 if ($checkProc.ExitCode -eq 0 -and (Test-Path "$env:TEMP\trips_check.txt")) {
-    $futureCount = (Get-Content "$env:TEMP\trips_check.txt").Trim()
-    Write-Host "🚍 Số chuyến trong tương lai sẵn sàng đặt vé: $futureCount" -ForegroundColor Green
+    $futureCountStr = (Get-Content "$env:TEMP\trips_check.txt").Trim()
+    [int]::TryParse($futureCountStr, [ref]$futureCount) | Out-Null
 }
 
-Write-Host "👤 7 tài khoản demo đã sẵn sàng (Mật khẩu: Admin@12345):" -ForegroundColor Green
-Write-Host "   - admin (Admin)"
-Write-Host "   - manager (Manager)"
-Write-Host "   - driver1, driver2 (Driver)"
-Write-Host "   - conductor1, conductor2 (Conductor)"
-Write-Host "   - passenger1 (Passenger)"
+# Nếu chạy vào cuối ngày chưa đủ 4 chuyến tương lai, dời thêm ngày
+while ($futureCount -lt 4) {
+    $bumpQuery = "UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL 1 DAY);"
+    $bumpArgs = @("-h", $Hostname, "-P", $Port, "-u", $User, "-D", $Database, "-e", $bumpQuery)
+    if ($Password) { $bumpArgs += "-p$Password" }
+    & $mysqlBin @bumpArgs | Out-Null
+
+    $checkProc = Start-Process -FilePath $mysqlBin -ArgumentList $tripsCheckArgs -NoNewWindow -Wait -PassThru -RedirectStandardOutput "$env:TEMP\trips_check.txt" -RedirectStandardError "$env:TEMP\trips_err.txt"
+    if ($checkProc.ExitCode -eq 0 -and (Test-Path "$env:TEMP\trips_check.txt")) {
+        $futureCountStr = (Get-Content "$env:TEMP\trips_check.txt").Trim()
+        [int]::TryParse($futureCountStr, [ref]$futureCount) | Out-Null
+    }
+}
+
+Write-Host "🚍 Số chuyến trong tương lai sẵn sàng đặt vé: $futureCount" -ForegroundColor Green
+
+Write-Host "`n👤 7 tài khoản demo đã sẵn sàng (Mật khẩu: Admin@12345):" -ForegroundColor Green
+Write-Host "   - admin (Admin): Hoạt động"
+Write-Host "   - manager (Manager): Hoạt động"
+Write-Host "   - driver1, driver2 (Driver): Hoạt động"
+Write-Host "   - conductor1, conductor2 (Conductor): Hoạt động"
+Write-Host "   - passenger1 (Passenger): Hoạt động"
 Write-Host "====================================================================" -ForegroundColor Cyan
