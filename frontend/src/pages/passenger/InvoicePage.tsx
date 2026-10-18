@@ -4,6 +4,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { Modal } from '../../components/common/Modal';
 import { EmptyState } from '../../components/common/EmptyState';
 import { ApiError } from '../../api/client';
+import { downloadInvoice } from '../../components/common/invoiceDownload';
 import { useToast } from '../../context/ToastContext';
 import {
   InvoiceDto,
@@ -18,40 +19,11 @@ const CARD = 'bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark
 const FILTER =
   'py-2 px-3 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500';
 
-const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
-
 const EMAIL_STATUS: Record<InvoiceDto['emailStatus'], { label: string; style: string }> = {
   Sent: { label: 'Đã gửi email', style: 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800' },
   Pending: { label: 'Đang gửi email...', style: 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800' },
   Failed: { label: 'Gửi email thất bại', style: 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800' },
   NoAddress: { label: 'Chưa có email nhận', style: 'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600' },
-};
-
-/** Tải hóa đơn thành một tệp HTML tự chứa để khách in hoặc lưu. */
-const downloadInvoice = (inv: InvoiceDto) => {
-  const rows: [string, string][] = [
-    ['Số hóa đơn', inv.invoiceNo],
-    ['Mã đặt chỗ', inv.bookingCode],
-    ['Khách hàng', inv.passengerName],
-    ['Email', inv.email ?? '-'],
-    ['Tuyến', `${inv.routeCode} - ${inv.routeName}`],
-    ['Khởi hành', formatDateTime(inv.departureAt)],
-    ['Ghế', inv.seats.join(', ')],
-    ['Phương thức', PAYMENT_METHOD_LABEL[inv.method] ?? inv.method],
-    ['Thanh toán lúc', formatDateTime(inv.paidAt)],
-    ['Tổng tiền', formatVnd(inv.total)],
-  ];
-  const html = `<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Hóa đơn ${escapeHtml(inv.invoiceNo)}</title>
-<style>body{font-family:Arial,sans-serif;max-width:640px;margin:32px auto;color:#0f172a}h1{font-size:20px}table{width:100%;border-collapse:collapse}td{padding:8px 4px;border-bottom:1px solid #e2e8f0}td:first-child{color:#64748b;width:38%}</style></head>
-<body><h1>HÓA ĐƠN ĐIỆN TỬ VÉ XE BUÝT</h1><table>${rows
-    .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td><b>${escapeHtml(v)}</b></td></tr>`)
-    .join('')}</table></body></html>`;
-  const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${inv.invoiceNo}.html`;
-  a.click();
-  URL.revokeObjectURL(url);
 };
 
 export const InvoicePage: React.FC = () => {
