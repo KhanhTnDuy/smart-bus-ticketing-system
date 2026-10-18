@@ -97,6 +97,13 @@ public sealed class PaymentResultDto
     public PaymentDto Payment { get; init; } = null!;
 }
 
+/// <summary>Tổng hợp hóa đơn theo bộ lọc đang xem, để đối chiếu với báo cáo doanh thu cùng kỳ (SCRUM-99).</summary>
+public sealed class InvoiceSummaryDto
+{
+    public int Count { get; init; }
+    public decimal Total { get; init; }
+}
+
 public sealed class InvoiceDto
 {
     public long Id { get; init; }
@@ -156,3 +163,7 @@ public sealed class ProcessRefundRequest
     /// </summary>
     public bool ConfirmedExternally { get; init; }
 }
+
+public sealed record RefundTierDto(int Id, int HoursBefore, int Percent);
+public sealed record RefundTierRequest(int HoursBefore, int Percent);
+

@@ -8,8 +8,8 @@
 import { api, setToken } from './client';
 import { Role, User, UserStatus } from '../types';
 
-/** Vai trò trong backend: enum AccountRole { Admin, Manager, Driver, Passenger }. */
-export type AccountRoleName = 'Admin' | 'Manager' | 'Driver' | 'Passenger';
+/** Vai trò trong backend: enum AccountRole { Admin, Manager, Driver, Conductor, Passenger }. */
+export type AccountRoleName = 'Admin' | 'Manager' | 'Driver' | 'Conductor' | 'Passenger';
 
 export interface AccountDto {
   id: number;
@@ -29,14 +29,19 @@ interface LoginResponse {
 }
 
 // Backend serialize enum thành chuỗi, nhưng vẫn chấp nhận cả dạng số cho chắc.
+// Thứ tự và tên theo enum AccountRole ở backend: { Admin, Manager, Driver, Conductor, Passenger }.
+// Phụ xe dùng chung nhóm giao diện với tài xế (lịch trực, soát vé QR, báo sự cố): thiếu "conductor" ở đây thì
+// đăng nhập phụ xe rơi về PASSENGER và không vào được trang soát vé. tests/config/frontend-role-mapping.mjs
+// kiểm hai bảng dưới khớp enum này.
 const ROLE_BY_NAME: Record<string, Role> = {
   admin: 'ADMIN',
   manager: 'MANAGER',
   driver: 'DRIVER',
+  conductor: 'DRIVER',
   passenger: 'PASSENGER',
 };
 
-const ROLE_BY_INDEX: Role[] = ['ADMIN', 'MANAGER', 'DRIVER', 'PASSENGER'];
+const ROLE_BY_INDEX: Role[] = ['ADMIN', 'MANAGER', 'DRIVER', 'DRIVER', 'PASSENGER'];
 
 export const toRole = (role: AccountRoleName | number): Role => {
   if (typeof role === 'number') return ROLE_BY_INDEX[role] ?? 'PASSENGER';
