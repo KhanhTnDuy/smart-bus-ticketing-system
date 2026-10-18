@@ -320,7 +320,9 @@ export const RouteBookingPage: React.FC = () => {
   const handleSeatClick = (seat: TripSeatDto) => {
     if (!selectedTrip) return;
     if (!seat.isAvailable) {
-      warning(`Ghế ${seat.seatCode} đã được đặt trước bởi hành khách khác.`);
+      warning(seat.status === 'Held'
+        ? `Ghế ${seat.seatCode} đang được hành khách khác giữ trong lúc thanh toán. Thử lại sau nếu họ không trả tiền kịp.`
+        : `Ghế ${seat.seatCode} đã được bán cho hành khách khác.`);
       return;
     }
 
@@ -913,8 +915,8 @@ export const RouteBookingPage: React.FC = () => {
                 <span className="text-slate-600 dark:text-slate-300">Đã bán</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <div className="w-4 h-4 rounded bg-slate-300 dark:bg-slate-700 border-2 border-slate-400" />
-                <span className="text-slate-600 dark:text-slate-300">Không khả dụng</span>
+                <div className="w-4 h-4 rounded bg-orange-50 dark:bg-orange-950/50 border-2 border-dashed border-orange-400" />
+                <span className="text-slate-600 dark:text-slate-300">Đang giữ chỗ (khách khác đang thanh toán)</span>
               </div>
             </div>
 
@@ -953,31 +955,39 @@ export const RouteBookingPage: React.FC = () => {
                           <React.Fragment key={sideIndex}>
                             <div className="flex items-center gap-2">
                               {side.map((seat) => {
-                                const isBooked = !seat.isAvailable;
+                                // Ghế đang giữ (khách khác đang thanh toán) hiện khác ghế đã bán: nó sẽ tự
+                                // trống lại khi hết hạn giữ chỗ nên khách có thể quay lại thử.
+                                const isHeld = seat.status === 'Held';
+                                const isSold = seat.status === 'Sold';
+                                const isTaken = !seat.isAvailable;
                                 const isSelected = selectedSeatIds.includes(seat.seatId);
 
                                 return (
                                   <button
                                     key={seat.seatId}
                                     type="button"
-                                    disabled={isBooked}
+                                    disabled={isTaken}
                                     onClick={() => handleSeatClick(seat)}
                                     className={`w-12 h-12 rounded-lg font-bold text-xs flex flex-col items-center justify-center transition-all ${
                                       isSelected
                                         ? 'bg-amber-400 text-institutional-950 font-black ring-4 ring-amber-300 shadow-md transform scale-105'
-                                        : isBooked
+                                        : isSold
                                         ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-900 cursor-not-allowed opacity-70'
+                                        : isHeld
+                                        ? 'bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-300 border-2 border-dashed border-orange-400 dark:border-orange-700 cursor-not-allowed'
                                         : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-2 border-slate-300 dark:border-slate-700 hover:border-institutional-500 hover:bg-blue-50 dark:hover:bg-slate-700'
                                     }`}
                                     title={
                                       isSelected
                                         ? `Nhấp để hủy chọn ghế ${seat.seatCode}`
-                                        : isBooked
-                                        ? `Ghế ${seat.seatCode} đã đặt`
+                                        : isSold
+                                        ? `Ghế ${seat.seatCode} đã bán`
+                                        : isHeld
+                                        ? `Ghế ${seat.seatCode} đang được khách khác giữ khi thanh toán`
                                         : `Chọn ghế ${seat.seatCode} (${currentUnitPrice.toLocaleString('vi-VN')} đ)`
                                     }
                                   >
-                                    <Armchair className="w-3.5 h-3.5" />
+                                    {isHeld ? <Clock className="w-3.5 h-3.5" /> : <Armchair className="w-3.5 h-3.5" />}
                                     <span>{seat.seatCode}</span>
                                   </button>
                                 );

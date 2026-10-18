@@ -24,6 +24,7 @@ import { BusManagementPage } from '../pages/manager/BusManagementPage';
 import { ScheduleManagementPage } from '../pages/manager/ScheduleManagementPage';
 import { AssignmentManagementPage } from '../pages/manager/AssignmentManagementPage';
 import { RefundManagementPage } from '../pages/manager/RefundManagementPage';
+import { InvoiceManagementPage } from '../pages/manager/InvoiceManagementPage';
 import { RevenueReportPage } from '../pages/manager/RevenueReportPage';
 import { VoucherManagementPage } from '../pages/manager/VoucherManagementPage';
 import { DiscountVerificationPage } from '../pages/manager/DiscountVerificationPage';
@@ -98,6 +99,7 @@ export const AppRoutes: React.FC = () => {
 
           <Route path="/manager/ticket-requests" element={<TicketChangeRequestPage />} />
           <Route path="/manager/refunds" element={<RefundManagementPage />} />
+          <Route path="/manager/invoices" element={<InvoiceManagementPage />} />
           <Route path="/manager/bank-transfers" element={<BankTransferConfirmPage />} />
           <Route path="/manager/incidents" element={<IncidentPage />} />
           <Route path="/manager/revenue" element={<RevenueReportPage />} />

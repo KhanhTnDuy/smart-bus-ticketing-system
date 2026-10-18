@@ -1,6 +1,6 @@
 # 🚌 Smart Bus Ticketing System - Hệ Thống Vé Xe Buýt Thông Minh
 
-[![.NET Version](https://img.shields.io/badge/.NET-9.0%20%7C%2010.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![.NET Version](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![React Version](https://img.shields.io/badge/React-18-61DAFB?logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript)](https://www.typescriptlang.org/)
 [![MySQL](https://img.shields.io/badge/MySQL-8.0%2B-4479A1?logo=mysql)](https://www.mysql.com/)
@@ -27,7 +27,7 @@
 ### 1.1. Yêu cầu môi trường
 Trước khi bắt đầu, đảm bảo máy tính đã cài đặt:
 - **Node.js**: Phiên bản LTS `20.x` hoặc `24.x` (kèm `npm`).
-- **.NET SDK**: Phiên bản `.NET 9.0+` (hoặc `.NET 10 preview`).
+- **.NET SDK**: Phiên bản **.NET 10.0** (SDK .NET 10 preview / LTS hỗ trợ C# 13, cấu hình mục tiêu `<TargetFramework>net10.0</TargetFramework>`).
 - **Hệ quản trị CSDL MySQL**: MySQL Server 8.0+ hoặc XAMPP (chạy MySQL cổng mặc định `3306`).
 - **Git**: Quản lý phiên bản và mã nguồn.
 
@@ -66,18 +66,46 @@ dotnet ef database update
 
 ---
 
-### 1.3. Lệnh khởi chạy hệ thống
+### 1.3. Hướng dẫn sao lưu & Phục hồi cơ sở dữ liệu (Database Backup & Restore - SCRUM-106)
+
+Hệ thống cung cấp sẵn các script tự động tại `backend/database/` để thực hiện sao lưu toàn diện và phục hồi CSDL an toàn:
+
+#### 🔹 1. Sao lưu cơ sở dữ liệu (Backup)
+- **Sử dụng script tự động (Linux / macOS / Git Bash)**:
+  ```bash
+  bash backend/database/backup.sh [thư_mục_đích]
+  ```
+  *(Mặc định file sao lưu `.sql` kèm timestamp được lưu tại `backend/database/backups/smart_bus_ticketing_YYYYMMDD_HHMMSS.sql`). Script sử dụng `--single-transaction --routines --events --triggers` giúp tạo bản sao nhất quán mà không khóa bảng.*
+- **Hoặc dùng lệnh mysqldump trực tiếp (Windows CMD / PowerShell)**:
+  ```bash
+  mysqldump -h localhost -P 3306 -u root -p --single-transaction --routines --events --triggers --databases smart_bus_ticketing > backup_smart_bus.sql
+  ```
+
+#### 🔹 2. Phục hồi cơ sở dữ liệu (Restore)
+- **Sử dụng script tự động (Linux / macOS / Git Bash)**:
+  ```bash
+  CONFIRM_RESTORE=1 bash backend/database/restore.sh backend/database/backups/<ten_file_sao_luu>.sql
+  ```
+  *(Bắt buộc gắn cờ `CONFIRM_RESTORE=1` để xác nhận ghi đè CSDL).*
+- **Hoặc dùng lệnh mysql CLI trực tiếp (Windows CMD / PowerShell)**:
+  ```bash
+  mysql -h localhost -P 3306 -u root -p smart_bus_ticketing < backup_smart_bus.sql
+  ```
+
+---
+
+### 1.4. Lệnh khởi chạy hệ thống
 
 Mở 2 cửa sổ terminal riêng biệt để chạy Backend và Frontend:
 
-#### 🔹 Terminal 1: Chạy Backend (ASP.NET Core Web API)
+#### 🔹 Terminal 1: Chạy Backend (ASP.NET Core Web API trên .NET 10)
 ```bash
 cd backend/SmartBusTicketing.Api
 dotnet run --urls http://localhost:5180
 ```
 - API endpoint chạy tại: **`http://localhost:5180`**
-- Tài liệu OpenAPI Specification (JSON schema chuẩn .NET 10): **`http://localhost:5180/openapi/v1.json`** (chế độ Development).
-  > 💡 **Lưu ý về Swagger 404**: ASP.NET Core trên .NET 10 mặc định sử dụng module OpenAPI gốc (`Microsoft.AspNetCore.OpenApi` và `MapOpenApi()`) để cung cấp đặc tả OpenAPI 3.0 tại endpoint `/openapi/v1.json`, không cài đặt UI bên thứ ba Swashbuckle tại `/swagger`. Bạn có thể mở trực tiếp URL JSON này trên trình duyệt hoặc import vào Postman / Swagger Editor để tra cứu đầy đủ các API.
+- Tài liệu OpenAPI Specification (JSON schema chuẩn .NET 10): **`http://localhost:5180/openapi/v1.json`** (chế độ Development sinh tự động từ `Microsoft.AspNetCore.OpenApi`).
+  > 💡 **Lưu ý về Swagger 404**: ASP.NET Core trên .NET 10 mặc định sử dụng module OpenAPI gốc (`builder.Services.AddOpenApi()` và `app.MapOpenApi()`) để cung cấp đặc tả OpenAPI 3.0 tại endpoint `/openapi/v1.json`, không cài đặt UI bên thứ ba Swashbuckle tại `/swagger`. Bạn có thể mở trực tiếp URL JSON này trên trình duyệt hoặc import vào Postman / Swagger Editor để tra cứu đầy đủ các API.
 
 #### 🔹 Terminal 2: Chạy Frontend (React + Vite)
 ```bash
@@ -89,7 +117,7 @@ npm run dev
 
 ---
 
-### 1.4. Danh sách tài khoản demo sẵn có
+### 1.5. Danh sách tài khoản demo sẵn có
 Tất cả các tài khoản demo đều dùng chung mật khẩu mặc định: **`Admin@12345`**
 
 | Vai trò | Tên đăng nhập (Username) | Mật khẩu (Password) | Quyền hạn & Chức năng chính |
@@ -102,23 +130,25 @@ Tất cả các tài khoản demo đều dùng chung mật khẩu mặc định:
 
 ---
 
-### 1.5. Lệnh kiểm thử hồi quy tự động (Automated Regression Testing)
+### 1.6. Lệnh kiểm thử tự động (Automated Testing)
 
-Hệ thống cung cấp các kịch bản kiểm thử tích hợp tự động gọi trực tiếp API backend và kiểm tra dữ liệu trong CSDL MySQL (bao gồm kiểm tra ma trận phân quyền 5 vai, luồng giữ/nhả ghế, luồng hoàn tiền và quét vé QR):
+Bộ kiểm thử hồi quy gọi API thật của backend nằm tại `tests/regression/` (hơn 500 phép kiểm: luồng chính, thanh toán, hoàn tiền, giữ ghế, ma trận phân quyền 5 vai).
+Chạy tất cả bằng một lệnh từ thư mục gốc, kịch bản tự dựng backend với cấu hình cần thiết và dọn dữ liệu sau khi chạy:
 
-- **Kiểm thử hồi quy toàn bộ hệ thống (180+ test cases)**:
-  ```bash
-  CONFIRM_TEST_DB=1 node tests/regression/regress.mjs
-  ```
-- **Kiểm thử giữ ghế & nhả ghế đồng thời (Seat Lock)**:
-  ```bash
-  node tests/regression/seat-lock.mjs
-  ```
-- **Kiểm thử luồng hủy vé & xử lý hoàn tiền (Refund Flow)**:
-  ```bash
-  node tests/regression/refund-flow.mjs
-  ```
-- Chi tiết từng kịch bản, các biến môi trường cấu hình và cơ chế tự động khôi phục dữ liệu xem tại: `tests/regression/README.md`.
+```bash
+CONFIRM_TEST_DB=1 npm test                 # chạy trên CSDL dev hiện tại (cần MySQL đang chạy)
+CONFIRM_TEST_DB=1 npm run test:reset-demo  # nạp lại dữ liệu demo trước (xóa và tạo lại CSDL, chỉ dùng trên CSDL dev/thử)
+```
+
+Kiểm thử cấu hình (`tests/config/`) không cần CSDL, tự khởi động backend để kiểm tra các chốt an toàn khi triển khai:
+
+```bash
+node tests/config/payment-simulator-guard.mjs   # SCRUM-88: giả lập thanh toán không bật được ngoài Development
+node tests/config/deploy-config.mjs            # SCRUM-106: cấu hình triển khai (cần MySQL đang chạy)
+```
+
+- Chi tiết từng kịch bản, biến môi trường và ma trận kiểm thử thanh toán xem tại `tests/regression/README.md`.
+- Quy ước báo lỗi, danh sách lỗi đã biết và kết quả chạy gần nhất xem tại `docs/LOI-DA-BIET.md`.
 
 ---
 
@@ -139,13 +169,13 @@ Hệ thống được thiết kế theo mô hình 3 lớp phân tách trách nhi
                                     │ (REST API / JSON qua Port 5173 -> 5180)
 ┌───────────────────────────────────▼────────────────────────────────────┐
 │  2. TẦNG NGHIỆP VỤ (BUSINESS LOGIC LAYER - BACKEND WEB API)            │
-│  - ASP.NET Core Web API (.NET 9.0 / 10.0)                              │
+│  - ASP.NET Core Web API (.NET 10 - TargetFramework net10.0)            │
 │  - Controllers & DTOs: TicketScans, Bookings, Vouchers, Trips, Reports │
 │  - Role-based Authorization: Admin, Manager, Driver, Conductor         │
 │  - Concurrency Lock: Atomic conditional update & transaction an toàn   │
 │  - AuditLogService: Ghi nhật ký mọi thao tác (soát vé, sửa tuyến, v.v.)│
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ (EF Core 9.0 Pomelo Provider)
+                                    │ (EF Core Pomelo MySQL Provider)
 ┌───────────────────────────────────▼────────────────────────────────────┐
 │  3. TẦNG TRUY XUẤT DỮ LIỆU & LƯU TRỮ (DATA ACCESS & PERSISTENCE)       │
 │  - Cơ sở dữ liệu quan hệ MySQL 8.0 (Port 3306)                         │
@@ -155,9 +185,9 @@ Hệ thống được thiết kế theo mô hình 3 lớp phân tách trách nhi
 ```
 
 ### 2.2. Danh mục công nghệ
-- **Backend**: .NET 9.0 / 10.0, ASP.NET Core Web API, Entity Framework Core 9.0, Pomelo MySQL, JWT Bearer, BCrypt.Net-Next.
+- **Backend**: .NET 10.0, ASP.NET Core Web API, Entity Framework Core 10, Pomelo MySQL, JWT Bearer, BCrypt.Net-Next, OpenAPI (`Microsoft.AspNetCore.OpenApi`).
 - **Frontend**: React 18, TypeScript 5.x, Vite, Tailwind CSS, Lucide React Icons, React Router v6.
-- **Testing**: Kịch bản kiểm thử hồi quy luồng chính tự động (`tests/regression/regress.mjs`) với hơn 180 test cases bao phủ toàn bộ ma trận 5 vai trò.
+- **Testing**: Bộ kiểm thử hồi quy tự động một lệnh (`tests/run-all.mjs`, `tests/regression/regress.mjs`), test ma trận phân quyền 5 vai, kiểm thử chốt chặn triển khai (`tests/config/`).
 
 ---
 
@@ -179,10 +209,10 @@ Kịch bản chuẩn từng bước để nhóm thực hiện demo mượt mà, 
 ### ✅ Luồng 2 (Tài xế / Phụ xe): Soát vé bằng Camera/QR & Xử lý ngoại lệ (SCRUM-97)
 1. Đăng nhập tài khoản tài xế: `driver1` / `Admin@12345`.
 2. Truy cập menu **Tài xế & Soát vé** → **Quét QR vé** (`/driver/qr-scanner`).
-3. Chọn chuyến xe đang phụ trách từ danh sách chuyến được phân công.
+3. Hệ thống tự động chọn sẵn chuyến xe gần giờ khởi hành hiện tại nhất từ danh sách chuyến được phân công.
 4. **Kiểm chứng các trường hợp ngoại lệ thực tế**:
    - **Kịch bản 1 - Vé hợp lệ (Mời lên xe)**: Quét vé đúng chuyến → Hiển thị khung màu xanh tương phản cao: *"Hợp lệ — Mời lên xe: Vé hợp lệ. Mời hành khách lên xe."*, thông tin hành khách, số ghế, trạm lên/xuống; cập nhật trạng thái vé sang `Used`.
-   - **Kịch bản 2 - Quét lại vé đã dùng (HTTP 400)**: Quét lại mã QR vừa soát thành công → Hiển thị khung màu vàng cảnh báo: *"Vé này đã được sử dụng trước đó lúc [Giờ:Phút]"*.
+   - **Kịch bản 2 - Quét lại vé đã dùng (HTTP 400)**: Quét lại mã QR vừa soát thành công → Hiển thị khung màu vàng cảnh báo: *"Vé này đã được sử dụng trước đó lúc [Giờ:Phút]"* (múi giờ UTC+7).
    - **Kịch bản 3 - Khách nhầm chuyến (HTTP 400)**: Quét vé của chuyến A trên chuyến B → Hiển thị khung màu vàng thông báo cụ thể: *"Vé này thuộc chuyến #[Id], không phải chuyến #[Id] hiện tại."*
    - **Kịch bản 4 - Mã QR không tồn tại (HTTP 400)**: Nhập mã giả hoặc không có trong hệ thống → Hiển thị khung màu đỏ: *"Mã QR không tồn tại trong hệ thống."*
    - **Kịch bản 5 - Vé chưa trả tiền (HTTP 400)**: Quét vé ở trạng thái giữ chỗ (`Held`) → Hiển thị khung màu đỏ: *"Vé chưa được thanh toán."*
@@ -282,7 +312,7 @@ Kịch bản chuẩn từng bước để nhóm thực hiện demo mượt mà, 
 
 | Pull Request | Nhiệm vụ liên quan | Tác giả | Trạng thái | Đánh giá QA |
 | :--- | :--- | :---: | :---: | :---: |
-| **[PR #127](https://github.com/KhanhTnDuy/smart-bus-ticketing-system/pull/127)** | **SCRUM-97** (Thông báo rõ lý do quét QR không hợp lệ) & **SCRUM-102** (Quy chuẩn kịch bản Demo & Troubleshooting) | `diu005` (Hoàng Thị Dịu) | **ĐANG MỞ (OPEN)** | **ĐẠT (PASS)** — Sẵn sàng nghiệm thu Sprint 5. |
+| **[PR #145](https://github.com/KhanhTnDuy/smart-bus-ticketing-system/pull/145)** | **SCRUM-97** (Thông báo rõ lý do quét QR không hợp lệ) & **SCRUM-102** (Quy chuẩn kịch bản Demo, .NET 10, OpenAPI & Hướng dẫn sao lưu CSDL) | `diu005` (Hoàng Thị Dịu) | **ĐANG MỞ (OPEN)** | **ĐẠT (PASS)** — Sẵn sàng nghiệm thu Sprint 5. |
 | **[PR #102](https://github.com/KhanhTnDuy/smart-bus-ticketing-system/pull/102)** | SCRUM-82, SCRUM-86 (API báo cáo doanh thu theo ngày & tuyến) | `KhanhTnDuy` | **ĐÃ MERGE** | Kết nối trực tiếp vào Luồng 4 Demo Admin. |
 | **[PR #122](https://github.com/KhanhTnDuy/smart-bus-ticketing-system/pull/122)** | SCRUM-66, SCRUM-67 (Quản lý voucher & khuyến mãi) | `diu005` | **ĐÃ MERGE** | Đã gộp vào nhánh chính. |
 | **[PR #91](https://github.com/KhanhTnDuy/smart-bus-ticketing-system/pull/91)** | SCRUM-50 (Phân công xe buýt & nhân sự chống trùng lịch) | `diu005` | **ĐÃ MERGE** | Đã gộp vào nhánh chính. |
