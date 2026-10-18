@@ -1,8 +1,10 @@
 {
   "name": "smart-bus-ticketing-system",
   "private": true,
-  "description": "Smart Bus Ticketing System",
+  "description": "Smart Bus Ticketing System - lệnh chạy bộ kiểm thử hồi quy",
   "scripts": {
+    "test": "node tests/run-all.mjs",
+    "test:reset-demo": "node tests/run-all.mjs --reset-demo",
     "reload-demo": "node scripts/reload-demo.mjs",
     "test:seat-lock": "node tests/regression/seat-lock.mjs",
     "test:refund-flow": "node tests/regression/refund-flow.mjs",

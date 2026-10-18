@@ -12,11 +12,9 @@ Môn học: Thực tập cơ sở
 
 **Cơ sở dữ liệu:** MySQL 8+
 
----
+## Dữ liệu Demo (Nạp lại dữ liệu demo)
 
-## Dữ liệu Demo (Sinh theo thời gian thực)
-
-Dữ liệu demo được sinh động theo ngày chạy để **luôn có ít nhất 4 chuyến trong tương lai** và **7 tài khoản demo** sẵn sàng:
+Dữ liệu demo được cấu hình tự động dời ngày theo ngày hiện tại để **luôn có ít nhất 4 chuyến trong tương lai** và **7 tài khoản demo** sẵn sàng:
 
 - `admin`, `manager`, `driver1`, `driver2`, `conductor1`, `conductor2`, `passenger1` (Mật khẩu chung: `Admin@12345`).
 
@@ -35,37 +33,29 @@ node scripts/reload-demo.mjs -p <mat_khau_mysql>
 ./backend/database/demo/reload-demo.sh
 ```
 
-Chi tiết xem tại [`backend/database/demo/README.md`](file:///backend/database/demo/README.md).
+Chi tiết xem tại [`backend/database/demo/README.md`](backend/database/demo/README.md).
 
----
+## Branch Protection (GitHub Actions)
 
-## CI / CD & Branch Protection (GitHub Actions)
-
-Dự án đã tích hợp pipeline CI tại [`.github/workflows/ci.yml`](file:///.github/workflows/ci.yml):
-- **Tự động chạy khi**: Tạo Pull Request hoặc push vào nhánh `main`.
-- **Nội dung kiểm tra**:
-  1. Build Backend (.NET 10).
-  2. Lint và Build Frontend (Vite + TypeScript).
-  3. Tự động khởi tạo MySQL container, nạp dữ liệu demo và chạy kiểm thử tự động (`seat-lock.mjs`, `refund-flow.mjs`).
-  4. Status check `ci / build-and-test` tổng hợp trạng thái.
-- **Chặn merge khi đỏ**: Hướng dẫn bật Branch Protection cho nhánh `main` xem tại [`docs/branch-protection-setup.md`](file:///docs/branch-protection-setup.md).
-
----
+Hướng dẫn cấu hình Branch Protection Rule cho nhánh `main` để bắt buộc các check CI phải vượt qua trước khi merge xem tại [`docs/branch-protection-setup.md`](docs/branch-protection-setup.md).
 
 ## Kiểm thử
 
-Kiểm thử hồi quy luồng chính (khoảng 180 phép kiểm, 5 vai trò) nằm ở `tests/regression/`. Chạy trên CSDL dev khi backend đang chạy:
+Bộ kiểm thử hồi quy gọi API thật của backend và nằm ở `tests/regression/` (hơn 500 phép kiểm: luồng chính, thanh toán, hoàn tiền, giữ ghế, ma trận phân quyền 5 vai).
+Chạy tất cả bằng một lệnh, kịch bản tự dựng backend với cấu hình cần thiết và dọn dữ liệu sau khi chạy:
 
 ```bash
-# Kiểm thử toàn diện
-CONFIRM_TEST_DB=1 node tests/regression/regress.mjs
-
-# Kiểm thử giữ ghế / nhả ghế đồng thời
-CONFIRM_TEST_DB=1 node tests/regression/seat-lock.mjs
-
-# Kiểm thử hủy vé & luồng hoàn tiền
-CONFIRM_TEST_DB=1 node tests/regression/refund-flow.mjs
+CONFIRM_TEST_DB=1 npm test                 # chạy trên CSDL dev hiện tại (cần MySQL đang chạy)
+CONFIRM_TEST_DB=1 npm run test:reset-demo  # nạp lại dữ liệu demo trước (xóa và tạo lại CSDL, chỉ dùng trên CSDL dev/thử)
 ```
 
-Điều kiện chạy, biến môi trường và dữ liệu seed cần có xem [`tests/regression/README.md`](file:///tests/regression/README.md).
+Kiểm thử cấu hình (`tests/config/`) không cần CSDL, tự khởi động backend để kiểm tra các chốt an toàn khi triển khai:
 
+```bash
+node tests/config/payment-simulator-guard.mjs   # SCRUM-88: giả lập thanh toán không bật được ngoài Development
+node tests/config/deploy-config.mjs            # SCRUM-106: cấu hình triển khai (cần MySQL đang chạy)
+```
+
+Chi tiết từng kịch bản, biến môi trường và ma trận kiểm thử thanh toán xem `tests/regression/README.md`.
+
+Quy ước báo lỗi, danh sách lỗi đã biết và kết quả chạy gần nhất: `docs/LOI-DA-BIET.md`.
