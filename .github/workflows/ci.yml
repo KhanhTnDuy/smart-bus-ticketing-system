@@ -55,6 +55,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      # run-all.mjs gọi dotnet ef database update để áp migration còn thiếu nên cần công cụ dotnet-ef.
+      - name: Cài dotnet-ef
+        run: dotnet tool install --global dotnet-ef --version 10.0.*
       # run-all.mjs nạp dữ liệu demo, dựng backend với đúng cấu hình từng nhóm kiểm rồi chạy mọi kịch bản.
       - name: Chạy bộ kiểm thử
         env:
