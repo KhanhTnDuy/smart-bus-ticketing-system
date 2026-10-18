@@ -50,6 +50,7 @@ function findMysqlBin() {
     const candidateDirs = [
       'C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin\\mysql.exe',
       'C:\\Program Files\\MySQL\\MySQL Server 8.4\\bin\\mysql.exe',
+      'C:\\Program Files\\MySQL\\MySQL Server 9.0\\bin\\mysql.exe',
       'C:\\Program Files\\MySQL\\MySQL Server 8.1\\bin\\mysql.exe',
       'C:\\Program Files\\MySQL\\MySQL Server 8.2\\bin\\mysql.exe',
       'C:\\Program Files\\MySQL\\MySQL Server 8.3\\bin\\mysql.exe',
@@ -98,17 +99,40 @@ if (runImport.status !== 0) {
   process.exit(runImport.status || 1);
 }
 
-// Kiểm tra lại dữ liệu sau khi nạp
+// Hàm thực thi truy vấn SQL
 function runQuery(sql) {
   const qArgs = [...baseArgs, '-N', '-D', database, '-e', sql];
   const r = spawnSync(mysqlBin, qArgs, { encoding: 'utf8' });
   if (r.status !== 0) {
     throw new Error(`Truy vấn thất bại: ${(r.stderr || r.error?.message || '').trim()}`);
   }
-  return r.stdout.trim();
+  return (r.stdout || '').trim();
 }
 
 try {
+  // SCRUM-87: Dời ngày các chuyến theo ngày hiện tại để luôn có ít nhất 4 chuyến trong tương lai
+  console.log('🔄 Đang đồng bộ ngày chuyến theo ngày hiện tại...');
+  const shiftSql = `
+    SET @ref_date = (SELECT DATE(DepartureAt) FROM trips WHERE Id = 4);
+    SET @day_diff = DATEDIFF(CURRENT_DATE(), @ref_date);
+    UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL @day_diff DAY);
+  `;
+  runQuery(shiftSql);
+
+  // Kiểm tra số chuyến tương lai (> UTC_TIMESTAMP + 30 phút).
+  // Nếu nạp vào cuối ngày (các chuyến trong ngày đã qua), tự động dời thêm để luôn đủ ít nhất 4 chuyến tương lai.
+  const checkFutureSql = `
+    SELECT COUNT(*) FROM trips
+    WHERE Status = 'Scheduled'
+      AND BusId IS NOT NULL
+      AND DepartureAt > DATE_ADD(UTC_TIMESTAMP(), INTERVAL 30 MINUTE);
+  `;
+  let futureCount = Number(runQuery(checkFutureSql) || 0);
+  while (futureCount < 4) {
+    runQuery("UPDATE trips SET DepartureAt = DATE_ADD(DepartureAt, INTERVAL 1 DAY);");
+    futureCount = Number(runQuery(checkFutureSql) || 0);
+  }
+
   // 1. Kiểm tra các chuyến tương lai (> UTC_TIMESTAMP() + 30 phút)
   const futureTripsQuery = `
     SELECT t.Id, r.Code, b.PlateNumber, t.DepartureAt,
@@ -138,9 +162,9 @@ try {
     console.log(`   ${id.padEnd(2)} | ${code.padEnd(5)} | ${(plate || 'Chưa gán').padEnd(11)} | ${(depVn || '').slice(0, 19).padEnd(19)} | ${(depUtc || '').slice(0, 19).padEnd(19)} | ${staff || 'Chưa phân công'}`);
   }
 
-  // 2. Kiểm tra 7 tài khoản demo
+  // 2. Kiểm tra 7 tài khoản demo (sửa cột đọc trạng thái Active - cột thứ 5)
   const accountsQuery = `
-    SELECT Id, Username, FullName, Role, Active
+    SELECT Id, Username, Role, FullName, Active
     FROM accounts
     WHERE Id <= 7
     ORDER BY Id;
@@ -153,9 +177,10 @@ try {
   console.log('   ID | Username    | Vai trò    | Họ tên              | Trạng thái');
   console.log('   ---+-------------+------------+---------------------+-----------');
   for (const row of accRows) {
-    const [id, username, fullName, role, active] = row.split('\t');
-    const status = active === '1' ? 'Hoạt động' : 'Khóa';
-    console.log(`   ${id.padEnd(2)} | ${username.padEnd(11)} | ${role.padEnd(10)} | ${fullName.padEnd(19)} | ${status}`);
+    const [id, username, role, fullName, activeRaw] = row.split('\t');
+    const active = (activeRaw || '').trim();
+    const status = (active === '1' || active.toLowerCase() === 'true') ? 'Hoạt động' : 'Khóa';
+    console.log(`   ${id.padEnd(2)} | ${username.padEnd(11)} | ${(role || '').padEnd(10)} | ${(fullName || '').padEnd(19)} | ${status}`);
   }
 
   console.log('====================================================================');
