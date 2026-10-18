@@ -435,10 +435,95 @@ public class InvoicesController(AppDbContext db, IInvoiceMailQueue mailQueue) : 
             .ToListAsync(ct));
     }
 
+    private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
+
+    /// <summary>
+    /// Lọc hóa đơn theo cùng mốc thời gian với báo cáo doanh thu: **ngày khởi hành của chuyến** (giờ VN),
+    /// không phải ngày trả tiền, để tổng tiền hóa đơn trong kỳ đối chiếu được với doanh thu cùng kỳ.
+    /// Trả về null kèm thông báo khi tham số sai định dạng.
+    /// </summary>
+    private static (IQueryable<Invoice>? Query, string? Error) Filter(
+        IQueryable<Invoice> q, string? from, string? to, string? routeId, string? method, string? emailStatus, string? search)
+    {
+        if (!string.IsNullOrWhiteSpace(from))
+        {
+            if (!DateOnly.TryParse(from, out var f)) return (null, "from không hợp lệ (yyyy-MM-dd).");
+            var fromUtc = f.ToDateTime(TimeOnly.MinValue) - VietnamOffset;
+            q = q.Where(i => i.Payment.Booking!.Trip.DepartureAt >= fromUtc);
+        }
+        if (!string.IsNullOrWhiteSpace(to))
+        {
+            if (!DateOnly.TryParse(to, out var t)) return (null, "to không hợp lệ (yyyy-MM-dd).");
+            var toUtc = t.AddDays(1).ToDateTime(TimeOnly.MinValue) - VietnamOffset;
+            q = q.Where(i => i.Payment.Booking!.Trip.DepartureAt < toUtc);
+        }
+        if (!string.IsNullOrWhiteSpace(routeId) && !string.Equals(routeId, "ALL", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!long.TryParse(routeId, out var r)) return (null, "routeId không hợp lệ.");
+            q = q.Where(i => i.Payment.Booking!.Trip.RouteId == r);
+        }
+        if (!string.IsNullOrWhiteSpace(method) && !string.Equals(method, "ALL", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!Enum.TryParse<PaymentMethod>(method, true, out var m)) return (null, "method không hợp lệ.");
+            q = q.Where(i => i.Payment.Method == m);
+        }
+        if (!string.IsNullOrWhiteSpace(emailStatus) && !string.Equals(emailStatus, "ALL", StringComparison.OrdinalIgnoreCase))
+        {
+            q = emailStatus switch
+            {
+                "Sent" => q.Where(i => i.SentAt != null),
+                "NoAddress" => q.Where(i => i.SentAt == null && i.Email == ""),
+                "Failed" => q.Where(i => i.SentAt == null && i.Email != "" && i.EmailAttempts >= InvoiceEmailService.MaxAttempts),
+                "Pending" => q.Where(i => i.SentAt == null && i.Email != "" && i.EmailAttempts < InvoiceEmailService.MaxAttempts),
+                _ => null!,
+            };
+            if (q is null) return (null, "emailStatus không hợp lệ (Sent, Pending, Failed, NoAddress).");
+        }
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            q = q.Where(i => i.InvoiceNo.Contains(term)
+                || i.Payment.Booking!.BookingCode.Contains(term)
+                || i.Payment.Booking.Passenger.FullName.Contains(term));
+        }
+        return (q, null);
+    }
+
+    /// <summary>
+    /// Danh sách hóa đơn cho quản trị, lọc theo kỳ (ngày khởi hành), tuyến, phương thức thanh toán,
+    /// tình trạng gửi email và từ khóa (số hóa đơn, mã đặt chỗ, tên khách).
+    /// </summary>
     [HttpGet]
     [Authorize(Roles = "Admin,Manager")]
-    public async Task<ActionResult<IReadOnlyList<InvoiceDto>>> GetAll(CancellationToken ct)
-        => Ok(await Project(db.Invoices.AsNoTracking().OrderByDescending(i => i.Id)).ToListAsync(ct));
+    public async Task<ActionResult<IReadOnlyList<InvoiceDto>>> GetAll(
+        [FromQuery] string? from, [FromQuery] string? to, [FromQuery] string? routeId,
+        [FromQuery] string? method, [FromQuery] string? emailStatus, [FromQuery] string? search,
+        CancellationToken ct)
+    {
+        var (q, error) = Filter(db.Invoices.AsNoTracking(), from, to, routeId, method, emailStatus, search);
+        if (q is null) return BadRequest(new { message = error });
+        return Ok(await Project(q.OrderByDescending(i => i.Id)).ToListAsync(ct));
+    }
+
+    /// <summary>
+    /// Tổng hợp của đúng bộ lọc trên: số hóa đơn và tổng tiền. Tổng này đối chiếu với
+    /// <c>summary.totalGross</c> của <c>GET /api/reports/revenue</c> cùng kỳ và cùng tuyến.
+    /// </summary>
+    [HttpGet("summary")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<ActionResult<InvoiceSummaryDto>> GetSummary(
+        [FromQuery] string? from, [FromQuery] string? to, [FromQuery] string? routeId,
+        [FromQuery] string? method, [FromQuery] string? emailStatus, [FromQuery] string? search,
+        CancellationToken ct)
+    {
+        var (q, error) = Filter(db.Invoices.AsNoTracking(), from, to, routeId, method, emailStatus, search);
+        if (q is null) return BadRequest(new { message = error });
+        return Ok(new InvoiceSummaryDto
+        {
+            Count = await q.CountAsync(ct),
+            Total = await q.SumAsync(i => (decimal?)i.Total, ct) ?? 0,
+        });
+    }
 
     [HttpGet("{id:long}")]
     public async Task<ActionResult<InvoiceDto>> Get(long id, CancellationToken ct)

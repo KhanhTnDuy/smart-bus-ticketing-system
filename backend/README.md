@@ -174,6 +174,34 @@ có thêm `BankTransfer`, lưu dạng chuỗi nên không đổi cấu trúc b�
   Giá mỗi vé là số tiền thanh toán chia đều cho các vé của lượt đặt, tổng hoàn không vượt số tiền đã trả.
 - `PATCH /api/refunds/{id}/process { approve, note }` (Admin, Quản lý): duyệt thì `Success`, từ chối thì `Failed` và bắt buộc
   có `note`. Khi tổng hoàn thành công bằng số tiền đã trả, giao dịch chuyển `Refunded`. Xử lý lần hai trả 409.
+## Hóa đơn (SCRUM-99)
+
+Mỗi giao dịch thanh toán thành công sinh một hóa đơn. Hành khách xem và tải ở `/passenger/invoices`; quản trị
+xem toàn bộ ở `/manager/invoices`.
+
+| Endpoint | Quyền | Việc |
+|---|---|---|
+| `GET /api/invoices/my` | Passenger | Hóa đơn của chính mình |
+| `GET /api/invoices` | Admin, Manager | Danh sách có lọc |
+| `GET /api/invoices/summary` | Admin, Manager | Số hóa đơn và tổng tiền của **đúng bộ lọc đó** |
+| `GET /api/invoices/{id}` | chủ hóa đơn hoặc Admin/Manager | Chi tiết |
+| `POST /api/invoices/{id}/send` | chủ hóa đơn hoặc Admin/Manager | Gửi lại email hóa đơn |
+
+Tham số lọc: `from`, `to` (**ngày khởi hành của chuyến**, `yyyy-MM-dd` giờ VN), `routeId`, `method`
+(`Momo`, `VnPay`, `ZaloPay`, `BankTransfer`), `emailStatus` (`Sent`, `Pending`, `Failed`, `NoAddress`),
+`search` (số hóa đơn, mã đặt chỗ, tên khách). Tham số sai trả 400 kèm thông báo.
+
+Kỳ lọc cố ý lấy theo ngày khởi hành — **đúng mốc của báo cáo doanh thu** — nên `summary.total` của hóa đơn
+bằng `summary.totalGross` của `GET /api/reports/revenue` cùng kỳ, cùng tuyến. Trang quản trị lấy cả hai số và
+hiện "Khớp doanh thu cùng kỳ" hoặc cảnh báo lệch. Khi lọc thêm theo phương thức, tình trạng email hay từ khóa
+thì không đối chiếu, vì báo cáo doanh thu không có các tiêu chí đó.
+
+Kiểm thử: `CONFIRM_TEST_DB=1 node tests/regression/invoices.mjs` (19 phép kiểm: phân quyền, từng bộ lọc,
+tham số sai, tổng hợp khớp danh sách và khớp doanh thu).
+
+Tải hóa đơn là một tệp HTML tự chứa (`<số hóa đơn>.html`) dựng ở frontend
+(`src/components/common/invoiceDownload.ts`), dùng chung cho cả trang khách lẫn trang quản trị.
+
 ## Báo cáo doanh thu (SCRUM-82, SCRUM-86)
 
 `GET /api/reports/revenue` (Admin, Quản lý) với các tham số tùy chọn `startDate`,
@@ -296,7 +324,78 @@ ASPNETCORE_ENVIRONMENT=Production Payments__Simulator__Enabled=true Jwt__Key="<k
 # Unhandled exception. System.InvalidOperationException: Payments:Simulator:Enabled đang bật ngoài môi trường Development...
 ```
 
+## Địa chỉ công khai cho IPN VNPay (SCRUM-105)
+
+IPN (`GET /api/payments/vnpay/ipn`) là nguồn chốt giao dịch chính thức: VNPay gọi thẳng từ máy chủ của họ, nên
+`localhost` không nhận được. Muốn thử trọn vẹn cần một địa chỉ công khai trỏ về backend ở máy dev.
+
+```bash
+# cửa sổ 1: backend
+cd backend/SmartBusTicketing.Api && dotnet run --no-launch-profile --urls http://localhost:5180
+
+# cửa sổ 2: mở địa chỉ công khai (cần ngrok hoặc cloudflared trong PATH)
+bash backend/scripts/ipn-tunnel.sh 5180
+```
+
+Script tự kiểm tra backend đang sống, mở kết nối, **gọi thử `/api/health` qua địa chỉ công khai** rồi in ra:
+
+- địa chỉ IPN để dán vào trang quản trị merchant VNPay: `https://<địa chỉ>/api/payments/vnpay/ipn`;
+- biến `Payments__VnPay__ReturnUrl` tương ứng nếu muốn khách quay về qua địa chỉ đó.
+
+Đăng ký ngrok rồi `ngrok config add-authtoken <token>`; cloudflared chạy thử được không cần tài khoản. Địa chỉ
+đổi mỗi lần mở lại (trừ khi dùng tên miền cố định), nên phải dán lại vào VNPay sau mỗi lần mở.
+
+### Kiểm thử đầu-cuối đường IPN
+
+```bash
+# trên máy, không cần địa chỉ công khai: kịch bản tự dựng backend riêng ở cổng 5181 với TmnCode/HashSecret thử
+CONFIRM_TEST_DB=1 node tests/payments/vnpay-ipn-e2e.mjs
+
+# qua đúng đường VNPay sẽ đi, sau khi có địa chỉ công khai và backend đã có TmnCode/HashSecret thật
+CONFIRM_TEST_DB=1 PUBLIC_BASE_URL=https://<địa chỉ> IPN_PORT=5180   VNPAY_TMN_CODE=<TmnCode> VNPAY_HASH_SECRET=<HashSecret> node tests/payments/vnpay-ipn-e2e.mjs
+```
+
+17 phép kiểm: địa chỉ dùng cho IPN tới được backend, tạo giao dịch VNPay, IPN ký đúng thì chốt lượt đặt sang
+`Confirmed`, vé sang `Valid`, sinh đúng một hóa đơn, ghi mã giao dịch của VNPay; gọi lại cùng IPN trả
+`RspCode 02` mà không sinh thêm vé hay hóa đơn; chữ ký sai trả `97`, mã giao dịch lạ trả `01`.
+
+Đã chạy 17/10 qua địa chỉ công khai thật (cloudflared quick tunnel, backend mở ở `0.0.0.0:5180`): 17/17 đạt,
+IPN đi từ Internet vào tới backend và chốt đúng trạng thái giao dịch.
+
+### Thực tế với VNPay sandbox: IPN không được gọi
+
+Đã thử thật ngày 17/10 với tài khoản merchant sandbox tự đăng ký (TmnCode `DRR0UTZT`), địa chỉ IPN đã khai
+trong trang quản trị merchant:
+
+| Giao dịch | Số tiền | Mã VNPay | Kết quả |
+|---|---|---|---|
+| 3 lần thanh toán bằng thẻ test NCB | 21.000 đ | 15707054, 15707057, 15707058 | lượt đặt `Confirmed`, vé `Valid`, hóa đơn khớp |
+
+Nhưng nhật ký request của backend (bật `Logging__LogLevel__Microsoft.AspNetCore=Information`) cho thấy **không
+có một lời gọi nào tới `/api/payments/vnpay/ipn`** — cả ba lần đều do `/api/payments/vnpay/return` chốt. Tài khoản
+sandbox tự đăng ký không được VNPay chủ động gọi IPN; muốn bật phải gửi địa chỉ IPN cho `support.vnpayment@vnpay.vn`
+(mail hướng dẫn của VNPay có ghi "Merchant cần gửi cho VNPAY URL này"), hoặc dùng công cụ
+`sandbox.vnpayment.vn/vnpaygw-sit-testing` để tự bắn kịch bản IPN.
+
+Vì vậy luồng thanh toán **không phụ thuộc IPN**: `ReturnUrl` đi cùng một đường chốt giao dịch trong
+`PaymentSettlementService`, an toàn khi gọi lặp, nên vé vẫn xuất đúng khi IPN không tới. Khi lên môi trường thật
+có IPN, hai đường cùng chạy mà không chốt hai lần (xem phép kiểm `RspCode 02` ở trên).
+
+Backend phải nghe ở `0.0.0.0` (không phải `localhost`) thì đường hầm mới chuyển tiếp được:
+`ASPNETCORE_URLS=http://0.0.0.0:5180`. Đóng đường hầm ngay sau khi thử xong — trong lúc mở, ai có địa chỉ đó
+cũng gọi được API của máy bạn.
+
 ## Giữ ghế khi thanh toán
+
+`GET /api/trips/{id}/seats` (công khai) trả `status` của từng ghế, phân biệt ba trạng thái (SCRUM-96):
+
+| `status` | `isAvailable` | Nghĩa | Hiển thị trên sơ đồ ghế |
+|---|---|---|---|
+| `Available` | true | Còn trống | Viền xám, nhấp để chọn |
+| `Held` | false | Khách khác đang thanh toán, còn hạn giữ chỗ | Viền cam nét đứt kèm biểu tượng đồng hồ, "Đang giữ chỗ" |
+| `Sold` | false | Lượt đặt đã trả tiền (Confirmed) hoặc vé đã quét | Nền hồng, "Đã bán" |
+
+Ghế `Held` tự trở lại `Available` khi hết 10 phút giữ chỗ, còn `Sold` thì chỉ trống lại khi quản lý duyệt hủy vé.
 
 Ghế được giữ **từ lúc khách bấm "Tiếp tục thanh toán"** (bước chọn ghế → thanh toán): `POST /api/bookings` tạo lượt đặt `Pending` với
 `HoldExpiresAt` = 10 phút sau, vé ở trạng thái `Held`. Trang thanh toán đếm ngược 10 phút. Ghế được nhả khi:
