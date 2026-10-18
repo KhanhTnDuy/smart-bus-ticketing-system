@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -122,6 +122,7 @@ app.UseAuthorization();
 app.MapControllers();
 
 await DbSeeder.SeedAdminAsync(app);
+await DbSeeder.SeedRefundTiersAsync(app);
 if (app.Environment.IsDevelopment())
 {
     await DbSeeder.SeedAssignmentSampleDataAsync(app);
