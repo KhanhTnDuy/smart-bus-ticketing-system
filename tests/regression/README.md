@@ -1,5 +1,47 @@
 # Kiểm thử hồi quy luồng chính
 
+## Chạy tất cả bằng một lệnh
+
+```bash
+CONFIRM_TEST_DB=1 npm test                 # chạy trên CSDL hiện tại
+CONFIRM_TEST_DB=1 npm run test:reset-demo  # nạp lại dữ liệu demo rồi chạy (xóa và tạo lại CSDL, chỉ dùng trên CSDL dev/thử)
+```
+
+`tests/run-all.mjs` tự dựng backend (Development) với đúng cấu hình từng nhóm kiểm cần, chờ `/api/health`, chạy lần lượt các kịch bản rồi in bảng tổng kết
+và dừng backend; mã thoát khác 0 nếu có phép kiểm lỗi. Cần `dotnet`, Node 18 trở lên, công cụ `mysql` (tự tìm trong PATH hoặc thư mục cài mặc định, hoặc đặt `MYSQL_BIN`)
+và CSDL MySQL đang chạy. Nhật ký từng kịch bản nằm ở `tests/results/*.log` (không đưa vào git).
+
+| Giai đoạn | Cấu hình backend | Kịch bản |
+|---|---|---|
+| 1 | Giả lập thanh toán bật, bảng phí hoàn để trống (luôn hoàn 100%) | `seat-lock`, `refund-flow`, `permissions` |
+| 2 | Như trên nhưng thêm khóa VNPay thử, SMTP và API hoàn tiền giả, tài khoản ngân hàng giả, bảng phí hoàn 24h=100%, 2h=50% | `regress` (đủ nhóm G2-G6) |
+
+Tùy chọn: `--only seat-lock,permissions` chỉ chạy vài kịch bản, `--no-backend` dùng backend đang chạy sẵn ở `API_URL` (tự lo cấu hình). Kịch bản
+`tests/payments/vnpay-ipn-e2e.mjs` cần VNPay sandbox thật và địa chỉ công khai nên không nằm trong lệnh này (xem tài liệu SCRUM-105).
+
+Các kịch bản chạy được trên cả dữ liệu seed (`seed_sprint2.sql`) lẫn dữ liệu demo (`backend/database/demo`) vào bất kỳ ngày nào: ngày chuyến tính từ hôm nay,
+xe lấy từ CSDL, giá vé đo từ máy chủ (giá cố định của seed hay bảng giá theo km của demo đều được), chuyến tương lai tự dựng thêm khi bộ demo đã hết chuyến, và nhóm giá theo km
+cất bảng giá có sẵn rồi khôi phục khi xong. Mỗi kịch bản dọn mọi dòng nó tạo ra.
+
+## `permissions.mjs` – ma trận phân quyền vai x endpoint (SCRUM-95)
+
+Đọc `[Authorize]` / `[AllowAnonymous]` của mọi controller (khoảng 114 endpoint) rồi gọi từng endpoint bằng Admin, Quản lý, Tài xế, Phụ xe, Hành khách và khi chưa đăng nhập
+(khoảng 680 ô). Không được phép thì phải trả 401 (chưa đăng nhập) hoặc 403 (sai vai); được phép thì không được trả 401/403. Dữ liệu gửi lên là id không tồn tại và thân rỗng nên
+không tạo dữ liệu thật. Ngoài đối chiếu với attribute còn có hai lớp độc lập để bắt trường hợp ai đó lỡ xóa attribute:
+endpoint ghi dữ liệu không được công khai (trừ đăng nhập, cổng thanh toán, webhook ngân hàng có khóa riêng) và 13 tài nguyên nhạy cảm (tài khoản, nhật ký, báo cáo, hoàn tiền, voucher, tạo tuyến/xe,
+phân công, quét vé, đặt vé, thanh toán) phải đúng vai; cuối cùng là token rác, bị sửa chữ ký, thiếu `Bearer` và hành khách tự sửa claim vai trò thành Admin đều bị 401.
+
+## Ma trận kiểm thử thanh toán (SCRUM-94)
+
+| Tình huống | Nhóm / phép kiểm trong `regress.mjs` | Kết quả mong đợi |
+|---|---|---|
+| IPN trùng | G2: "IPN lặp lại sau khi đã chốt", "return lặp lại", "lặp lại không sinh thêm hóa đơn", "IPN và ReturnUrl về cùng lúc", "IPN lặp lại cho giao dịch trễ" | `RspCode 02`, đúng một hóa đơn, không hoàn tiền thêm |
+| Sai chữ ký | G2: "chữ ký sai", "thiếu chữ ký", "sửa số tiền sau khi ký", "return chữ ký sai"; G4: phản hồi hoàn tiền sai chữ ký | `RspCode 97` / HTTP 400, giao dịch không đổi |
+| Sai số tiền | G2: "số tiền khác giao dịch"; G5: webhook lệch số tiền | `RspCode 04`, giao dịch vẫn Pending, quản lý được báo |
+| Trả hai lần | G2: "thanh toán lượt đặt đã trả", "gọi đồng thời chỉ một lần chốt"; G1: "thanh toán lần hai" | 409, một hóa đơn |
+| Hết hạn giữ chỗ | G1: "thanh toán sau hết hạn giữ chỗ"; G2: "tiền về sau khi hết hạn giữ chỗ", job `HoldExpiry`; G5: chuyển khoản quá hạn | 409 hoặc không xuất vé và tự mở yêu cầu hoàn tiền, ghế được nhả |
+
+
 `regress.mjs` gọi API thật của backend và kiểm tra các luồng chính của hệ thống, kèm ma trận quyền cho 5 vai trò
 (Admin, Quản lý, Tài xế, Phụ xe, Hành khách). Gồm khoảng 180 phép kiểm, chia thành các nhóm:
 
@@ -18,6 +60,7 @@
 | N | Hủy chuyến kéo theo hoàn tiền |
 | O | Báo cáo doanh thu và lấp đầy khớp CSDL |
 | P | Nhật ký hệ thống |
+| R | Thống kê lấp đầy theo chuyến (SCRUM-79: phân quyền, lọc tuyến, khoảng rỗng, khoảng ngược) |
 | Q | Quản lý và kiểm tra voucher (SCRUM-66, SCRUM-67: tạo, trùng mã, phân quyền, hết hạn, hết lượt, áp dụng khi đặt vé, an toàn cập nhật và xóa) |
 
 ## Cách chạy
@@ -93,3 +136,22 @@ Dùng chuyến riêng trên xe 4 để không tranh ghế với nhóm khác.
 Không cần cấu hình thêm. Nhóm kiểm: km từng trạm tự tính, phân quyền thêm/sửa/xóa bậc giá, dữ liệu sai (km ngược, giá 0), chống chồng lấn bậc, mốc ranh giới (đúng 12 km thuộc bậc 8-12),
 giá mọi chặng và giá đối tượng ưu đãi, tìm chuyến trả `distanceKm` và giá theo km, đặt vé tính tiền theo km của chặng khách chọn, xóa hết bậc thì quay về giá cố định cũ của tuyến, tuyến mới tự tính km.
 Nhóm chạy cuối cùng, tự lập rồi xóa bảng giá nên không đổi giá của các nhóm khác.
+
+## Kịch bản trên dữ liệu demo (`seat-lock.mjs`, `refund-flow.mjs`)
+
+Hai kịch bản này chạy riêng, không cần dữ liệu seed của `regress.mjs` mà dùng bộ dữ liệu trong `backend/database/demo` (nạp bằng `smart-bus-demo-data.sql`). Chúng tự chọn chuyến còn ở tương lai
+(đã gán xe, trạng thái Scheduled) nên vẫn chạy được khi đổi ngày giờ chuyến, nhưng cần ít nhất 1 chuyến (`seat-lock`) hoặc 2 chuyến (`refund-flow`, chuyến thứ hai phải có tài xế).
+Cả hai tự tạo 3 tài khoản hành khách `testpax1..3`, nên cần backend chạy Development với `Payments__Simulator__Enabled=true` (thanh toán MoMo giả lập) và bảng `payments` nên trống để số liệu doanh thu dễ đối chiếu.
+Giống `regress.mjs`: bắt buộc `CONFIRM_TEST_DB=1`, ghi mốc id trước khi chạy và xóa mọi dòng mới sau khi chạy (kịch bản hoàn tiền còn trả lại trạng thái chuyến bị hủy).
+
+```bash
+CONFIRM_TEST_DB=1 node tests/regression/seat-lock.mjs
+CONFIRM_TEST_DB=1 node tests/regression/refund-flow.mjs
+```
+
+| Kịch bản | Nội dung |
+|---|---|
+| `seat-lock.mjs` | Giữ và tranh ghế giữa nhiều khách, đặt nhiều ghế có một ghế đã bị giữ, thanh toán xong ghế đóng hẳn, hủy giữ chỗ nhả ghế ngay, hết hạn giữ chỗ tự nhả (đẩy `HoldExpiresAt` về quá khứ), đặt đồng thời cùng một ghế (chỉ một người thắng), hủy vé đã thanh toán chỉ nhả ghế sau khi quản lý duyệt, đặt chuyến đã khởi hành và đặt quá 4 ghế |
+| `refund-flow.mjs` | Hủy một phần rồi hủy hết (giao dịch chuyển Refunded), duyệt, từ chối và xử lý trùng khoản hoàn, thông báo cho khách, phân quyền và cô lập giữa khách, vé đã quét không được hủy, hủy chuyến hoàn cho vé còn hiệu lực và nhả ghế đang giữ, đối chiếu doanh thu sau mỗi bước |
+
+Lưu ý: `Refunds:Tiers` để trống thì hủy vé luôn hoàn 100% (kịch bản dựa vào đó). Hoàn tiền của MoMo/ZaloPay chỉ ghi nhận thủ công, chỉ VNPay gọi API hoàn của cổng.

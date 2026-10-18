@@ -45,7 +45,12 @@ export const QrScannerPage: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!tripId && tripOptions[0]) setTripId(String(tripOptions[0].tripId));
+    if (tripId || !tripOptions.length) return;
+    // Chọn sẵn chuyến có giờ chạy gần hiện tại nhất (danh sách còn cả chuyến cũ chưa đóng), không phải chuyến đầu danh sách.
+    const now = Date.now();
+    const nearest = tripOptions.reduce((best, t) =>
+      t.departureMs !== undefined && (best.departureMs === undefined || Math.abs(t.departureMs - now) < Math.abs(best.departureMs - now)) ? t : best);
+    setTripId(String(nearest.tripId));
   }, [tripOptions, tripId]);
 
   const loadHistory = useCallback(async () => {

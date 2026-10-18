@@ -21,6 +21,19 @@ public sealed class TripAssignmentsController(ITripAssignmentService service, Au
         _ => c.BadRequest(new ProblemDetails { Status = 400, Title = r.Message })
     };
 
+    /// <summary>
+    /// Thiếu departureAt thì model binding để DateTime.MinValue, bị trừ thời lượng tuyến sẽ tràn và gây 500;
+    /// thiếu routeId thì routeId = 0. Cả hai là lỗi của người gọi nên trả 400.
+    /// </summary>
+    private ActionResult? ValidateAvailabilityQuery(DateTime departureAt, long routeId)
+    {
+        if (departureAt == default)
+            return BadRequest(new ProblemDetails { Status = 400, Title = "Thiếu hoặc sai giờ xuất bến (departureAt)." });
+        if (routeId <= 0)
+            return BadRequest(new ProblemDetails { Status = 400, Title = "Thiếu hoặc sai mã tuyến (routeId)." });
+        return null;
+    }
+
     private Task LogAuditAsync(string action, AuditActionType type, string target, string? details = null, CancellationToken ct = default) =>
         audit.WriteAsync(User.AccountId(), User.Username() ?? "system", action, type, target, AuditStatus.Success, details, ct);
 
@@ -312,6 +325,9 @@ public sealed class TripAssignmentsController(ITripAssignmentService service, Au
         [FromQuery] long? excludeTripId,
         CancellationToken ct)
     {
+        var invalid = ValidateAvailabilityQuery(departureAt, routeId);
+        if (invalid is not null) return invalid;
+
         var buses = await service.GetAvailableBusesAsync(departureAt, routeId, excludeTripId, ct);
         return Ok(buses);
     }
@@ -328,6 +344,9 @@ public sealed class TripAssignmentsController(ITripAssignmentService service, Au
         [FromQuery] long? excludeTripId,
         CancellationToken ct)
     {
+        var invalid = ValidateAvailabilityQuery(departureAt, routeId);
+        if (invalid is not null) return invalid;
+
         var staff = await service.GetAvailableStaffAsync(duty, departureAt, routeId, excludeTripId, ct);
         return Ok(staff);
     }
