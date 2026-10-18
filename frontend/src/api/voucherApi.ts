@@ -30,6 +30,13 @@ export const voucherApi = {
   },
 
   /**
+   * Voucher đang dùng được (trong hạn, còn lượt). Mọi người dùng đã đăng nhập đều gọi được, dùng cho kho voucher của hành khách.
+   */
+  async getAvailableVouchers(signal?: AbortSignal): Promise<Voucher[]> {
+    return api.get<Voucher[]>('/api/vouchers/available', undefined, signal);
+  },
+
+  /**
    * SCRUM-66: Xem chi tiết voucher theo id
    */
   async getVoucherById(id: number, signal?: AbortSignal): Promise<Voucher> {

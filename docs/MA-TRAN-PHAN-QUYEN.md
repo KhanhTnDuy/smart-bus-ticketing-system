@@ -1,6 +1,6 @@
 # Ma trận phân quyền vai x endpoint (SCRUM-95)
 
-Sinh tự động bởi `tests/regression/permissions.mjs`: 117 endpoint x 6 (5 vai và chưa đăng nhập) = 702 ô, mỗi ô là một lời gọi thật.
+Sinh tự động bởi `tests/regression/permissions.mjs`: 118 endpoint x 6 (5 vai và chưa đăng nhập) = 708 ô, mỗi ô là một lời gọi thật.
 
 `✓` được phép (không bị 401/403) · `✗ 401` chưa đăng nhập bị chặn · `✗ 403` sai vai bị chặn · `🔑` webhook tự xác thực bằng khóa riêng (thiếu khóa thì 401 với mọi vai) · `⚠` lệch so với attribute.
 
@@ -117,6 +117,7 @@ Sinh tự động bởi `tests/regression/permissions.mjs`: 117 endpoint x 6 (5 
 | `POST api/uploads` | ✗ 401 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `GET api/uploads/{name}` | ✗ 401 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `GET api/vouchers` | ✗ 401 | ✓ | ✓ | ✗ 403 | ✗ 403 | ✗ 403 |
+| `GET api/vouchers/available` | ✗ 401 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `GET api/vouchers/{id:long}` | ✗ 401 | ✓ | ✓ | ✗ 403 | ✗ 403 | ✗ 403 |
 | `POST api/vouchers` | ✗ 401 | ✓ | ✓ | ✗ 403 | ✗ 403 | ✗ 403 |
 | `PUT api/vouchers/{id:long}` | ✗ 401 | ✓ | ✓ | ✗ 403 | ✗ 403 | ✗ 403 |
