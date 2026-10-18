@@ -21,7 +21,8 @@ const run = (env, seconds) => {
     encoding: 'utf8',
     timeout: seconds * 1000,
     killSignal: 'SIGKILL',
-    env: { ...process.env, Jwt__Key: KEY, ASPNETCORE_URLS: 'http://127.0.0.1:5999', ...env },
+    // Cors__AllowedOrigins__0: ngoài Development máy chủ đòi cấu hình CORS (SCRUM-106) và kiểm cái đó trước giả lập; khai đủ để tới được bước kiểm giả lập.
+    env: { ...process.env, Jwt__Key: KEY, Cors__AllowedOrigins__0: 'https://smartbus.example.com', ASPNETCORE_URLS: 'http://127.0.0.1:5999', ...env },
   });
   return { status: r.status, out: `${r.stdout || ''}${r.stderr || ''}` };
 };

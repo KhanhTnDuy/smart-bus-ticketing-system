@@ -9,7 +9,7 @@
 // Mỗi kịch bản tự ghi mốc id trước khi chạy và xóa mọi dòng mới sau khi chạy nên dữ liệu gốc không đổi.
 //
 // Tùy chọn:  --reset-demo   nạp lại dữ liệu demo trước khi chạy (XÓA và nạp lại CSDL, chỉ dùng trên CSDL dev/thử)
-//            --only a,b     chỉ chạy các kịch bản có tên đó (seat-lock, refund-flow, permissions, regress)
+//            --only a,b     chỉ chạy các kịch bản có tên đó (seat-lock, refund-flow, permissions, invoices, regress, config/payment-simulator-guard, config/deploy-config)
 //            --no-backend   không tự dựng backend, dùng backend đang chạy ở API_URL (tự lo cấu hình)
 // Biến môi trường: API_URL (mặc định http://localhost:5180), MYSQL_BIN, MYSQL_HOST/PORT/USER/PASSWORD/DB (như lib.mjs).
 import { spawn, spawnSync } from 'node:child_process';
@@ -79,7 +79,8 @@ const backendEnv = (tiers) => ({
 
 // Hai cấu hình backend, mỗi cấu hình chạy các kịch bản hợp với nó.
 const PHASES = [
-  { name: 'backend không có bảng phí hoàn', tiers: false, scripts: ['seat-lock', 'refund-flow', 'permissions'] },
+  { name: 'kiểm thử cấu hình triển khai (tự dựng backend riêng, cần MySQL)', noBackend: true, scripts: ['config/payment-simulator-guard', 'config/deploy-config'] },
+  { name: 'backend không có bảng phí hoàn', tiers: false, scripts: ['seat-lock', 'refund-flow', 'permissions', 'invoices'] },
   { name: 'backend có bảng phí hoàn 24h=100%, 2h=50%', tiers: true, scripts: ['regress'], env: { REFUND_TIERS: '1' } },
 ].map((p) => ({ ...p, scripts: only.length ? p.scripts.filter((s) => only.includes(s)) : p.scripts })).filter((p) => p.scripts.length);
 
@@ -123,7 +124,7 @@ async function startBackend(tiers, label) {
 
 function runScript(name, env) {
   mkdirSync(OUT, { recursive: true });
-  const file = join(ROOT, 'tests', 'regression', `${name}.mjs`);
+  const file = name.includes('/') ? join(ROOT, 'tests', `${name}.mjs`) : join(ROOT, 'tests', 'regression', `${name}.mjs`);
   const started = Date.now();
   return new Promise((resolve) => {
     const chunks = [];
@@ -132,10 +133,11 @@ function runScript(name, env) {
     p.stdout.on('data', take); p.stderr.on('data', take);
     p.on('exit', (code) => {
       const out = Buffer.concat(chunks).toString('utf8');
-      writeFileSync(join(OUT, `${name}.log`), out);
+      writeFileSync(join(OUT, `${name.replace('/', '-')}.log`), out);
       const sum = out.match(/==== (\d+)\/(\d+) đạt, (\d+) lỗi ====/);
       const failed = [...out.matchAll(/^\s+FAIL (.+)$/gm)].map((m) => m[1]).slice(0, 25);
-      resolve({ name, code, pass: sum ? Number(sum[1]) : 0, total: sum ? Number(sum[2]) : 0, fail: sum ? Number(sum[3]) : null, failed, secs: Math.round((Date.now() - started) / 1000), out });
+      // Kịch bản cấu hình không in tổng kết dạng "N/M đạt": tính một phép kiểm theo mã thoát.
+      resolve({ name, code, pass: sum ? Number(sum[1]) : (code === 0 ? 1 : 0), total: sum ? Number(sum[2]) : 1, fail: sum ? Number(sum[3]) : (code === 0 ? 0 : 1), failed, secs: Math.round((Date.now() - started) / 1000), out });
     });
   });
 }
@@ -154,7 +156,8 @@ try {
   let i = 0;
   for (const phase of PHASES) {
     console.log(`\n=== Giai đoạn ${++i}/${PHASES.length}: ${phase.name}`);
-    await startBackend(phase.tiers, `giai-doan-${i}`);
+    if (!phase.noBackend) await startBackend(phase.tiers, `giai-doan-${i}`);
+    else stopBackend();
     for (const s of phase.scripts) {
       process.stdout.write(`  ${s} `);
       const r = await runScript(s, phase.env ?? {});
