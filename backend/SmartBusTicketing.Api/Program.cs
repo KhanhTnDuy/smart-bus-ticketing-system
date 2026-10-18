@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -26,6 +26,8 @@ builder.Services.AddScoped<AuditLogService>();
 builder.Services.Configure<VnPayOptions>(builder.Configuration.GetSection(VnPayOptions.Section));
 builder.Services.AddSingleton<VnPayClient>();
 builder.Services.Configure<BankTransferOptions>(builder.Configuration.GetSection(BankTransferOptions.Section));
+builder.Services.Configure<PaymentSimulatorOptions>(builder.Configuration.GetSection(PaymentSimulatorOptions.Section));
+builder.Services.AddSingleton<PaymentSimulator>();
 builder.Services.AddScoped<PaymentSettlementService>();
 builder.Services.Configure<RefundOptions>(builder.Configuration.GetSection(RefundOptions.Section));
 builder.Services.AddHttpClient<IVnPayRefundGateway, VnPayRefundGateway>(c => c.Timeout = TimeSpan.FromSeconds(20));
@@ -69,20 +71,37 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 });
 builder.Services.AddAuthorization();
 
-// Frontend Vite chạy ở origin khác nên cần CORS để gọi được API.
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-    ?? ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "http://localhost:8080"];
+// Frontend Vite chạy ở origin khác nên cần CORS để gọi được API. Mặc định localhost chỉ hợp lệ ở máy dev:
+// ngoài Development bắt buộc khai Cors:AllowedOrigins, nếu không trình duyệt ở tên miền thật sẽ bị chặn mà
+// không ai biết vì sao, còn danh sách localhost thì vô nghĩa trên máy chủ.
+string[] devOrigins = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "http://localhost:8080"];
+var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?.Where(o => !string.IsNullOrWhiteSpace(o)).ToArray();
+if (!builder.Environment.IsDevelopment() && (configuredOrigins is null || configuredOrigins.Length == 0))
+{
+    throw new InvalidOperationException(
+        "Thiếu cấu hình 'Cors:AllowedOrigins' ngoài môi trường Development. " +
+        "Khai origin của frontend qua biến môi trường Cors__AllowedOrigins__0, Cors__AllowedOrigins__1...");
+}
+var allowedOrigins = configuredOrigins ?? devOrigins;
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
     .WithOrigins(allowedOrigins)
     .AllowAnyHeader()
     .AllowAnyMethod()));
 
 var connectionString = builder.Configuration.GetConnectionString("Default")
-    ?? throw new InvalidOperationException("Connection string 'Default' not found.");
+    ?? throw new InvalidOperationException(
+        "Thiếu chuỗi kết nối 'ConnectionStrings:Default'. Đặt qua biến môi trường ConnectionStrings__Default.");
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 0))));
 
 var app = builder.Build();
+
+// Bộ giả lập thanh toán chốt giao dịch mà không thu tiền: ngoài Development thì không chỉ tắt mà còn dừng
+// khởi động, để cấu hình sai bị phát hiện ngay chứ không âm thầm cho qua các lượt đặt chưa trả tiền.
+var paymentSimulator = app.Services.GetRequiredService<PaymentSimulator>();
+if (paymentSimulator.IsMisconfigured) throw new InvalidOperationException(PaymentSimulator.MisconfiguredMessage);
+if (paymentSimulator.IsEnabled) app.Logger.LogWarning("Bộ giả lập thanh toán đang bật (chỉ dùng cho máy dev).");
 
 if (app.Environment.IsDevelopment())
 {
