@@ -27,7 +27,7 @@ cất bảng giá có sẵn rồi khôi phục khi xong. Mỗi kịch bản dọ
 
 Đọc `[Authorize]` / `[AllowAnonymous]` của mọi controller (khoảng 114 endpoint) rồi gọi từng endpoint bằng Admin, Quản lý, Tài xế, Phụ xe, Hành khách và khi chưa đăng nhập
 (khoảng 680 ô). Không được phép thì phải trả 401 (chưa đăng nhập) hoặc 403 (sai vai); được phép thì không được trả 401/403. Dữ liệu gửi lên là id không tồn tại và thân rỗng nên
-không tạo dữ liệu thật. Ngoài đối chiếu với attribute còn có hai lớp độc lập để bắt trường hợp ai đó lỡ xóa attribute:
+không tạo dữ liệu thật; endpoint được phép mà trả 5xx với dữ liệu rỗng cũng tính là lỗi. Kết quả ghi thành bảng ma trận ở `tests/results/ma-tran-phan-quyen.md` (bản chụp đã commit: `docs/MA-TRAN-PHAN-QUYEN.md`, sinh lại bằng `MATRIX_OUT=docs/MA-TRAN-PHAN-QUYEN.md CONFIRM_TEST_DB=1 node tests/regression/permissions.mjs`). Ngoài đối chiếu với attribute còn có hai lớp độc lập để bắt trường hợp ai đó lỡ xóa attribute:
 endpoint ghi dữ liệu không được công khai (trừ đăng nhập, cổng thanh toán, webhook ngân hàng có khóa riêng) và 13 tài nguyên nhạy cảm (tài khoản, nhật ký, báo cáo, hoàn tiền, voucher, tạo tuyến/xe,
 phân công, quét vé, đặt vé, thanh toán) phải đúng vai; cuối cùng là token rác, bị sửa chữ ký, thiếu `Bearer` và hành khách tự sửa claim vai trò thành Admin đều bị 401.
 
