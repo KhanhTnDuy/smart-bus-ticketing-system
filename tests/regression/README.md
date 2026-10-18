@@ -18,7 +18,7 @@ và CSDL MySQL đang chạy. Nhật ký từng kịch bản nằm ở `tests/res
 
 Giai đoạn đầu còn có ba kiểm thử tĩnh không cần CSDL: `config/no-mock-data` (frontend không dùng dữ liệu giả hay `localStorage` cho dữ liệu nghiệp vụ), `config/frontend-role-mapping` (vai trò frontend khớp enum backend) và hai kiểm thử cấu hình triển khai.
 
-Tùy chọn: `--only seat-lock,permissions` chỉ chạy vài kịch bản, `--no-backend` dùng backend đang chạy sẵn ở `API_URL` (tự lo cấu hình). Kịch bản
+Tùy chọn: `--only seat-lock,permissions` chỉ chạy vài kịch bản, `--no-backend` dùng backend đang chạy sẵn ở `API_URL` (tự lo cấu hình). Mặc định `npm test` áp các migration EF còn thiếu vào CSDL trước khi chạy (cần `dotnet tool install --global dotnet-ef`; thêm `--no-migrate` để bỏ qua). Kịch bản
 `tests/payments/vnpay-ipn-e2e.mjs` cần VNPay sandbox thật và địa chỉ công khai nên không nằm trong lệnh này (xem tài liệu SCRUM-105).
 
 Các kịch bản chạy được trên cả dữ liệu seed (`seed_sprint2.sql`) lẫn dữ liệu demo (`backend/database/demo`) vào bất kỳ ngày nào: ngày chuyến tính từ hôm nay,
