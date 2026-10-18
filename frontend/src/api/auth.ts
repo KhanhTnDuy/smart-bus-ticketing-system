@@ -8,7 +8,7 @@
 import { api, setToken } from './client';
 import { Role, User, UserStatus } from '../types';
 
-/** Vai trò trong backend: enum AccountRole { Admin = 0, Manager = 1, Driver = 2, Conductor = 3, Passenger = 4 }. */
+/** Vai trò trong backend: enum AccountRole { Admin, Manager, Driver, Conductor, Passenger }. */
 export type AccountRoleName = 'Admin' | 'Manager' | 'Driver' | 'Conductor' | 'Passenger';
 
 export interface AccountDto {
@@ -29,7 +29,10 @@ interface LoginResponse {
 }
 
 // Backend serialize enum thành chuỗi, nhưng vẫn chấp nhận cả dạng số cho chắc.
-// Phụ xe (Conductor) được cấp quyền thao tác trên giao diện lái xe / phụ xe (soát vé, xem lịch phân công).
+// Thứ tự và tên theo enum AccountRole ở backend: { Admin, Manager, Driver, Conductor, Passenger }.
+// Phụ xe dùng chung nhóm giao diện với tài xế (lịch trực, soát vé QR, báo sự cố): thiếu "conductor" ở đây thì
+// đăng nhập phụ xe rơi về PASSENGER và không vào được trang soát vé. tests/config/frontend-role-mapping.mjs
+// kiểm hai bảng dưới khớp enum này.
 const ROLE_BY_NAME: Record<string, Role> = {
   admin: 'ADMIN',
   manager: 'MANAGER',
