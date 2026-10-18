@@ -53,12 +53,16 @@ export interface TripDto {
   delayMinutes: number;
 }
 
+/** Trạng thái ghế trên sơ đồ: trống, đang có khách khác giữ khi thanh toán, hoặc đã bán. */
+export type TripSeatStatus = 'Available' | 'Held' | 'Sold';
+
 export interface TripSeatDto {
   seatId: number;
   seatCode: string;
   row: number;
   column: number;
-  status: string;
+  status: TripSeatStatus;
+  /** False với cả ghế đang giữ lẫn ghế đã bán: cả hai đều không chọn được lúc này. */
   isAvailable: boolean;
 }
 

@@ -8,6 +8,8 @@ import { Role } from '../types';
 export interface TripOption {
   tripId: number;
   label: string;
+  /** Giờ khởi hành (mili giây), có khi biết chính xác; dùng để chọn sẵn chuyến gần giờ hiện tại nhất. */
+  departureMs?: number;
 }
 
 const fmt = (iso: string) => {
@@ -43,7 +45,7 @@ export const useTripOptions = (role: Role | null) => {
           const rows = await api.get<MyScheduleRow[]>('/api/assignments/my-schedule');
           list = rows
             .filter((r) => r.status !== 3 && r.status !== 4 && r.status !== 'Completed' && r.status !== 'Cancelled')
-            .map((r) => ({ tripId: r.tripId, label: `TRIP-${r.tripId} · ${r.routeCode} · ${fmt(r.departureAt)}` }));
+            .map((r) => ({ tripId: r.tripId, label: `TRIP-${r.tripId} · ${r.routeCode} · ${fmt(r.departureAt)}`, departureMs: utcToLocal(r.departureAt).getTime() }));
         } else if (role === 'PASSENGER') {
           const tickets = await listMyTickets();
           const seen = new Set<number>();
