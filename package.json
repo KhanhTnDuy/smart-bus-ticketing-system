@@ -8,6 +8,7 @@
     "reload-demo": "node scripts/reload-demo.mjs",
     "test:seat-lock": "node tests/regression/seat-lock.mjs",
     "test:refund-flow": "node tests/regression/refund-flow.mjs",
-    "test:regress": "node tests/regression/regress.mjs"
+    "test:regress": "node tests/regression/regress.mjs",
+    "test:vnpay-sandbox": "node tests/payments/vnpay-sandbox-e2e.mjs"
   }
 }
