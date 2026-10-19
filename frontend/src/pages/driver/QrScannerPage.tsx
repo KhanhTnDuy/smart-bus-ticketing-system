@@ -13,6 +13,7 @@ import {
   utcToLocal,
 } from '../../api/operations';
 import { ApiError } from '../../api/client';
+import { QrCameraScanner } from '../../components/driver/QrCameraScanner';
 
 const CARD = 'bg-white dark:bg-[#131e3a] rounded-xl border border-slate-200 dark:border-[#1e2f57] shadow-sm';
 
@@ -44,6 +45,7 @@ export const QrScannerPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<TicketScanDto[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const scanBusyRef = useRef(false);
 
   useEffect(() => {
     if (tripId || !tripOptions.length) return;
@@ -72,12 +74,14 @@ export const QrScannerPage: React.FC = () => {
     void loadHistory();
   }, [loadHistory]);
 
-  const handleScan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const value = code.trim();
+  const submitScan = async (rawValue: string, fromCamera = false) => {
+    const value = rawValue.trim();
     if (!tripId) return showError('Vui lòng chọn chuyến đang phụ trách.');
     if (!value) return showError('Vui lòng nhập hoặc quét mã QR.');
+    // Camera có thể đọc ra mã mới khi lượt trước còn đang chờ máy chủ: bỏ qua thay vì gửi chồng.
+    if (scanBusyRef.current) return;
 
+    scanBusyRef.current = true;
     setIsScanning(true);
     setErrorMessage(null);
     try {
@@ -110,9 +114,16 @@ export const QrScannerPage: React.FC = () => {
       setErrorMessage(msg);
       showError(msg);
     } finally {
+      scanBusyRef.current = false;
       setIsScanning(false);
-      inputRef.current?.focus();
+      // Đang quét bằng camera thì không giành focus, tránh bàn phím ảo che khung hình trên điện thoại.
+      if (!fromCamera) inputRef.current?.focus();
     }
+  };
+
+  const handleScan = (e: React.FormEvent) => {
+    e.preventDefault();
+    void submitScan(code);
   };
 
   const validCount = history.filter((h) => h.result === 'Valid').length;
@@ -177,11 +188,14 @@ export const QrScannerPage: React.FC = () => {
             </button>
           </form>
 
-          {/* Lưu ý camera trên thiết bị di động */}
-          <div className="p-3.5 rounded-xl border border-blue-200 dark:border-blue-800/60 bg-blue-50/70 dark:bg-blue-950/20 text-xs text-blue-900 dark:text-blue-200 flex items-start gap-2.5">
-            <Camera className="w-4 h-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
-            <div>
-              <span className="font-semibold">Lưu ý camera di động:</span> Trình duyệt điện thoại yêu cầu kết nối bảo mật HTTPS trên môi trường Production để cấp quyền truy cập camera quét trực tiếp. Trên môi trường thử nghiệm localhost, phụ xe có thể dùng camera ảo, đầu đọc mã vạch chuyên dụng hoặc dán/nhập mã QR nhanh vào ô trên.
+          <div className={`${CARD} p-5 space-y-3 text-xs`}>
+            <QrCameraScanner onDetect={(text) => void submitScan(text, true)} />
+            {/* Lưu ý camera trên thiết bị di động */}
+            <div className="p-3.5 rounded-xl border border-blue-200 dark:border-blue-800/60 bg-blue-50/70 dark:bg-blue-950/20 text-blue-900 dark:text-blue-200 flex items-start gap-2.5">
+              <Camera className="w-4 h-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+              <div>
+                <span className="font-semibold">Lưu ý camera di động:</span> Trình duyệt chỉ cấp quyền camera trên kết nối HTTPS (hoặc localhost khi thử trên máy tính). Nếu không dùng được camera, phụ xe vẫn có thể dùng đầu đọc mã vạch hoặc dán/nhập mã QR vào ô phía trên.
+              </div>
             </div>
           </div>
 
