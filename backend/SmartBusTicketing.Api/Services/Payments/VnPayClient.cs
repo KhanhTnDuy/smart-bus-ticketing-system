@@ -162,7 +162,7 @@ public sealed class VnPayClient(IOptions<VnPayOptions> options)
         };
     }
 
-    /// <summary>Kiểm chữ ký phản hồi của API hoàn tiền. Trường thiếu được tính là chuỗi rỗng.</summary>
+    /// <summary>Kiểm chữ ký phản hồi của API hoàn tiền (13 trường theo tài liệu, đã đối chiếu với phản hồi sandbox thật). Trường thiếu được tính là chuỗi rỗng.</summary>
     public bool VerifyRefundResponse(IReadOnlyDictionary<string, string> response)
     {
         string G(string key) => response.TryGetValue(key, out var v) ? v : string.Empty;
@@ -170,8 +170,7 @@ public sealed class VnPayClient(IOptions<VnPayOptions> options)
         if (!response.TryGetValue("vnp_SecureHash", out var received) || string.IsNullOrWhiteSpace(received)) return false;
         var data = string.Join('|', G("vnp_ResponseId"), G("vnp_Command"), G("vnp_ResponseCode"), G("vnp_Message"),
             G("vnp_TmnCode"), G("vnp_TxnRef"), G("vnp_Amount"), G("vnp_BankCode"), G("vnp_PayDate"),
-            G("vnp_TransactionNo"), G("vnp_TransactionType"), G("vnp_TransactionStatus"), G("vnp_OrderInfo"),
-            G("vnp_PromotionCode"), G("vnp_PromotionAmount"));
+            G("vnp_TransactionNo"), G("vnp_TransactionType"), G("vnp_TransactionStatus"), G("vnp_OrderInfo"));
 
         var expected = Encoding.ASCII.GetBytes(Sign(data));
         var actual = Encoding.ASCII.GetBytes(received.Trim().ToLowerInvariant());
