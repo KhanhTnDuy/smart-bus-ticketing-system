@@ -131,7 +131,7 @@ public class PaymentsController(
             var expire = booking.HoldExpiresAt < now.AddMinutes(15) ? booking.HoldExpiresAt : now.AddMinutes(15);
             paymentUrl = vnPay.BuildPaymentUrl(
                 payment.TxnRef!, payment.Amount, $"Thanh toan ve {booking.BookingCode}",
-                HttpContext.Connection.RemoteIpAddress?.MapToIPv4().ToString() ?? "127.0.0.1", now, expire);
+                GatewayClientIp(HttpContext), now, expire);
         }
         else if (!useTransfer)
         {
@@ -147,6 +147,17 @@ public class PaymentsController(
         dto.PaymentUrl = paymentUrl;
         WithTransfer(dto);
         return CreatedAtAction(nameof(Get), new { id = payment.Id }, dto);
+    }
+
+    /// <summary>
+    /// Giá trị vnp_IpAddr gửi VNPay. Trình duyệt gọi qua localhost thường đến bằng ::1: MapToIPv4() của địa chỉ đó ra
+    /// "0.0.0.1" chứ không phải loopback, nên địa chỉ loopback quy về 127.0.0.1, IPv4 nhúng trong IPv6 đổi về IPv4.
+    /// </summary>
+    internal static string GatewayClientIp(HttpContext http)
+    {
+        var ip = http.Connection.RemoteIpAddress;
+        if (ip is null || System.Net.IPAddress.IsLoopback(ip)) return "127.0.0.1";
+        return ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4().ToString() : ip.ToString();
     }
 
     /// <summary>Gắn thông tin chuyển khoản (mã VietQR, tài khoản, nội dung) cho giao dịch chuyển khoản còn chờ.</summary>
