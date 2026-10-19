@@ -31,7 +31,8 @@ public interface IVnPayRefundGateway
 /// Gọi API hoàn tiền VNPay (merchant_webapi, command "refund"). Mã phản hồi "00" mới là thành công và chỉ tin khi
 /// chữ ký phản hồi đúng.
 /// </summary>
-public sealed class VnPayRefundGateway(HttpClient http, VnPayClient client, IOptions<VnPayOptions> options) : IVnPayRefundGateway
+public sealed class VnPayRefundGateway(
+    HttpClient http, VnPayClient client, IOptions<VnPayOptions> options, ILogger<VnPayRefundGateway> logger) : IVnPayRefundGateway
 {
     public async Task<VnPayRefundResponse> RefundAsync(VnPayRefundRequest request, CancellationToken ct)
     {
@@ -49,9 +50,16 @@ public sealed class VnPayRefundGateway(HttpClient http, VnPayClient client, IOpt
             fields[p.Name] = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() ?? "" : p.Value.GetRawText();
         }
 
+        var signatureValid = client.VerifyRefundResponse(fields);
+        if (!signatureValid)
+        {
+            // Phản hồi không chứa khóa bí mật; ghi lại để đối chiếu công thức ký với VNPay.
+            logger.LogWarning("Phản hồi hoàn tiền VNPay sai chữ ký: {Fields}", JsonSerializer.Serialize(fields));
+        }
+
         fields.TryGetValue("vnp_ResponseCode", out var code);
         fields.TryGetValue("vnp_Message", out var message);
         fields.TryGetValue("vnp_TransactionNo", out var txNo);
-        return new VnPayRefundResponse(code ?? "", message ?? "", string.IsNullOrEmpty(txNo) ? null : txNo, client.VerifyRefundResponse(fields));
+        return new VnPayRefundResponse(code ?? "", message ?? "", string.IsNullOrEmpty(txNo) ? null : txNo, signatureValid);
     }
 }

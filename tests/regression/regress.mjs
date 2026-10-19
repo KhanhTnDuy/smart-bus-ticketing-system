@@ -47,11 +47,10 @@ function startRefundSink(port, secret) {
         vnp_TmnCode: g('vnp_TmnCode'), vnp_TxnRef: g('vnp_TxnRef'), vnp_Amount: g('vnp_Amount'), vnp_BankCode: 'NCB',
         vnp_PayDate: '20261011230000', vnp_TransactionNo: String(15000000 + sink.requests.length),
         vnp_TransactionType: g('vnp_TransactionType'), vnp_TransactionStatus: '05', vnp_OrderInfo: g('vnp_OrderInfo'),
-        vnp_PromotionCode: '', vnp_PromotionAmount: '',
       };
       r.vnp_SecureHash = sink.mode === 'badsig' ? 'f'.repeat(128) : sign([r.vnp_ResponseId, r.vnp_Command, r.vnp_ResponseCode,
         r.vnp_Message, r.vnp_TmnCode, r.vnp_TxnRef, r.vnp_Amount, r.vnp_BankCode, r.vnp_PayDate, r.vnp_TransactionNo,
-        r.vnp_TransactionType, r.vnp_TransactionStatus, r.vnp_OrderInfo, r.vnp_PromotionCode, r.vnp_PromotionAmount]);
+        r.vnp_TransactionType, r.vnp_TransactionStatus, r.vnp_OrderInfo]);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(r));
     });
