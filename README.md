@@ -166,6 +166,7 @@ node tests/config/deploy-config.mjs            # SCRUM-106: cấu hình triển 
 ```
 
 - Chi tiết từng kịch bản, biến môi trường và ma trận kiểm thử thanh toán xem tại `tests/regression/README.md`.
+- Thanh toán và hoàn tiền trên **sandbox VNPay thật** (cần khóa sandbox, có bước nhập thẻ thử bằng tay): xem [`docs/VNPAY-SANDBOX.md`](docs/VNPAY-SANDBOX.md), chạy bằng `npm run test:vnpay-sandbox`.
 - Quy ước báo lỗi, danh sách lỗi đã biết và kết quả chạy gần nhất xem tại `docs/LOI-DA-BIET.md`.
 
 ---
