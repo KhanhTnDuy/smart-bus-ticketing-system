@@ -228,6 +228,7 @@ Kịch bản chuẩn từng bước để nhóm thực hiện demo mượt mà, 
 1. Đăng nhập tài khoản tài xế: `driver1` / `Admin@12345`.
 2. Truy cập menu **Tài xế & Soát vé** → **Quét QR vé** (`/driver/qr-scanner`).
 3. Hệ thống tự động chọn sẵn chuyến xe gần giờ khởi hành hiện tại nhất từ danh sách chuyến được phân công.
+   - Bấm **Bật camera quét vé** (lần đầu trình duyệt hỏi quyền camera): hệ thống mở camera sau và tự gửi mã QR ngay khi đọc được, không cần bấm thêm. Mã còn nằm trong khung hình sẽ không bị quét lặp; đưa ra rồi đưa vào lại mới tính là lượt quét mới. Vẫn có thể dùng đầu đọc mã vạch hoặc dán mã vào ô nhập.
 4. **Kiểm chứng các trường hợp ngoại lệ thực tế**:
    - **Kịch bản 1 - Vé hợp lệ (Mời lên xe)**: Quét vé đúng chuyến → Hiển thị khung màu xanh tương phản cao: *"Hợp lệ — Mời lên xe: Vé hợp lệ. Mời hành khách lên xe."*, thông tin hành khách, số ghế, trạm lên/xuống; cập nhật trạng thái vé sang `Used`.
    - **Kịch bản 2 - Quét lại vé đã dùng (HTTP 400)**: Quét lại mã QR vừa soát thành công → Hiển thị khung màu vàng cảnh báo: *"Vé này đã được sử dụng trước đó lúc [Giờ:Phút]"* (múi giờ UTC+7).
@@ -240,7 +241,7 @@ Kịch bản chuẩn từng bước để nhóm thực hiện demo mượt mà, 
    - **Kịch bản 9 - Phân quyền tài xế (HTTP 403)**: Khi tài xế `driver2` cố tình quét vé của chuyến do `driver1` phụ trách → Backend trả về HTTP 403 kèm thông điệp rõ ràng: *"Nhân viên không được phân công phục vụ chuyến này."*. Giao diện hiển thị banner cảnh báo đỏ nổi bật kèm icon `ShieldAlert`, không bị văng Exception.
 
 > 📱 **Lưu ý camera trên thiết bị di động khi triển khai Production**:
-> Trình duyệt điện thoại (Chrome/Safari) yêu cầu kết nối bảo mật **HTTPS** trên môi trường Production để cấp quyền mở camera quét trực tiếp. Trên môi trường thử nghiệm `localhost`, phụ xe có thể dùng camera ảo, đầu đọc mã vạch USB/Bluetooth hoặc dán/nhập mã QR nhanh vào ô kiểm tra.
+> Trình duyệt điện thoại (Chrome/Safari) chỉ cấp quyền mở camera trên kết nối bảo mật **HTTPS**; trên máy tính, `localhost` được coi là an toàn nên thử được ngay. Giải mã bằng thư viện `jsqr` ở trình duyệt nên không phụ thuộc `BarcodeDetector`. Khi camera không dùng được (bị chặn quyền, không có camera, đang bị ứng dụng khác chiếm), trang báo rõ lý do và phụ xe vẫn dùng được đầu đọc mã vạch USB/Bluetooth hoặc dán/nhập mã QR vào ô kiểm tra.
 
 ---
 
