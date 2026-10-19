@@ -74,4 +74,7 @@ Dán địa chỉ IPN (`https://<đường hầm>/api/payments/vnpay/ipn`) vào 
 | Trang lỗi sandbox, `code=02` | `TmnCode` không hợp lệ. |
 | Trang lỗi sandbox, `code=03` | Dữ liệu gửi sang sai định dạng. |
 | Trả tiền xong nhưng kịch bản vẫn chờ | Trình duyệt chưa đăng nhập hành khách nên trang kết quả bị chuyển về trang đăng nhập và không chốt giao dịch. Đăng nhập rồi mở lại địa chỉ đã quay về, hoặc xem **Lịch sử thanh toán**. |
-| Hoàn tiền báo cần xử lý tay, sandbox không tìm thấy giao dịch gốc | Đổi `Payments:VnPay:RefundDateSource` từ `Create` sang `Pay` (tài liệu VNPay chưa rõ dùng ngày nào). |
+| Hoàn tiền lỗi `403 Forbidden` | Tường lửa `merchant_webapi` của VNPay chặn yêu cầu không có header `User-Agent`. Backend đã đặt sẵn `User-Agent` cho client hoàn tiền. |
+| Hoàn tiền báo "sai chữ ký" dù VNPay trả mã `00` | Chữ ký phản hồi hoàn tiền gồm đúng 13 trường (từ `vnp_ResponseId` đến `vnp_OrderInfo`), đã đối chiếu với phản hồi sandbox thật. Khoản hoàn đã được hoàn ở phía VNPay, chỉ cần đối soát giao dịch hoàn trên trang merchant. |
+| Hoàn tiền báo "sai chữ ký (mã 94)" | VNPay báo `Request is duplicated`: yêu cầu hoàn này đã được nhận trước đó. Phản hồi lỗi không có chữ ký. Đối soát trên trang merchant trước khi xử lý tay. |
+| Hoàn tiền báo cần xử lý tay, sandbox không tìm thấy giao dịch gốc | Mặc định `Payments:VnPay:RefundDateSource=Create` đã hoàn thành công trên sandbox. Nếu sandbox đổi hành vi, thử đặt thành `Pay`. |

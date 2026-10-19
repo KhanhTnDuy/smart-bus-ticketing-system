@@ -30,7 +30,12 @@ builder.Services.Configure<PaymentSimulatorOptions>(builder.Configuration.GetSec
 builder.Services.AddSingleton<PaymentSimulator>();
 builder.Services.AddScoped<PaymentSettlementService>();
 builder.Services.Configure<RefundOptions>(builder.Configuration.GetSection(RefundOptions.Section));
-builder.Services.AddHttpClient<IVnPayRefundGateway, VnPayRefundGateway>(c => c.Timeout = TimeSpan.FromSeconds(20));
+builder.Services.AddHttpClient<IVnPayRefundGateway, VnPayRefundGateway>(c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(20);
+    // Tường lửa của merchant_webapi VNPay trả 403 khi yêu cầu không có User-Agent.
+    c.DefaultRequestHeaders.UserAgent.ParseAdd("SmartBusTicketing/1.0");
+});
 builder.Services.AddScoped<RefundExecutor>();
 builder.Services.AddHostedService<RefundProcessingService>();
 builder.Services.AddHostedService<HoldExpiryService>();
