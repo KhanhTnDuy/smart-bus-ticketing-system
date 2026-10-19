@@ -56,7 +56,8 @@ export const RouteBookingPage: React.FC = () => {
 
   // Maximum seats allowed per booking
   const MAX_SEATS_PER_BOOKING = 4;
-  const todayString = new Date().toISOString().split('T')[0];
+  // Ngày theo giờ máy người dùng (en-CA cho dạng YYYY-MM-DD); toISOString() tính theo UTC nên 0h–7h sáng giờ Việt Nam bị lùi một ngày.
+  const todayString = new Date().toLocaleDateString('en-CA');
 
   // Booking Flow Steps: 1: SEARCH, 2: SEATS, 3: PAYMENT, 4: SUCCESS
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
@@ -302,14 +303,17 @@ export const RouteBookingPage: React.FC = () => {
     return { isValid: true, message: '' };
   }, [departurePoint, destinationPoint, routes, routeStopNames]);
 
-  // Handle date change with validation for past date
+  // Gõ tay ngày từng chữ số tạo ra giá trị tạm (vd. 10/02 khi mới gõ "2" của "20"), nên chỉ lưu giá trị khi gõ
+  // và kiểm tra ngày quá khứ khi rời ô hoặc khi tra cứu.
   const handleDateChange = (newDate: string) => {
-    if (newDate && newDate < todayString) {
+    setTravelDate(newDate);
+  };
+
+  const handleDateBlur = () => {
+    if (travelDate && travelDate < todayString) {
       warning('Không thể chọn ngày trong quá khứ! Hệ thống đã tự động chuyển về ngày hôm nay.');
       setTravelDate(todayString);
-      return;
     }
-    setTravelDate(newDate);
   };
 
   // Backend tự lọc theo tuyến, điểm đi/đến và ngày nên không lọc lại ở client.
@@ -323,6 +327,11 @@ export const RouteBookingPage: React.FC = () => {
   const handleSearch = async () => {
     if (!canSearch) {
       warning('Vui lòng chọn điểm đi, điểm đến và ngày khởi hành trước khi tra cứu.');
+      return;
+    }
+
+    if (travelDate < todayString) {
+      handleDateBlur();
       return;
     }
 
@@ -764,6 +773,7 @@ export const RouteBookingPage: React.FC = () => {
                   value={travelDate}
                   min={todayString}
                   onChange={(e) => handleDateChange(e.target.value)}
+                  onBlur={handleDateBlur}
                   className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500 font-mono"
                 />
               </div>
