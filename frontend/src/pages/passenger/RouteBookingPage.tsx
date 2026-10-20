@@ -170,6 +170,7 @@ export const RouteBookingPage: React.FC = () => {
         setVoucherCodeInput(res.voucher?.code || code);
         setIsVoucherModalOpen(false);
         success(res.message);
+        if (hold) await reholdWithVoucher(res.voucher?.code || code);
       } else {
         setAppliedVoucher(null);
         error(res.message);
@@ -182,10 +183,11 @@ export const RouteBookingPage: React.FC = () => {
     }
   };
 
-  const handleRemoveVoucher = () => {
+  const handleRemoveVoucher = async () => {
     setAppliedVoucher(null);
     setVoucherCodeInput('');
     info('Đã hủy áp dụng mã giảm giá.');
+    if (hold) await reholdWithVoucher(undefined);
   };
 
   // Tự động kiểm tra và áp dụng mã nếu được truyền qua query params
@@ -421,6 +423,14 @@ export const RouteBookingPage: React.FC = () => {
       error('Vui lòng nhập tên và số điện thoại liên hệ của hành khách.');
       return;
     }
+    await holdSeats(appliedVoucher?.voucher?.code || undefined);
+  };
+
+  /**
+   * Giữ ghế trên máy chủ kèm mã voucher (nếu có) rồi sang bước thanh toán. Backend chỉ nhận voucher lúc giữ chỗ nên
+   * đổi hoặc bỏ mã khi đang giữ ghế phải qua hàm này (reholdWithVoucher), nếu không số tiền thu không đổi theo màn hình.
+   */
+  const holdSeats = async (voucherCode?: string) => {
     if (!selectedTrip) return;
 
     const boardStopId = findStopId(selectedTrip.routeId, departurePoint);
@@ -437,7 +447,7 @@ export const RouteBookingPage: React.FC = () => {
         seatIds: selectedSeatIds,
         boardStopId,
         alightStopId,
-        voucherCode: appliedVoucher?.voucher?.code || undefined,
+        voucherCode,
       });
 
       // Số tiền hiển thị lấy theo máy chủ: backend tính theo hồ sơ đối tượng ưu đãi đã
@@ -453,6 +463,8 @@ export const RouteBookingPage: React.FC = () => {
       setCurrentStep(3);
     } catch (err) {
       error(err instanceof ApiError ? err.message : 'Không giữ được chỗ, vui lòng thử lại.');
+      // Giữ lại thất bại khi đang ở bước thanh toán (đổi voucher): không còn ghế đang giữ nên quay về chọn ghế.
+      setCurrentStep(2);
       // 409 nghĩa là ghế vừa bị người khác giữ: tải lại sơ đồ để khách thấy trạng thái mới.
       if (err instanceof ApiError && err.status === 409) {
         setSelectedSeatIds([]);
@@ -479,6 +491,12 @@ export const RouteBookingPage: React.FC = () => {
         warning('Chưa nhả được ghế ngay, ghế sẽ tự nhả khi hết 10 phút giữ chỗ.');
       }
     }
+  };
+
+  /** Đổi mã voucher khi đang giữ ghế: nhả lượt giữ cũ rồi giữ lại đúng các ghế đó với mã mới (hoặc không mã). */
+  const reholdWithVoucher = async (voucherCode?: string) => {
+    await releaseHold();
+    await holdSeats(voucherCode);
   };
 
   // Khách bấm "Hủy thanh toán": nhả ghế ngay rồi quay lại chọn ghế.
@@ -1386,14 +1404,15 @@ export const RouteBookingPage: React.FC = () => {
                 value={voucherCodeInput}
                 onChange={(e) => setVoucherCodeInput(e.target.value.toUpperCase())}
                 placeholder="Nhập mã voucher (VD: HE2026, CHAOHEXANH...)"
-                disabled={Boolean(appliedVoucher) || isValidatingVoucher}
+                disabled={Boolean(appliedVoucher) || isValidatingVoucher || isHolding}
                 className="flex-1 px-3 py-2 text-xs uppercase font-mono font-bold tracking-wider rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-60"
               />
               {appliedVoucher ? (
                 <button
                   type="button"
-                  onClick={handleRemoveVoucher}
-                  className="px-3.5 py-2 rounded-lg border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-xs font-bold hover:bg-rose-100 transition-colors"
+                  onClick={() => void handleRemoveVoucher()}
+                  disabled={isHolding}
+                  className="px-3.5 py-2 rounded-lg disabled:opacity-50 border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-xs font-bold hover:bg-rose-100 transition-colors"
                 >
                   Hủy áp dụng
                 </button>
@@ -1401,7 +1420,7 @@ export const RouteBookingPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => void handleApplyVoucher()}
-                  disabled={isValidatingVoucher || !voucherCodeInput.trim()}
+                  disabled={isValidatingVoucher || isHolding || !voucherCodeInput.trim()}
                   className="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm"
                 >
                   {isValidatingVoucher ? (
@@ -1544,7 +1563,7 @@ export const RouteBookingPage: React.FC = () => {
             <button
               type="button"
               onClick={handleCancelPayment}
-              disabled={isProcessingPayment}
+              disabled={isProcessingPayment || isHolding}
               className="flex items-center gap-1.5 px-4 py-2 rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold disabled:opacity-50"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -1554,7 +1573,7 @@ export const RouteBookingPage: React.FC = () => {
             <button
               type="button"
               onClick={handlePayNow}
-              disabled={isProcessingPayment}
+              disabled={isProcessingPayment || isHolding}
               className="flex items-center gap-2 px-6 py-2.5 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold uppercase tracking-wider shadow-md transition-colors"
             >
               {isProcessingPayment ? (
