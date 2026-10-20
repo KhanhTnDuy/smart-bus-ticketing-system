@@ -800,7 +800,7 @@ export const VoucherManagementPage: React.FC = () => {
                   required
                   min={0.01}
                   max={formData.discountType === 'Percent' ? 100 : 10000000}
-                  step={formData.discountType === 'Percent' ? 1 : 1000}
+                  step="any"
                   value={formData.discountValue}
                   onChange={(e) =>
                     setFormData({ ...formData, discountValue: Number(e.target.value) })
