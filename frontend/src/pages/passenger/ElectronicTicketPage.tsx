@@ -1154,8 +1154,7 @@ export const ElectronicTicketPage: React.FC = () => {
                 <AlertCircle className="w-4 h-4" />
                 Lưu ý khi gửi yêu cầu hủy vé:
               </div>
-              {/* Không nêu tỷ lệ hoàn tiền: hệ thống chưa có luồng thanh toán nên vé mới
-                  chỉ ở trạng thái giữ chỗ, hủy vé không phát sinh giao dịch hoàn tiền nào. */}
+              {/* Không nêu tỷ lệ hoàn tiền vì bảng phí hoàn do hệ thống cấu hình; chỉ nói vé đã trả tiền thì sẽ được hoàn. */}
               <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
                 <li>Chỉ gửi được khi chuyến xe chưa khởi hành.</li>
                 <li>
@@ -1163,10 +1162,17 @@ export const ElectronicTicketPage: React.FC = () => {
                   lực và ghế chưa bị nhả cho tới khi quản lý duyệt.
                 </li>
                 <li>Mỗi vé chỉ có một yêu cầu chờ duyệt tại một thời điểm.</li>
-                <li>
-                  Vé này đang ở trạng thái giữ chỗ và chưa thanh toán, nên hủy vé không phát sinh
-                  hoàn tiền.
-                </li>
+                {(cancelTicketTarget.ticketStatus || cancelTicketTarget.status || 'PAID') === 'PENDING' ? (
+                  <li>
+                    Vé này đang ở trạng thái giữ chỗ và chưa thanh toán, nên hủy vé không phát sinh
+                    hoàn tiền.
+                  </li>
+                ) : (
+                  <li>
+                    Vé đã thanh toán: khi quản lý duyệt hủy, khoản tiền sẽ được hoàn lại theo chính
+                    sách hoàn tiền.
+                  </li>
+                )}
               </ul>
             </div>
 
