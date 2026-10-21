@@ -34,6 +34,19 @@ public sealed class RouteRequest
     public bool Active { get; init; } = true;
 }
 
+/// <summary>Cự ly ước tính giữa hai trạm có sẵn. Source: "road" là đường đi thực tế, "straight-line" là đường chim bay (dự phòng).</summary>
+public sealed class RouteEstimateDto
+{
+    public long FromStopId { get; init; }
+    public string FromStopName { get; init; } = string.Empty;
+    public long ToStopId { get; init; }
+    public string ToStopName { get; init; } = string.Empty;
+    public decimal DistanceKm { get; init; }
+    /// <summary>Thời gian lái xe ước tính, chỉ có khi lấy được từ dịch vụ chỉ đường.</summary>
+    public int? DurationMinutes { get; init; }
+    public string Source { get; init; } = "road";
+}
+
 // ---------- Trạm dừng ----------
 
 public sealed class StopDto
