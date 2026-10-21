@@ -80,6 +80,34 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
         RoleClaimType = JwtTokenService.RoleClaim,
         NameClaimType = JwtTokenService.NameClaim
     };
+
+    // Token tự mang vai trò nên nếu chỉ tin token thì tài khoản bị khóa hoặc bị đổi vai vẫn giữ nguyên quyền cũ tới khi token hết hạn
+    // (mặc định 2 giờ). Mỗi yêu cầu đối chiếu lại với CSDL (một truy vấn theo khóa chính): tài khoản phải còn hoạt động và vai trò
+    // trong token phải khớp vai trò hiện tại, nếu không trả 401 để người dùng đăng nhập lại.
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = async context =>
+        {
+            var principal = context.Principal;
+            var subject = principal?.FindFirst("sub")?.Value;
+            var tokenRole = principal?.FindFirst(JwtTokenService.RoleClaim)?.Value;
+            if (!long.TryParse(subject, out var accountId))
+            {
+                context.Fail("Token không có mã tài khoản hợp lệ.");
+                return;
+            }
+
+            var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+            var current = await db.Accounts.AsNoTracking()
+                .Where(a => a.Id == accountId)
+                .Select(a => new { a.Active, a.Role })
+                .FirstOrDefaultAsync(context.HttpContext.RequestAborted);
+            if (current is null || !current.Active)
+                context.Fail("Tài khoản đã bị khóa hoặc không còn tồn tại.");
+            else if (!string.Equals(current.Role.ToString(), tokenRole, StringComparison.OrdinalIgnoreCase))
+                context.Fail("Vai trò của tài khoản đã thay đổi, vui lòng đăng nhập lại.");
+        }
+    };
 });
 builder.Services.AddAuthorization();
 
