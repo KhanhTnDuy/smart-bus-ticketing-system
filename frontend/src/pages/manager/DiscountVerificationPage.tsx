@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { FileCheck2, Search, CheckCircle, XCircle, Eye, RefreshCw } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -46,13 +47,13 @@ export const DiscountVerificationPage: React.FC = () => {
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       setItems(await listApplications());
       setLoadError(null);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Không tải được danh sách hồ sơ.');
+      if (!silent) setLoadError(err instanceof Error ? err.message : 'Không tải được danh sách hồ sơ.');
     } finally {
       setLoading(false);
     }
@@ -61,6 +62,9 @@ export const DiscountVerificationPage: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần bấm tải lại.
+  useAutoRefresh(() => load(true));
 
   const filtered = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();

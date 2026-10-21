@@ -6,6 +6,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { useAutoRefresh } from './useAutoRefresh';
 import { ApiError } from '../api/client';
 import * as busApi from '../api/busManagement';
 import type { BusDetailDto, BusDto, BusRequest } from '../api/busManagement';
@@ -26,18 +27,21 @@ export const useBusManagement = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true);
-    setError(null);
+  // silent: lần tải nền khi tự làm mới, không bật vòng quay và không xóa lỗi đang hiện.
+  const load = useCallback(async (signal?: AbortSignal, silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       // Trang lọc / tìm kiếm ở phía client nên lấy tối đa 100 xe một lần (giới hạn của backend).
       const page = await busApi.listBuses({ pageSize: 100 }, signal);
       setBuses(page.data);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      setError(describe(err));
+      if (!silent) setError(describe(err));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -46,6 +50,9 @@ export const useBusManagement = () => {
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần tải lại trang.
+  useAutoRefresh(() => load(undefined, true));
 
   const getDetail = useCallback(async (id: number): Promise<BusDetailDto | null> => {
     try {

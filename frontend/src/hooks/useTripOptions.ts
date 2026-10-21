@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { useAutoRefresh } from './useAutoRefresh';
 import { listAllTrips } from '../api/scheduleManagement';
 import { listMyTickets } from '../api/booking';
 import { utcToLocal } from '../api/operations';
@@ -34,6 +35,10 @@ export const useTripOptions = (role: Role | null) => {
   const [options, setOptions] = useState<TripOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [tick, setTick] = useState(0);
+  // Quản lý gán thêm chuyến thì danh sách tự có thêm, không phải mở lại trang. Lần tải nền không bật `loading`.
+  useAutoRefresh(() => setTick((t) => t + 1), !!role);
 
   useEffect(() => {
     if (!role) return;
@@ -73,7 +78,7 @@ export const useTripOptions = (role: Role | null) => {
     return () => {
       cancelled = true;
     };
-  }, [role]);
+  }, [role, tick]);
 
   return { options, loading, error };
 };

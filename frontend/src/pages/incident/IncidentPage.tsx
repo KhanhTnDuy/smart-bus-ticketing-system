@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { AlertTriangle, Search, Plus, Eye, CheckCircle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -68,13 +69,13 @@ export const IncidentPage: React.FC = () => {
   const [description, setDescription] = useState('');
   const [note, setNote] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       setIncidents(await listIncidents());
       setLoadError(null);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Không tải được danh sách sự cố.');
+      if (!silent) setLoadError(err instanceof Error ? err.message : 'Không tải được danh sách sự cố.');
     } finally {
       setLoading(false);
     }
@@ -83,6 +84,9 @@ export const IncidentPage: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần bấm tải lại.
+  useAutoRefresh(() => load(true));
 
   const filtered = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import {
   TicketPercent,
   Plus,
@@ -94,13 +95,14 @@ export const VoucherManagementPage: React.FC = () => {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   // 1. Tải danh sách voucher
-  const loadVouchers = useCallback(async () => {
-    setIsLoading(true);
+  const loadVouchers = useCallback(async (silent = false) => {
+    if (!silent) setIsLoading(true);
     setErrorMsg('');
     try {
       const data = await voucherApi.getVouchers();
       setVouchers(data || []);
     } catch (err) {
+      if (silent) return;
       const msg = err instanceof Error ? err.message : 'Không thể tải danh sách voucher';
       setErrorMsg(msg);
       setVouchers([]);
@@ -112,6 +114,9 @@ export const VoucherManagementPage: React.FC = () => {
   useEffect(() => {
     loadVouchers();
   }, [loadVouchers]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần bấm tải lại.
+  useAutoRefresh(() => loadVouchers(true));
 
   // SCRUM-67: Kiểm tra trùng mã khi đang nhập
   useEffect(() => {
@@ -498,7 +503,7 @@ export const VoucherManagementPage: React.FC = () => {
 
           <button
             type="button"
-            onClick={loadVouchers}
+            onClick={() => void loadVouchers()}
             disabled={isLoading}
             className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium rounded-lg border border-slate-200 dark:border-[#223561] bg-slate-50 dark:bg-[#0c162d] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
@@ -515,7 +520,7 @@ export const VoucherManagementPage: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={loadVouchers}
+              onClick={() => void loadVouchers()}
               className="text-xs font-semibold underline hover:no-underline text-rose-800 dark:text-rose-300 ml-4 shrink-0"
             >
               Thử lại

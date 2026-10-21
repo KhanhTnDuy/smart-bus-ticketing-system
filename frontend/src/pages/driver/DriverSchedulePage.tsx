@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Badge } from '../../components/common/Badge';
 import { api } from '../../api/client';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { toTripStatusName, TRIP_STATUS_LABEL } from '../../api/scheduleManagement';
 
 interface RouteStopSummary {
@@ -41,21 +42,28 @@ export const DriverSchedulePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // silent: lần tải nền do tự làm mới, không bật vòng quay và không xóa lỗi đang hiện khi mạng chập chờn.
+  const load = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       setTrips(await api.get<MyTrip[]>('/api/assignments/my-schedule'));
+      setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Không tải được lịch trình.');
+      if (!silent) setError(err instanceof Error ? err.message : 'Không tải được lịch trình.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Quản lý gán chuyến ở máy khác thì trang này tự cập nhật, không cần bấm Tải lại.
+  useAutoRefresh(() => load(true));
 
   return (
     <div className="space-y-6">
@@ -67,7 +75,7 @@ export const DriverSchedulePage: React.FC = () => {
         action={
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void load(false)}
             disabled={loading}
             className="px-3.5 py-2 bg-institutional-600 hover:bg-institutional-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 disabled:opacity-60"
           >

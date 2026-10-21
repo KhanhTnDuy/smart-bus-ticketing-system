@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAutoRefresh } from './useAutoRefresh';
 import { BusRoute, BusStop, Fare, PassengerType } from '../types';
 import { ApiError } from '../api/client';
 import * as rm from '../api/routeManagement';
@@ -67,9 +68,12 @@ export const useRouteManagement = () => {
   // sắp xếp lại hoặc gỡ trạm (kiểu BusStop của frontend không có trường này).
   const routeStopsRef = useRef<Map<string, rm.RouteStopDto[]>>(new Map());
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true);
-    setError(null);
+  // silent: lần tải nền khi tự làm mới, không bật vòng quay và không xóa lỗi đang hiện.
+  const load = useCallback(async (signal?: AbortSignal, silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const [routeDtos, fareDtos, types] = await Promise.all([
         rm.listRoutes(signal),
@@ -100,9 +104,9 @@ export const useRouteManagement = () => {
       setPassengerTypes(types);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      setError(describe(err));
+      if (!silent) setError(describe(err));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -111,6 +115,9 @@ export const useRouteManagement = () => {
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần tải lại trang.
+  useAutoRefresh(() => load(undefined, true));
 
   const reload = useCallback(() => load(), [load]);
 

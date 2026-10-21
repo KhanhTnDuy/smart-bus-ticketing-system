@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { BarChart3, RefreshCw, Download } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 import { EmptyState } from '../../components/common/EmptyState';
@@ -48,12 +49,13 @@ export const OccupancyReportPage: React.FC = () => {
       .catch(() => setRoutes([]));
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       setReport(await getOccupancyReport({ startDate, endDate, routeId, status }));
       setLoadError(null);
     } catch (err) {
+      if (silent) return;
       setReport(null);
       setLoadError(err instanceof Error ? err.message : 'Không tải được thống kê.');
     } finally {
@@ -64,6 +66,9 @@ export const OccupancyReportPage: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần bấm tải lại.
+  useAutoRefresh(() => load(true));
 
   const exportCsv = () => {
     if (!report || report.trips.length === 0) return showError('Chưa có dữ liệu để xuất.');
