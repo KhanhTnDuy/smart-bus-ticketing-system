@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { BadgePercent, Upload, RefreshCw } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -35,7 +36,7 @@ export const DiscountApplicationPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     try {
       const [t, mine] = await Promise.all([listPassengerTypes(), listMyApplications()]);
       const discounted = t.filter((x) => x.discountPercent > 0);
@@ -44,13 +45,16 @@ export const DiscountApplicationPage: React.FC = () => {
       setTypeId((prev) => prev || (discounted[0] ? String(discounted[0].id) : ''));
       setLoadError(null);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Không tải được dữ liệu.');
+      if (!silent) setLoadError(err instanceof Error ? err.message : 'Không tải được dữ liệu.');
     }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần bấm tải lại.
+  useAutoRefresh(() => load(true));
 
   const hasPending = applications.some((a) => a.status === 'Pending');
 

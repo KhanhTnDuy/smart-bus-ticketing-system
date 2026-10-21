@@ -8,6 +8,7 @@ import { listAssignments, TripAssignmentDto } from '../api/assignments';
 import { listMyTickets } from '../api/booking';
 import { listChangeRequests } from '../api/ticketChangeRequests';
 import { parseUtc } from '../api/datetime';
+import { useAutoRefresh } from './useAutoRefresh';
 
 /**
  * Số liệu thật cho trang tổng quan, lấy từ backend theo đúng quyền của từng vai trò.
@@ -74,6 +75,9 @@ const valueOf = <T,>(result: PromiseSettledResult<T>): T | undefined =>
 
 export const useDashboardData = (role: Role | null | undefined): DashboardData => {
   const [data, setData] = useState<DashboardData>(EMPTY);
+  const [tick, setTick] = useState(0);
+  // Số chuyến sắp chạy, vé đang giữ... đổi khi người khác thao tác nên hỏi lại định kỳ; setData chỉ chạy khi có kết quả mới.
+  useAutoRefresh(() => setTick((t) => t + 1), !!role);
 
   useEffect(() => {
     // Chưa biết vai trò thì chưa gọi gì: gọi nhầm sẽ nhận 403 rồi hiểu sai là "không có dữ liệu".
@@ -145,7 +149,7 @@ export const useDashboardData = (role: Role | null | undefined): DashboardData =
 
     void load();
     return () => controller.abort();
-  }, [role]);
+  }, [role, tick]);
 
   return data;
 };
