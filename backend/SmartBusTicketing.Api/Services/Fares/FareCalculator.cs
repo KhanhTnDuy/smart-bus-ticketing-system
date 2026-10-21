@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SmartBusTicketing.Api.Data;
 using SmartBusTicketing.Api.Models;
+using SmartBusTicketing.Api.Services.Routing;
 
 namespace SmartBusTicketing.Api.Services.Fares;
 
@@ -37,14 +38,17 @@ public static class FareCalculator
 
 /// <summary>
 /// Tính km từ đầu tuyến cho từng trạm. Hệ thống không lưu độ dài từng chặng, chỉ có tọa độ trạm và tổng độ dài tuyến
-/// (<see cref="BusRoute.DistanceKm"/>): tính khoảng cách đường chim bay giữa các trạm liên tiếp rồi co giãn để tổng bằng đúng độ dài tuyến
-/// (đường thực tế dài hơn đường chim bay theo cùng một hệ số). Nếu có độ dài từng chặng chính xác hơn thì nhập thẳng vào DistanceFromStartKm.
+/// (<see cref="BusRoute.DistanceKm"/>): lấy độ dài từng chặng giữa các trạm liên tiếp rồi co giãn để tổng bằng đúng độ dài tuyến.
+/// Độ dài chặng ưu tiên lấy theo đường đi bộ thực tế từ dịch vụ chỉ đường (<see cref="IRoadRouteService"/>); khi dịch vụ tắt hoặc lỗi
+/// thì quay về khoảng cách đường chim bay (đường thực tế dài hơn đường chim bay theo cùng một hệ số).
+/// Nếu có độ dài từng chặng chính xác hơn thì nhập thẳng vào DistanceFromStartKm.
 /// </summary>
 public static class RouteDistances
 {
     private const double EarthRadiusKm = 6371.0088;
 
-    private static double Haversine(double lat1, double lon1, double lat2, double lon2)
+    /// <summary>Khoảng cách đường chim bay giữa hai tọa độ, đơn vị km.</summary>
+    public static double Haversine(double lat1, double lon1, double lat2, double lon2)
     {
         static double Rad(double d) => d * Math.PI / 180.0;
         var dLat = Rad(lat2 - lat1);
@@ -54,38 +58,51 @@ public static class RouteDistances
         return 2 * EarthRadiusKm * Math.Asin(Math.Min(1, Math.Sqrt(a)));
     }
 
-    /// <summary>Km tích lũy từ trạm đầu tới từng trạm (phần tử đầu là 0, phần tử cuối là <paramref name="totalKm"/> nếu tổng &gt; 0).</summary>
+    /// <summary>Km tích lũy từ trạm đầu tới từng trạm theo đường chim bay (phần tử đầu là 0, phần tử cuối là <paramref name="totalKm"/> nếu tổng &gt; 0).</summary>
     public static IReadOnlyList<decimal> Cumulative(IReadOnlyList<(decimal Lat, decimal Lon)> points, decimal totalKm)
     {
-        var result = new decimal[points.Count];
-        if (points.Count < 2) return result;
+        if (points.Count < 2) return new decimal[points.Count];
 
-        var legs = new double[points.Count - 1];
+        var legs = new decimal[points.Count - 1];
         for (var i = 1; i < points.Count; i++)
-            legs[i - 1] = Haversine((double)points[i - 1].Lat, (double)points[i - 1].Lon, (double)points[i].Lat, (double)points[i].Lon);
+            legs[i - 1] = (decimal)Haversine((double)points[i - 1].Lat, (double)points[i - 1].Lon, (double)points[i].Lat, (double)points[i].Lon);
+        return CumulativeFromLegs(legs, totalKm);
+    }
 
-        var straight = legs.Sum();
-        var scale = straight > 0 && totalKm > 0 ? (double)totalKm / straight : 1.0;
+    /// <summary>Km tích lũy từ độ dài từng chặng, co giãn để chặng cuối đúng bằng <paramref name="totalKm"/> (giữ nguyên tỉ lệ giữa các chặng).</summary>
+    public static IReadOnlyList<decimal> CumulativeFromLegs(IReadOnlyList<decimal> legs, decimal totalKm)
+    {
+        var result = new decimal[legs.Count + 1];
+        if (legs.Count == 0) return result;
+
+        var sum = legs.Sum();
+        var scale = sum > 0 && totalKm > 0 ? (double)totalKm / (double)sum : 1.0;
 
         double acc = 0;
-        for (var i = 1; i < points.Count; i++)
+        for (var i = 1; i <= legs.Count; i++)
         {
-            acc += legs[i - 1] * scale;
+            acc += (double)legs[i - 1] * scale;
             result[i] = Math.Round((decimal)acc, 2, MidpointRounding.AwayFromZero);
         }
         // Trạm cuối đúng bằng độ dài tuyến để tránh lệch do làm tròn.
-        if (straight > 0 && totalKm > 0) result[^1] = totalKm;
+        if (sum > 0 && totalKm > 0) result[^1] = totalKm;
         return result;
     }
 
-    /// <summary>Tính lại km cho mọi trạm của một tuyến (sau khi đổi danh sách trạm hoặc độ dài tuyến).</summary>
-    public static async Task RecalculateAsync(AppDbContext db, long routeId, CancellationToken ct)
+    /// <summary>
+    /// Tính lại km cho mọi trạm của một tuyến (sau khi đổi danh sách trạm hoặc độ dài tuyến). Truyền <paramref name="road"/> để lấy độ dài
+    /// chặng theo đường đi thực tế; bỏ trống hoặc dịch vụ không trả được thì dùng đường chim bay.
+    /// </summary>
+    public static async Task RecalculateAsync(AppDbContext db, long routeId, CancellationToken ct, IRoadRouteService? road = null)
     {
         var route = await db.BusRoutes.AsNoTracking().FirstOrDefaultAsync(r => r.Id == routeId, ct);
         if (route is null) return;
 
         var stops = await db.RouteStops.Include(rs => rs.Stop).Where(rs => rs.RouteId == routeId).OrderBy(rs => rs.StopOrder).ToListAsync(ct);
-        var km = Cumulative(stops.Select(s => (s.Stop.Latitude, s.Stop.Longitude)).ToList(), route.DistanceKm);
+        var points = stops.Select(s => (s.Stop.Latitude, s.Stop.Longitude)).ToList();
+
+        var roadRoute = road is null ? null : await road.GetRouteAsync(points, ct);
+        var km = roadRoute is null ? Cumulative(points, route.DistanceKm) : CumulativeFromLegs(roadRoute.LegKm, route.DistanceKm);
         for (var i = 0; i < stops.Count; i++) stops[i].DistanceFromStartKm = km[i];
         await db.SaveChangesAsync(ct);
     }

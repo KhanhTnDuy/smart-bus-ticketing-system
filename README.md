@@ -288,6 +288,8 @@ Kịch bản chuẩn từng bước để nhóm thực hiện demo mượt mà, 
   }
   ```
 
+- Cự ly tuyến và km từng trạm (mục `Routing` trong `appsettings.json`): khi thêm tuyến, quản lý chọn điểm đầu và điểm cuối từ các trạm có sẵn, hệ thống tự điền cự ly theo **đường đi thực tế** qua API chỉ đường OSRM (`GET /api/routes/estimate`), thay vì nhập tay hay tính đường chim bay. Km từng trạm trên tuyến cũng chia theo tỉ lệ đường đi thực tế. Mặc định gọi máy chủ demo công khai `https://router.project-osrm.org` (không cần khóa API, chỉ nên dùng nhẹ). Đổi `Routing:BaseUrl` để trỏ sang OSRM tự dựng; `Routing:Enabled=false` hoặc dịch vụ không trả lời thì quay về đường chim bay và giao diện báo rõ để người dùng tự kiểm tra lại. Chỉ tọa độ trạm (địa điểm công cộng) được gửi đi. Máy dev Windows cũ không bắt tay TLS được với máy chủ OSRM nên `appsettings.Development.json` dùng `http://router.project-osrm.org`.
+
 #### Frontend Configuration
 - `frontend/.env.example` sao chép thành `frontend/.env`:
   ```ini
