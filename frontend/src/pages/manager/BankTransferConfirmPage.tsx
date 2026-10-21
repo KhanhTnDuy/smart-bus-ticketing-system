@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { Landmark, Search, CheckCircle, RefreshCw } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { ApiError } from '../../api/client';
@@ -31,15 +32,15 @@ export const BankTransferConfirmPage: React.FC = () => {
   const [bankTxn, setBankTxn] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const all = await listAllPayments();
       // Chuyển khoản chờ tiền, và chuyển khoản quá hạn chờ (tiền vẫn có thể về sau, xác nhận được).
       setPayments(all.filter((p) => p.method === 'BankTransfer' && (p.status === 'Pending' || p.status === 'Failed')));
       setLoadError(null);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Không tải được danh sách chuyển khoản.');
+      if (!silent) setLoadError(err instanceof Error ? err.message : 'Không tải được danh sách chuyển khoản.');
     } finally {
       setLoading(false);
     }
@@ -48,6 +49,9 @@ export const BankTransferConfirmPage: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần bấm tải lại.
+  useAutoRefresh(() => load(true));
 
   const filtered = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();

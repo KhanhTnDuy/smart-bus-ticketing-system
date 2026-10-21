@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { Ruler, Plus, Edit2, Trash2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { ApiError } from '../../api/client';
@@ -43,12 +44,13 @@ export const DistanceFarePage: React.FC = () => {
   const [deleting, setDeleting] = useState<DistanceFare | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       setBands(await listDistanceFares());
       setLoadError(null);
     } catch (err) {
+      if (silent) return;
       setLoadError(err instanceof Error ? err.message : 'Không tải được bảng giá.');
     } finally {
       setLoading(false);
@@ -58,6 +60,9 @@ export const DistanceFarePage: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần bấm tải lại.
+  useAutoRefresh(() => load(true));
 
   const openNew = () => {
     // Gợi ý bậc kế tiếp: bắt đầu đúng chỗ bậc cuối kết thúc để không để hở.

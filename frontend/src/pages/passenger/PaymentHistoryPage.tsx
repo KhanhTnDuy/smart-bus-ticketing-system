@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { useNavigate } from 'react-router-dom';
 import { CreditCard, Search, Eye, RefreshCw, FileText } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -35,13 +36,13 @@ export const PaymentHistoryPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [detail, setDetail] = useState<PaymentDto | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       setPayments(await listMyPayments());
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Không tải được lịch sử thanh toán.');
+      if (!silent) setError(err instanceof Error ? err.message : 'Không tải được lịch sử thanh toán.');
     } finally {
       setLoading(false);
     }
@@ -50,6 +51,9 @@ export const PaymentHistoryPage: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần bấm tải lại.
+  useAutoRefresh(() => load(true));
 
   const filtered = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();

@@ -165,7 +165,8 @@ public sealed class TripService(AppDbContext db) : ITripService
         foreach (var trip in trips)
         {
             var routeOrder = validRouteOrders.First(v => v.Route.Id == trip.RouteId);
-            var totalSeats = trip.Bus?.Capacity ?? 24;
+            // Chuyến chưa gán xe thì chưa có ghế nào để bán: 0 chỗ, không đoán sức chứa.
+            var totalSeats = trip.Bus?.Capacity ?? 0;
             var bookedSeats = bookedSeatsByTrip.TryGetValue(trip.Id, out var seats) ? seats : [];
             var availableSeats = Math.Max(0, totalSeats - bookedSeats.Count);
 
@@ -202,7 +203,7 @@ public sealed class TripService(AppDbContext db) : ITripService
 
             // Tên tài xế và phụ xe từ TripStaff
             var driverName = trip.TripStaff.FirstOrDefault(ts => ts.Duty == StaffDuty.Driver)?.Account?.FullName
-                             ?? "Tài xế công ty";
+                             ?? string.Empty;
             var assistantName = trip.TripStaff.FirstOrDefault(ts => ts.Duty == StaffDuty.Conductor)?.Account?.FullName;
 
             var localDeparture = trip.DepartureAt + VietnamOffset;
@@ -226,8 +227,8 @@ public sealed class TripService(AppDbContext db) : ITripService
                 DepartureTime = departureTimeStr,
                 ArrivalTime = arrivalTime.ToString("HH:mm"),
                 EstimatedArrivalTime = arrivalTime.ToString("HH:mm"),
-                BusPlate = trip.Bus?.PlateNumber ?? "51B-000.00",
-                Vehicle = trip.Bus?.PlateNumber ?? "Xe buýt tiêu chuẩn",
+                BusPlate = trip.Bus?.PlateNumber ?? string.Empty,
+                Vehicle = trip.Bus?.PlateNumber ?? string.Empty,
                 DriverName = driverName,
                 AssistantName = assistantName,
                 Price = standardFare,

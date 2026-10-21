@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { FileText, Search, Eye, Download, RefreshCw, Mail } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Modal } from '../../components/common/Modal';
@@ -38,12 +39,13 @@ export const InvoicePage: React.FC = () => {
   const [emailInput, setEmailInput] = useState('');
   const [sendingId, setSendingId] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       setInvoices(await listMyInvoices());
       setError(null);
     } catch (err) {
+      if (silent) return;
       setError(err instanceof Error ? err.message : 'Không tải được danh sách hóa đơn.');
     } finally {
       setLoading(false);
@@ -53,6 +55,9 @@ export const InvoicePage: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần bấm tải lại.
+  useAutoRefresh(() => load(true));
 
   // Email gửi trong nền: còn hóa đơn đang chờ gửi thì tự làm mới mỗi 5 giây cho tới khi xong.
   const hasPending = invoices.some((i) => i.emailStatus === 'Pending');
