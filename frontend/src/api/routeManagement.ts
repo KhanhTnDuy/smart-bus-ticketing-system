@@ -49,6 +49,17 @@ export interface StopRequest {
   longitude: number;
 }
 
+/** Cự ly ước tính giữa hai trạm có sẵn. "road" là đường đi thực tế, "straight-line" là đường chim bay dùng khi dịch vụ chỉ đường không trả lời. */
+export interface RouteEstimateDto {
+  fromStopId: number;
+  fromStopName: string;
+  toStopId: number;
+  toStopName: string;
+  distanceKm: number;
+  durationMinutes: number | null;
+  source: 'road' | 'straight-line';
+}
+
 export interface RouteStopDto {
   stopId: number;
   stopName: string;
@@ -123,6 +134,10 @@ export const createRoute = (body: RouteRequest) => api.post<RouteDto>('/api/rout
 export const updateRoute = (id: number, body: RouteRequest) => api.put<RouteDto>(`/api/routes/${id}`, body);
 
 export const deleteRoute = (id: number) => api.del(`/api/routes/${id}`);
+
+/** Ước tính cự ly đường bộ giữa hai trạm có sẵn để điền sẵn khi thêm hoặc sửa tuyến. */
+export const estimateRoute = (fromStopId: number, toStopId: number, signal?: AbortSignal) =>
+  api.get<RouteEstimateDto>('/api/routes/estimate', { fromStopId, toStopId }, signal);
 
 // ---------- Trạm dừng (danh mục dùng chung) ----------
 
