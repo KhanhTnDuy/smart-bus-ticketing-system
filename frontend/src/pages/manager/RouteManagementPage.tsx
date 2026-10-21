@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Compass,
   Plus,
@@ -13,6 +13,9 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { useRouteManagement } from '../../hooks/useRouteManagement';
+import { useRouteEstimate } from '../../hooks/useRouteEstimate';
+import { listStops, StopDto } from '../../api/routeManagement';
+import { RouteEndpointFields } from '../../components/manager/RouteEndpointFields';
 import { useToast } from '../../context/ToastContext';
 import { BusRoute, RouteStatus } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -55,9 +58,30 @@ export const RouteManagementPage: React.FC = () => {
     name: '',
     startPoint: '',
     endPoint: '',
+    // Trạm được chọn làm điểm đầu/cuối ('' khi chưa chọn); tên trạm được ghi vào startPoint/endPoint.
+    startStopId: '',
+    endStopId: '',
     distance: 10,
     status: 'ACTIVE' as RouteStatus,
   });
+
+  // Trạm có sẵn để chọn làm điểm đầu/cuối, và cự ly tự tính theo đường đi giữa hai trạm đã chọn.
+  const [allStops, setAllStops] = useState<StopDto[]>([]);
+  const { state: estimate, run: runEstimate, reset: resetEstimate, markManual } = useRouteEstimate();
+  // Tên tuyến do hệ thống gợi ý từ điểm đầu và cuối; chỉ ghi đè khi người dùng chưa tự sửa tên.
+  const autoNameRef = useRef('');
+
+  const loadStops = useCallback(async () => {
+    try {
+      setAllStops(await listStops());
+    } catch {
+      /* giữ danh sách đang có; form báo thiếu trạm nếu danh sách trống */
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadStops();
+  }, [loadStops]);
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
@@ -87,16 +111,27 @@ export const RouteManagementPage: React.FC = () => {
       name: '',
       startPoint: '',
       endPoint: '',
+      startStopId: '',
+      endStopId: '',
       distance: 12,
       status: 'ACTIVE',
     });
     setFormErrors({});
+    resetEstimate();
+    autoNameRef.current = '';
+    void loadStops();
     setIsAddModalOpen(true);
   };
 
   const handleOpenView = (route: BusRoute) => {
     setSelectedRoute(route);
     setIsViewModalOpen(true);
+  };
+
+  /** Tuyến cũ chỉ lưu tên điểm đầu/cuối: tìm trạm trùng tên để chọn sẵn, không có thì để trống và giữ nguyên tên cũ. */
+  const stopIdByName = (name: string) => {
+    const found = allStops.find((s) => s.name.trim().toLowerCase() === name.trim().toLowerCase());
+    return found ? String(found.id) : '';
   };
 
   const handleOpenEdit = (route: BusRoute) => {
@@ -106,10 +141,15 @@ export const RouteManagementPage: React.FC = () => {
       name: route.name,
       startPoint: route.startPoint,
       endPoint: route.endPoint,
+      startStopId: stopIdByName(route.startPoint),
+      endStopId: stopIdByName(route.endPoint),
       distance: route.distance,
       status: route.status,
     });
     setFormErrors({});
+    resetEstimate();
+    autoNameRef.current = '';
+    void loadStops();
     setIsEditModalOpen(true);
   };
 
@@ -118,13 +158,67 @@ export const RouteManagementPage: React.FC = () => {
     setIsDeleteOpen(true);
   };
 
-  // Form Validation (TASK 3.4)
-  const validateForm = () => {
+  const clearError = (key: string) =>
+    setFormErrors((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+
+  // Chọn trạm làm điểm đầu hoặc cuối; đủ hai trạm khác nhau thì tự tính cự ly và gợi ý tên tuyến.
+  const handleStopChange = async (which: 'start' | 'end', stopId: string) => {
+    const stop = allStops.find((s) => String(s.id) === stopId);
+    const next = {
+      ...formData,
+      ...(which === 'start'
+        ? { startStopId: stopId, startPoint: stop?.name ?? '' }
+        : { endStopId: stopId, endPoint: stop?.name ?? '' }),
+    };
+    clearError(which === 'start' ? 'startPoint' : 'endPoint');
+
+    if (next.startStopId && next.endStopId && next.startStopId !== next.endStopId) {
+      const suggested = `${next.startPoint} — ${next.endPoint}`;
+      if (!next.name.trim() || next.name === autoNameRef.current) {
+        next.name = suggested;
+        autoNameRef.current = suggested;
+        clearError('name');
+      }
+    }
+    setFormData(next);
+
+    if (!next.startStopId || !next.endStopId) {
+      resetEstimate();
+      return;
+    }
+    if (next.startStopId === next.endStopId) {
+      resetEstimate();
+      setFormErrors((prev) => ({ ...prev, endPoint: 'Điểm đầu và điểm cuối phải là hai trạm khác nhau.' }));
+      return;
+    }
+    const result = await runEstimate(Number(next.startStopId), Number(next.endStopId));
+    if (result) {
+      setFormData((f) => ({ ...f, distance: result.distanceKm }));
+      clearError('distance');
+    }
+  };
+
+  const handleDistanceChange = (km: number) => {
+    setFormData((f) => ({ ...f, distance: km }));
+    markManual();
+  };
+
+  // Form Validation (TASK 3.4). Thêm mới bắt buộc chọn điểm đầu/cuối từ trạm có sẵn; sửa tuyến cũ vẫn giữ được tên cũ.
+  const validateForm = (requireStops: boolean) => {
     const errs: Record<string, string> = {};
     if (!formData.code.trim()) errs.code = 'Mã tuyến xe buýt không được để trống.';
     if (!formData.name.trim()) errs.name = 'Tên tuyến lộ trình không được để trống.';
-    if (!formData.startPoint.trim()) errs.startPoint = 'Điểm đầu tuyến không được để trống.';
-    if (!formData.endPoint.trim()) errs.endPoint = 'Điểm cuối tuyến không được để trống.';
+    if (requireStops && !formData.startStopId) errs.startPoint = 'Hãy chọn điểm đầu tuyến từ danh sách trạm.';
+    else if (!formData.startPoint.trim()) errs.startPoint = 'Điểm đầu tuyến không được để trống.';
+    if (requireStops && !formData.endStopId) errs.endPoint = 'Hãy chọn điểm cuối tuyến từ danh sách trạm.';
+    else if (!formData.endPoint.trim()) errs.endPoint = 'Điểm cuối tuyến không được để trống.';
+    if (formData.startStopId && formData.startStopId === formData.endStopId) {
+      errs.endPoint = 'Điểm đầu và điểm cuối phải là hai trạm khác nhau.';
+    }
     if (isNaN(formData.distance) || formData.distance <= 0) {
       errs.distance = 'Cự ly tuyến phải lớn hơn 0 km.';
     }
@@ -138,7 +232,7 @@ export const RouteManagementPage: React.FC = () => {
   // Submit Handlers
   const handleSaveAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm()) return;
+    if (!validateForm(true)) return;
 
     setIsSaving(true);
     const res = await addRoute(formData);
@@ -154,7 +248,7 @@ export const RouteManagementPage: React.FC = () => {
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRoute) return;
-    if (!validateForm()) return;
+    if (!validateForm(false)) return;
 
     setIsSaving(true);
     const res = await updateRoute(selectedRoute.id, formData);
@@ -466,57 +560,18 @@ export const RouteManagementPage: React.FC = () => {
               {formErrors.name && <p className="text-[11px] text-rose-500 mt-1">{formErrors.name}</p>}
             </div>
 
-            {/* Điểm đầu */}
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Điểm đầu tuyến <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={formData.startPoint}
-                onChange={(e) => setFormData({ ...formData, startPoint: e.target.value })}
-                placeholder="Bến xe An Sương"
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
-              {formErrors.startPoint && (
-                <p className="text-[11px] text-rose-500 mt-1">{formErrors.startPoint}</p>
-              )}
-            </div>
-
-            {/* Điểm cuối */}
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Điểm cuối tuyến <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={formData.endPoint}
-                onChange={(e) => setFormData({ ...formData, endPoint: e.target.value })}
-                placeholder="Bến xe Chợ Lớn"
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
-              {formErrors.endPoint && (
-                <p className="text-[11px] text-rose-500 mt-1">{formErrors.endPoint}</p>
-              )}
-            </div>
-
-            {/* Cự ly */}
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Cự ly hành trình (km) <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="number"
-                step="0.1"
-                min="0.1"
-                value={formData.distance}
-                onChange={(e) => setFormData({ ...formData, distance: parseFloat(e.target.value) || 0 })}
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
-              {formErrors.distance && (
-                <p className="text-[11px] text-rose-500 mt-1">{formErrors.distance}</p>
-              )}
-            </div>
+            <RouteEndpointFields
+              stops={allStops}
+              startStopId={formData.startStopId}
+              endStopId={formData.endStopId}
+              startPoint={formData.startPoint}
+              endPoint={formData.endPoint}
+              distance={formData.distance}
+              estimate={estimate}
+              errors={formErrors}
+              onStopChange={handleStopChange}
+              onDistanceChange={handleDistanceChange}
+            />
 
             {/* Thời gian hành trình, khung giờ hoạt động và tần suất giãn cách đã được
                 bỏ khỏi form: chúng thuộc lịch trình (bảng schedules), bảng routes
@@ -719,43 +774,18 @@ export const RouteManagementPage: React.FC = () => {
               {formErrors.name && <p className="text-[11px] text-rose-500 mt-1">{formErrors.name}</p>}
             </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Điểm đầu tuyến <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={formData.startPoint}
-                onChange={(e) => setFormData({ ...formData, startPoint: e.target.value })}
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Điểm cuối tuyến <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={formData.endPoint}
-                onChange={(e) => setFormData({ ...formData, endPoint: e.target.value })}
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Cự ly hành trình (km) <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="number"
-                step="0.1"
-                min="0.1"
-                value={formData.distance}
-                onChange={(e) => setFormData({ ...formData, distance: parseFloat(e.target.value) || 0 })}
-                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
-              />
-            </div>
+            <RouteEndpointFields
+              stops={allStops}
+              startStopId={formData.startStopId}
+              endStopId={formData.endStopId}
+              startPoint={formData.startPoint}
+              endPoint={formData.endPoint}
+              distance={formData.distance}
+              estimate={estimate}
+              errors={formErrors}
+              onStopChange={handleStopChange}
+              onDistanceChange={handleDistanceChange}
+            />
 
             {/* Các trường thuộc lịch trình đã bỏ khỏi form, xem chú thích ở modal thêm mới. */}
             <div className="sm:col-span-2 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-[#0c162d] border border-slate-200 dark:border-slate-700 rounded px-3 py-2">

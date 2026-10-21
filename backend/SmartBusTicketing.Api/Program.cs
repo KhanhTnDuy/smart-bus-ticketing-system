@@ -7,6 +7,7 @@ using SmartBusTicketing.Api.Services;
 using SmartBusTicketing.Api.Services.Email;
 using SmartBusTicketing.Api.Services.Fares;
 using SmartBusTicketing.Api.Services.Payments;
+using SmartBusTicketing.Api.Services.Routing;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +16,12 @@ builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 
+builder.Services.Configure<RoutingOptions>(builder.Configuration.GetSection(RoutingOptions.Section));
+builder.Services.AddHttpClient<IRoadRouteService, OsrmRoadRouteService>(c =>
+{
+    // Máy chủ OSRM công khai yêu cầu nhận diện được ứng dụng gọi tới.
+    c.DefaultRequestHeaders.UserAgent.ParseAdd("SmartBusTicketing/1.0");
+});
 builder.Services.AddScoped<IRouteManagementService, RouteManagementService>();
 builder.Services.AddScoped<IBusManagementService, BusManagementService>();
 builder.Services.AddScoped<ITripService, TripService>();

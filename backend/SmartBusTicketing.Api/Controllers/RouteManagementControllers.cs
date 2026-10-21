@@ -53,6 +53,14 @@ public sealed class RoutesController(IRouteManagementService service, AuditLogSe
         return route is null ? NotFound() : Ok(route);
     }
 
+    /// <summary>Ước tính cự ly đường bộ giữa hai trạm có sẵn để điền sẵn khi thêm hoặc sửa tuyến.</summary>
+    [HttpGet("estimate"), Authorize(Roles = "Admin,Manager")]
+    public async Task<ActionResult<RouteEstimateDto>> Estimate([FromQuery] long fromStopId, [FromQuery] long toStopId, CancellationToken ct)
+    {
+        var result = await service.EstimateRouteAsync(fromStopId, toStopId, ct);
+        return result.Ok ? Ok(result.Value) : this.ToProblem(result);
+    }
+
     [HttpPost, Authorize(Roles = "Admin,Manager")]
     public async Task<ActionResult<RouteDto>> Create(RouteRequest request, CancellationToken ct)
     {

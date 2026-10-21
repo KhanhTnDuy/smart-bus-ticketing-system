@@ -3,6 +3,7 @@ using SmartBusTicketing.Api.Data;
 using SmartBusTicketing.Api.DTOs;
 using SmartBusTicketing.Api.Models;
 using SmartBusTicketing.Api.Services.Fares;
+using SmartBusTicketing.Api.Services.Routing;
 
 namespace SmartBusTicketing.Api.Services;
 
@@ -25,6 +26,9 @@ public interface IRouteManagementService
     Task<ServiceResult<RouteDto>> UpdateRouteAsync(long id, RouteRequest request, CancellationToken ct);
     Task<ServiceResult<bool>> DeleteRouteAsync(long id, CancellationToken ct);
 
+    /// <summary>Ước tính cự ly và thời gian chạy xe giữa hai trạm có sẵn, để điền sẵn khi thêm tuyến.</summary>
+    Task<ServiceResult<RouteEstimateDto>> EstimateRouteAsync(long fromStopId, long toStopId, CancellationToken ct);
+
     // Trạm dừng
     Task<PagedResponse<StopDto>> GetStopsAsync(string? search, int page, int pageSize, CancellationToken ct);
     Task<StopDto?> GetStopAsync(long id, CancellationToken ct);
@@ -46,7 +50,7 @@ public interface IRouteManagementService
     Task<ServiceResult<bool>> DeleteFareAsync(long id, CancellationToken ct);
 }
 
-public sealed class RouteManagementService(AppDbContext db) : IRouteManagementService
+public sealed class RouteManagementService(AppDbContext db, IRoadRouteService road) : IRouteManagementService
 {
     private static (int Page, int PageSize) Normalize(int page, int pageSize) => (Math.Max(1, page), Math.Clamp(pageSize, 1, 100));
 
@@ -116,7 +120,7 @@ public sealed class RouteManagementService(AppDbContext db) : IRouteManagementSe
         route.DistanceKm = request.DistanceKm;
         route.Active = request.Active;
         await db.SaveChangesAsync(ct);
-        if (distanceChanged) await RouteDistances.RecalculateAsync(db, id, ct);
+        if (distanceChanged) await RouteDistances.RecalculateAsync(db, id, ct, road);
         return ServiceResult<RouteDto>.Success((await GetRouteAsync(id, ct))!);
     }
 
@@ -136,6 +140,36 @@ public sealed class RouteManagementService(AppDbContext db) : IRouteManagementSe
         db.BusRoutes.Remove(route); // route_stops và fares xóa theo (cascade)
         await db.SaveChangesAsync(ct);
         return ServiceResult<bool>.Success(true);
+    }
+
+    public async Task<ServiceResult<RouteEstimateDto>> EstimateRouteAsync(long fromStopId, long toStopId, CancellationToken ct)
+    {
+        if (fromStopId == toStopId)
+            return ServiceResult<RouteEstimateDto>.Fail(ServiceError.Invalid, "Điểm đầu và điểm cuối phải là hai trạm khác nhau.");
+
+        var stops = await db.Stops.AsNoTracking().Where(s => s.Id == fromStopId || s.Id == toStopId).ToListAsync(ct);
+        var from = stops.FirstOrDefault(s => s.Id == fromStopId);
+        var to = stops.FirstOrDefault(s => s.Id == toStopId);
+        if (from is null || to is null)
+            return ServiceResult<RouteEstimateDto>.Fail(ServiceError.NotFound, "Không tìm thấy trạm dừng đã chọn.");
+
+        var roadRoute = await road.GetRouteAsync([(from.Latitude, from.Longitude), (to.Latitude, to.Longitude)], ct);
+        if (roadRoute is not null)
+        {
+            return ServiceResult<RouteEstimateDto>.Success(new RouteEstimateDto
+            {
+                FromStopId = from.Id, FromStopName = from.Name, ToStopId = to.Id, ToStopName = to.Name,
+                DistanceKm = Math.Max(0.01m, roadRoute.TotalKm), DurationMinutes = roadRoute.DurationMinutes, Source = "road"
+            });
+        }
+
+        // Dịch vụ chỉ đường tắt hoặc không trả lời: báo rõ đây là đường chim bay (thấp hơn thực tế) để người dùng tự chỉnh.
+        var straight = (decimal)RouteDistances.Haversine((double)from.Latitude, (double)from.Longitude, (double)to.Latitude, (double)to.Longitude);
+        return ServiceResult<RouteEstimateDto>.Success(new RouteEstimateDto
+        {
+            FromStopId = from.Id, FromStopName = from.Name, ToStopId = to.Id, ToStopName = to.Name,
+            DistanceKm = Math.Max(0.01m, Math.Round(straight, 2, MidpointRounding.AwayFromZero)), DurationMinutes = null, Source = "straight-line"
+        });
     }
 
     // ===================== Trạm dừng =====================
@@ -236,7 +270,7 @@ public sealed class RouteManagementService(AppDbContext db) : IRouteManagementSe
         }));
         await db.SaveChangesAsync(ct);
         // Km từng trạm phục vụ giá vé theo km hành trình: tính lại ngay khi danh sách trạm đổi.
-        await RouteDistances.RecalculateAsync(db, routeId, ct);
+        await RouteDistances.RecalculateAsync(db, routeId, ct, road);
         await tx.CommitAsync(ct);
 
         return ServiceResult<IReadOnlyList<RouteStopDto>>.Success(await LoadRouteStopsAsync(routeId, ct));
