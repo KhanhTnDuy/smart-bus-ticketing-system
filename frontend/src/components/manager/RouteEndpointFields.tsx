@@ -89,7 +89,7 @@ export const RouteEndpointFields: React.FC<Props> = ({
         </label>
         <input
           type="number"
-          step="0.1"
+          step="any"
           min="0.1"
           value={distance}
           onChange={(e) => onDistanceChange(parseFloat(e.target.value) || 0)}

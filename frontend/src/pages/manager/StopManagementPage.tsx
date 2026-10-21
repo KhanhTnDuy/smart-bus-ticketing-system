@@ -547,7 +547,7 @@ export const StopManagementPage: React.FC = () => {
               </label>
               <input
                 type="number"
-                step="0.00001"
+                step="0.000001"
                 value={formData.latitude}
                 onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) || 0 })}
                 placeholder="21.02776"
@@ -564,7 +564,7 @@ export const StopManagementPage: React.FC = () => {
               </label>
               <input
                 type="number"
-                step="0.00001"
+                step="0.000001"
                 value={formData.longitude}
                 onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) || 0 })}
                 placeholder="105.85114"
@@ -694,7 +694,7 @@ export const StopManagementPage: React.FC = () => {
               </label>
               <input
                 type="number"
-                step="0.00001"
+                step="0.000001"
                 value={formData.latitude}
                 onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) || 0 })}
                 className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
@@ -710,7 +710,7 @@ export const StopManagementPage: React.FC = () => {
               </label>
               <input
                 type="number"
-                step="0.00001"
+                step="0.000001"
                 value={formData.longitude}
                 onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) || 0 })}
                 className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
