@@ -13,6 +13,15 @@ const BASE_URL = (configuredUrl || 'http://localhost:5180').replace(/\/+$/, '');
 
 const TOKEN_STORAGE_KEY = 'smart_bus_access_token';
 
+/**
+ * Phát ra khi máy chủ từ chối token đang dùng (401): tài khoản bị khóa, đổi vai trò hoặc token hết hạn. AuthContext lắng nghe để
+ * đăng xuất, thay vì để từng trang tự hiện lỗi "cần đăng nhập lại" mà người dùng vẫn ở nguyên trang cũ với quyền cũ.
+ */
+export const SESSION_EXPIRED_EVENT = 'smart-bus:session-expired';
+const notifySessionExpired = (hadToken: boolean) => {
+  if (hadToken && typeof window !== 'undefined') window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+};
+
 /** Lỗi trả về từ API, giữ lại status để trang gọi phân biệt 401/403/404/409. */
 export class ApiError extends Error {
   status: number;
@@ -106,7 +115,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   if (!response.ok) {
-    if (response.status === 401) throw new ApiError(401, 'Bạn cần đăng nhập lại để thực hiện thao tác này.');
+    if (response.status === 401) {
+      notifySessionExpired(!!token);
+      throw new ApiError(401, 'Bạn cần đăng nhập lại để thực hiện thao tác này.');
+    }
     if (response.status === 403) {
       const serverMsg = await extractMessage(response);
       throw new ApiError(403, serverMsg && serverMsg !== `Yêu cầu thất bại (HTTP ${response.status}).` ? serverMsg : 'Bạn không có quyền thực hiện thao tác này.');
@@ -140,7 +152,10 @@ export async function fetchBlob(path: string, signal?: AbortSignal): Promise<Blo
     throw new ApiError(0, 'Không kết nối được tới máy chủ. Kiểm tra backend đã chạy và VITE_API_URL.');
   }
   if (!response.ok) {
-    if (response.status === 401) throw new ApiError(401, 'Bạn cần đăng nhập lại để thực hiện thao tác này.');
+    if (response.status === 401) {
+      notifySessionExpired(!!token);
+      throw new ApiError(401, 'Bạn cần đăng nhập lại để thực hiện thao tác này.');
+    }
     if (response.status === 403) {
       const serverMsg = await extractMessage(response);
       throw new ApiError(403, serverMsg && serverMsg !== `Yêu cầu thất bại (HTTP ${response.status}).` ? serverMsg : 'Bạn không có quyền xem tệp này.');
@@ -166,7 +181,10 @@ export async function uploadFile<T>(path: string, file: File): Promise<T> {
     throw new ApiError(0, 'Không kết nối được tới máy chủ. Kiểm tra backend đã chạy và VITE_API_URL.');
   }
   if (!response.ok) {
-    if (response.status === 401) throw new ApiError(401, 'Bạn cần đăng nhập lại để thực hiện thao tác này.');
+    if (response.status === 401) {
+      notifySessionExpired(!!token);
+      throw new ApiError(401, 'Bạn cần đăng nhập lại để thực hiện thao tác này.');
+    }
     if (response.status === 403) {
       const serverMsg = await extractMessage(response);
       throw new ApiError(403, serverMsg && serverMsg !== `Yêu cầu thất bại (HTTP ${response.status}).` ? serverMsg : 'Bạn không có quyền thực hiện thao tác này.');
