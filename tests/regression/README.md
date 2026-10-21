@@ -13,7 +13,7 @@ và CSDL MySQL đang chạy. Nhật ký từng kịch bản nằm ở `tests/res
 
 | Giai đoạn | Cấu hình backend | Kịch bản |
 |---|---|---|
-| 1 | Giả lập thanh toán bật, bảng phí hoàn để trống (luôn hoàn 100%) | `seat-lock`, `refund-flow`, `permissions`, `invoices` |
+| 1 | Giả lập thanh toán bật, bảng phí hoàn để trống (luôn hoàn 100%) | `seat-lock`, `refund-flow`, `permissions`, `invoices`, `cross-role` |
 | 2 | Như trên nhưng thêm khóa VNPay thử, SMTP và API hoàn tiền giả, tài khoản ngân hàng giả, bảng phí hoàn 24h=100%, 2h=50% | `regress` (đủ nhóm G2-G6) |
 | 3 | Bật dịch vụ chỉ đường, trỏ vào máy chủ OSRM giả do kịch bản dựng ở cổng 2527 (các giai đoạn khác tắt dịch vụ này để không phụ thuộc mạng) | `routing` (ước tính cự ly giữa hai trạm, km trạm chia theo đường đi thực tế, quay về đường chim bay khi dịch vụ tắt) |
 
@@ -33,6 +33,24 @@ cất bảng giá có sẵn rồi khôi phục khi xong. Mỗi kịch bản dọ
 không tạo dữ liệu thật; endpoint được phép mà trả 5xx với dữ liệu rỗng cũng tính là lỗi. Kết quả ghi thành bảng ma trận ở `tests/results/ma-tran-phan-quyen.md` (bản chụp đã commit: `docs/MA-TRAN-PHAN-QUYEN.md`, sinh lại bằng `MATRIX_OUT=docs/MA-TRAN-PHAN-QUYEN.md CONFIRM_TEST_DB=1 node tests/regression/permissions.mjs`). Ngoài đối chiếu với attribute còn có hai lớp độc lập để bắt trường hợp ai đó lỡ xóa attribute:
 endpoint ghi dữ liệu không được công khai (trừ đăng nhập, cổng thanh toán, webhook ngân hàng có khóa riêng) và 13 tài nguyên nhạy cảm (tài khoản, nhật ký, báo cáo, hoàn tiền, voucher, tạo tuyến/xe,
 phân công, quét vé, đặt vé, thanh toán) phải đúng vai; cuối cùng là token rác, bị sửa chữ ký, thiếu `Bearer` và hành khách tự sửa claim vai trò thành Admin đều bị 401.
+
+## `cross-role.mjs` – các vai trò giao tiếp với nhau qua CSDL
+
+Mỗi bước một vai trò ghi dữ liệu, rồi các vai trò khác phải thấy kết quả ngay ở API của họ, còn vai trò không liên quan thì không thấy hoặc bị chặn (403/404):
+
+| Nhóm | Luồng |
+|---|---|
+| A | Quản lý tạo chuyến -> lịch tài xế và phụ xe, kết quả tìm chuyến của khách, thông báo phân công, nhật ký admin |
+| B | Khách mua vé -> danh sách thanh toán, hóa đơn, báo cáo doanh thu (tính theo ngày chạy của chuyến) và lấp đầy của quản lý; khách khác không thấy |
+| C | Soát vé -> trạng thái vé của khách, lịch sử quét; tài xế không phụ trách bị 403; quét lại vé đã dùng trả `AlreadyUsed` |
+| D | Khách xin hủy vé -> quản lý duyệt -> hoàn tiền -> khách thấy, ghế được nhả |
+| E | Hồ sơ ưu đãi: nộp, duyệt, giấy tờ chỉ chủ hồ sơ và quản lý đọc được |
+| F, G | Khiếu nại và đổi trạng thái; voucher quản lý tạo hiện cho khách, khách không tạo được |
+| H, I | Sự cố tài xế báo -> trễ giờ cho khách; quản lý hủy chuyến -> thông báo và hoàn tiền |
+| J | Admin đổi vai trò hoặc khóa tài khoản -> token cũ bị từ chối ngay (401), không giữ quyền cũ tới khi hết hạn |
+| K | Tuyến và trạm quản lý vừa thêm hiện ngay cho khách |
+
+Kịch bản tự dựng chuyến và dữ liệu riêng ở các ngày xa trong tương lai nên chạy được vào bất kỳ ngày nào. Chạy một mình: `CONFIRM_TEST_DB=1 node tests/regression/cross-role.mjs`.
 
 ## Ma trận kiểm thử thanh toán (SCRUM-94)
 

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Role } from '../types';
-import { ApiError, getToken, setToken } from '../api/client';
+import { ApiError, getToken, setToken, SESSION_EXPIRED_EVENT } from '../api/client';
 import * as authApi from '../api/auth';
 
 interface AuthContextType {
@@ -42,6 +42,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       /* localStorage bị chặn thì bỏ qua, phiên chỉ tồn tại trong tab hiện tại */
     }
   }, [currentUser]);
+
+  // Máy chủ từ chối token giữa chừng (tài khoản bị khóa, đổi vai trò, hết hạn): đăng xuất ngay để quay về trang đăng nhập.
+  useEffect(() => {
+    const onExpired = () => {
+      setToken(null);
+      setCurrentUser(null);
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, []);
 
   // Xác nhận token đã lưu còn hiệu lực; nếu hết hạn thì đăng xuất luôn.
   useEffect(() => {
