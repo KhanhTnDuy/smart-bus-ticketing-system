@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { useNavigate } from 'react-router-dom';
 import {
   TicketPercent,
@@ -78,24 +79,31 @@ export const PassengerVouchersPage: React.FC = () => {
   const [selectedVoucher, setSelectedVoucher] = useState<Voucher | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
-  const fetchVouchers = async () => {
-    setLoading(true);
-    setLoadError(null);
+  // silent: lần tải nền khi tự làm mới, không bật vòng quay, không báo lỗi và giữ danh sách đang hiện.
+  const fetchVouchers = async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setLoadError(null);
+    }
     try {
       const data = await voucherApi.getAvailableVouchers();
       setVouchers(data || []);
     } catch (err: any) {
+      if (silent) return;
       const msg = err?.message || 'Không thể kết nối đến máy chủ lấy danh sách voucher';
       setLoadError(msg);
       toastError(msg);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchVouchers();
   }, []);
+
+  // Quản lý vừa thêm hoặc thu hồi voucher thì danh sách của khách tự cập nhật.
+  useAutoRefresh(() => fetchVouchers(true));
 
   // Compute statistics
   const stats = useMemo(() => {
@@ -164,7 +172,7 @@ export const PassengerVouchersPage: React.FC = () => {
         action={
           <div className="flex items-center gap-2">
             <button
-              onClick={fetchVouchers}
+              onClick={() => void fetchVouchers()}
               disabled={loading}
               className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 rounded-lg shadow-sm transition-colors disabled:opacity-50"
               title="Làm mới danh sách"
@@ -302,7 +310,7 @@ export const PassengerVouchersPage: React.FC = () => {
           <AlertCircle className="w-8 h-8 text-rose-600" />
           <p className="text-sm font-semibold text-rose-700 dark:text-rose-300">{loadError}</p>
           <button
-            onClick={fetchVouchers}
+            onClick={() => void fetchVouchers()}
             className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors"
           >
             Thử lại

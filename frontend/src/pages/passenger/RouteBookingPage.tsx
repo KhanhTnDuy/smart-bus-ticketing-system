@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Compass,
@@ -28,6 +28,7 @@ import { PaidTicketQrs } from '../../components/passenger/PaidTicketQrs';
 import { BankTransferPanel } from '../../components/passenger/BankTransferPanel';
 import { Modal } from '../../components/common/Modal';
 import { voucherApi } from '../../api/voucherApi';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 
 const PAYMENT_METHOD_CODE: Record<string, PaymentMethodCode> = {
   MOMO: PaymentMethodCode.Momo,
@@ -223,7 +224,10 @@ export const RouteBookingPage: React.FC = () => {
     }
   }, [totalCalculatedAmount]);
 
-  // Nạp tuyến và trạm của từng tuyến một lần khi vào trang.
+  // Nạp tuyến và trạm của từng tuyến khi vào trang, rồi nạp lại mỗi lần routesTick đổi (tự làm mới)
+  // để tuyến hoặc trạm quản lý vừa thêm hiện ra mà khách không phải mở lại trang.
+  const [routesTick, setRoutesTick] = useState(0);
+  const hasRoutesRef = useRef(false);
   useEffect(() => {
     const controller = new AbortController();
 
@@ -237,9 +241,13 @@ export const RouteBookingPage: React.FC = () => {
         setRoutes(routeList);
         setRouteStops(new Map(stopLists));
         setLoadError('');
+        hasRoutesRef.current = true;
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
-        setLoadError(err instanceof ApiError ? err.message : 'Không tải được danh sách tuyến và trạm dừng.');
+        // Lần nạp nền lỗi thì giữ danh sách đang có, không đổi sang màn hình lỗi.
+        if (!hasRoutesRef.current) {
+          setLoadError(err instanceof ApiError ? err.message : 'Không tải được danh sách tuyến và trạm dừng.');
+        }
       } finally {
         if (!controller.signal.aborted) setIsLoadingRoutes(false);
       }
@@ -247,7 +255,10 @@ export const RouteBookingPage: React.FC = () => {
 
     void load();
     return () => controller.abort();
-  }, []);
+  }, [routesTick]);
+
+  // Tra cứu gần nhất, để tự tra lại cùng điều kiện khi quản lý thêm hoặc đổi chuyến.
+  const lastSearchRef = useRef<{ from: string; to: string; date: string; routeId?: number } | null>(null);
 
   // Danh sách tên trạm của từng tuyến theo thứ tự chạy, lấy từ API nên khớp StopOrder thật.
   const routeStopNames = useMemo(() => {
@@ -339,12 +350,14 @@ export const RouteBookingPage: React.FC = () => {
 
     setIsSearching(true);
     try {
-      const result = await searchTrips({
+      const query = {
         from: departurePoint,
         to: destinationPoint,
         date: travelDate,
         routeId: selectedRouteFilter === 'ALL' ? undefined : Number(selectedRouteFilter),
-      });
+      };
+      const result = await searchTrips(query);
+      lastSearchRef.current = query;
       setTrips(result);
       setHasSearched(true);
       if (result.length === 0) {
@@ -358,6 +371,19 @@ export const RouteBookingPage: React.FC = () => {
       setIsSearching(false);
     }
   };
+
+  // Tự làm mới kết quả đang xem (chuyến mới, đổi giờ, hủy chuyến, ghế người khác vừa đặt). Chỉ ở bước chọn chuyến:
+  // sang bước chọn ghế hoặc thanh toán thì không đổi danh sách dưới chân khách.
+  useAutoRefresh(async () => {
+    setRoutesTick((t) => t + 1);
+    const last = lastSearchRef.current;
+    if (!last || currentStep !== 1) return;
+    try {
+      setTrips(await searchTrips(last));
+    } catch {
+      /* lần hỏi nền lỗi thì giữ kết quả cũ, khách vẫn bấm Tra cứu để thấy lỗi */
+    }
+  });
 
   /** Nạp sơ đồ ghế thật của chuyến; gọi lại được để làm mới sau khi ghế bị người khác giữ. */
   const loadSeats = useCallback(
@@ -899,6 +925,13 @@ export const RouteBookingPage: React.FC = () => {
                     {availableTrips.map((trip) => {
                       const route = routes.find((r) => r.id === trip.routeId);
                       const remainingSeats = trip.totalSeats - trip.bookedSeats.length;
+                      // Chuyến quản lý mới tạo nhưng chưa gán xe: chưa có sơ đồ ghế nên chưa bán được vé.
+                      const noBus = trip.totalSeats === 0;
+                      // Giờ chạy là giờ Việt Nam (backend đã đổi sẵn), nên ghép offset +07:00 thay vì giờ máy khách.
+                      const hasDeparted =
+                        new Date(`${trip.departureDate}T${trip.departureTime}:00+07:00`).getTime() <= Date.now();
+                      const closed = trip.status === 'CANCELLED' || trip.status === 'COMPLETED' || hasDeparted;
+                      const bookLabel = noBus ? 'Chưa mở bán' : trip.status === 'CANCELLED' ? 'Đã hủy' : closed ? 'Đã chạy' : 'Đặt vé';
 
                       return (
                         <tr
@@ -933,12 +966,14 @@ export const RouteBookingPage: React.FC = () => {
                           <td className="px-4 py-3 text-center">
                             <span
                               className={`px-2 py-0.5 rounded font-bold text-xs ${
-                                remainingSeats <= 3
+                                noBus
+                                  ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                                  : remainingSeats <= 3
                                   ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300'
                                   : 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300'
                               }`}
                             >
-                              {remainingSeats} / {trip.totalSeats}
+                              {noBus ? 'Chưa gán xe' : `${remainingSeats} / ${trip.totalSeats}`}
                             </span>
                           </td>
                           <td className="px-4 py-3">
@@ -949,10 +984,10 @@ export const RouteBookingPage: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => handleSelectTrip(trip)}
-                              disabled={remainingSeats === 0 || trip.status === 'CANCELLED'}
+                              disabled={noBus || remainingSeats === 0 || closed}
                               className="px-3.5 py-1.5 rounded bg-institutional-700 hover:bg-institutional-800 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold uppercase tracking-wider shadow-sm transition-colors whitespace-nowrap"
                             >
-                              Đặt vé
+                              {bookLabel}
                             </button>
                           </td>
                         </tr>

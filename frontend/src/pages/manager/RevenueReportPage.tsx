@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { Download, RefreshCw, TrendingUp, Ticket, RotateCcw, Trophy } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 import { EmptyState } from '../../components/common/EmptyState';
@@ -43,12 +44,13 @@ export const RevenueReportPage: React.FC = () => {
       .catch(() => setRoutes([]));
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       setReport(await revenueReportApi.getRevenueReport({ startDate, endDate, routeId, groupBy }));
       setLoadError(null);
     } catch (err) {
+      if (silent) return;
       setReport(null);
       setLoadError(err instanceof Error ? err.message : 'Không tải được báo cáo doanh thu.');
     } finally {
@@ -59,6 +61,9 @@ export const RevenueReportPage: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần bấm tải lại.
+  useAutoRefresh(() => load(true));
 
   const applyPreset = (p: string) => {
     setPreset(p);

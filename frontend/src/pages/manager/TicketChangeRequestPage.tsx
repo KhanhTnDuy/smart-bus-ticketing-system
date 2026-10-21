@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import {
   TicketCheck,
   Clock,
@@ -46,8 +47,18 @@ export const TicketChangeRequestPage: React.FC = () => {
   /** Id đang được xử lý, để khóa đúng một hàng thay vì khóa cả trang. */
   const [processingId, setProcessingId] = useState<number | null>(null);
 
+  // Tự làm mới nền khi khách gửi yêu cầu mới ở máy khác: lần nạp nền lỗi thì giữ danh sách đang hiện.
+  const silentRef = useRef(false);
+  const [refreshTick, setRefreshTick] = useState(0);
+  useAutoRefresh(() => {
+    silentRef.current = true;
+    setRefreshTick((n) => n + 1);
+  });
+
   useEffect(() => {
     const controller = new AbortController();
+    const silent = silentRef.current;
+    silentRef.current = false;
 
     const load = async () => {
       try {
@@ -59,6 +70,7 @@ export const TicketChangeRequestPage: React.FC = () => {
         setLoadError('');
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (silent) return;
         setRequests([]);
         setLoadError(
           err instanceof ApiError ? err.message : 'Không tải được danh sách yêu cầu hủy/đổi vé.'
@@ -70,7 +82,7 @@ export const TicketChangeRequestPage: React.FC = () => {
 
     void load();
     return () => controller.abort();
-  }, [reloadToken]);
+  }, [reloadToken, refreshTick]);
 
   const reload = () => {
     setIsLoading(true);

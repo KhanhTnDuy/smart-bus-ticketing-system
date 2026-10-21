@@ -16,7 +16,8 @@
  *   ChuaXuLy, DangXuLy, DaXuLy.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAutoRefresh } from './useAutoRefresh';
 import { ComplaintStatus } from '../types';
 import { ApiError } from '../api/client';
 import { formatDateTime } from '../api/datetime';
@@ -107,6 +108,13 @@ export const useFeedbackManagement = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  // Tự làm mới nền: khiếu nại mới từ khách hiện ra không cần tải lại; lần nạp nền không bật vòng quay và bỏ qua lỗi.
+  const silentRef = useRef(false);
+  const [refreshTick, setRefreshTick] = useState(0);
+  useAutoRefresh(() => {
+    silentRef.current = true;
+    setRefreshTick((n) => n + 1);
+  });
 
   useEffect(() => {
     const timer = setTimeout(() => setAppliedFilters(filters), DEBOUNCE_MS);
@@ -116,9 +124,14 @@ export const useFeedbackManagement = () => {
   useEffect(() => {
     const controller = new AbortController();
 
+    const silent = silentRef.current;
+    silentRef.current = false;
+
     const run = async () => {
-      setLoading(true);
-      setError(null);
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
       try {
         const dtos = await listFeedbacks(
           {
@@ -131,6 +144,7 @@ export const useFeedbackManagement = () => {
         setRows(dtos.map(toRow));
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (silent) return;
         setError(describe(err));
         setRows([]);
       } finally {
@@ -140,7 +154,7 @@ export const useFeedbackManagement = () => {
 
     void run();
     return () => controller.abort();
-  }, [appliedFilters, reloadToken]);
+  }, [appliedFilters, reloadToken, refreshTick]);
 
   const reload = useCallback(() => setReloadToken((n) => n + 1), []);
 
