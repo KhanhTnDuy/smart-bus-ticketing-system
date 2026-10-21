@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import {
   MessageSquareWarning,
   Send,
@@ -28,7 +29,7 @@ export const ComplaintPage: React.FC = () => {
   const [myComplaints, setMyComplaints] = useState<FeedbackDto[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (silent = false) => {
     try {
       const [routeList, mine] = await Promise.all([listRoutes(), listMyFeedback(FeedbackTypeCode.Complaint)]);
       setRoutes(routeList);
@@ -36,13 +37,16 @@ export const ComplaintPage: React.FC = () => {
       setLoadError(null);
       setRouteId((prev) => prev || (routeList[0] ? String(routeList[0].id) : ''));
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Không tải được dữ liệu.');
+      if (!silent) setLoadError(err instanceof Error ? err.message : 'Không tải được dữ liệu.');
     }
   }, []);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần bấm tải lại.
+  useAutoRefresh(() => loadData(true));
 
   const [routeId, setRouteId] = useState('');
   const [category, setCategory] = useState<ComplaintCategory>('ATTITUDE');

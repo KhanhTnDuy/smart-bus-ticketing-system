@@ -4,6 +4,7 @@ import * as sm from '../api/scheduleManagement';
 import { listRoutes, RouteDto } from '../api/routeManagement';
 import { listBuses, BusDto, BackendBusStatus } from '../api/busManagement';
 import { TripAssignmentDto } from '../api/assignments';
+import { useAutoRefresh } from './useAutoRefresh';
 
 export interface MutationResult {
   success: boolean;
@@ -29,9 +30,12 @@ export const useScheduleManagement = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true);
-    setError(null);
+  // silent: lần tải nền khi tự làm mới, không bật vòng quay và không xóa lỗi đang hiện.
+  const load = useCallback(async (signal?: AbortSignal, silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const [tripList, scheduleList, routeList, busPage] = await Promise.all([
         sm.listAllTrips(signal),
@@ -43,11 +47,12 @@ export const useScheduleManagement = () => {
       setSchedules(scheduleList);
       setRoutes(routeList);
       setBuses(busPage.data.filter((b) => b.status === BackendBusStatus.Active));
+      setError(null);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      setError(describe(err));
+      if (!silent) setError(describe(err));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -56,6 +61,9 @@ export const useScheduleManagement = () => {
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  // Chuyến do người khác thêm, đổi hoặc đặt vé ở máy khác tự hiện ở đây, không cần tải lại trang.
+  useAutoRefresh(() => load(undefined, true));
 
   const mutate = useCallback(
     async <T,>(action: () => Promise<T>): Promise<MutationResult & { data?: T }> => {
