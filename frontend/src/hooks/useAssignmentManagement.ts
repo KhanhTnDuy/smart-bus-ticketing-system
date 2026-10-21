@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { BusAssignment } from '../types';
 import { ApiError } from '../api/client';
 import * as assignApi from '../api/assignments';
+import { useAutoRefresh } from './useAutoRefresh';
 
 export interface MutationResult {
   success: boolean;
@@ -31,17 +32,21 @@ export const useAssignmentManagement = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true);
-    setError(null);
+  // silent: lần tải nền khi tự làm mới, không bật vòng quay và không xóa lỗi đang hiện.
+  const load = useCallback(async (signal?: AbortSignal, silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const dtos = await assignApi.listAssignments(undefined, signal);
       setAssignments(dtos.map(assignApi.toBusAssignment));
+      setError(null);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      setError(describe(err));
+      if (!silent) setError(describe(err));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -50,6 +55,8 @@ export const useAssignmentManagement = () => {
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  useAutoRefresh(() => load(undefined, true));
 
   const reload = useCallback(() => load(), [load]);
 

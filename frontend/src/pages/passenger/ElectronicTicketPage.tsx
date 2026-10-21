@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import {
   Ticket as TicketIcon,
   Search,
@@ -59,8 +60,18 @@ export const ElectronicTicketPage: React.FC = () => {
   // Số lần bấm "Thử lại"; đổi giá trị này là cách yêu cầu effect tải lại.
   const [reloadToken, setReloadToken] = useState(0);
 
+  // Tự làm mới nền (chuyến bị hủy, vé được duyệt hoàn tiền ở máy quản lý...): lần nạp nền lỗi thì giữ danh sách cũ.
+  const silentRef = useRef(false);
+  const [refreshTick, setRefreshTick] = useState(0);
+  useAutoRefresh(() => {
+    silentRef.current = true;
+    setRefreshTick((t) => t + 1);
+  });
+
   useEffect(() => {
     const controller = new AbortController();
+    const silent = silentRef.current;
+    silentRef.current = false;
 
     const load = async () => {
       try {
@@ -72,6 +83,7 @@ export const ElectronicTicketPage: React.FC = () => {
         setLoadError('');
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (silent) return;
         setTickets([]);
         setTicketDtos(new Map());
         setLoadError(err instanceof ApiError ? err.message : 'Không tải được danh sách vé của bạn.');
@@ -82,7 +94,7 @@ export const ElectronicTicketPage: React.FC = () => {
 
     void load();
     return () => controller.abort();
-  }, [reloadToken]);
+  }, [reloadToken, refreshTick]);
 
   const showSuccess = success;
   const showError = error;
@@ -259,7 +271,8 @@ export const ElectronicTicketPage: React.FC = () => {
       });
       // Bỏ chính chuyến của vé: backend chặn đổi sang cùng chuyến cùng ghế, và đổi
       // sang cùng chuyến khác ghế thì nên dùng chức năng chọn lại ghế.
-      const others = found.filter((t) => t.id !== dto.tripId);
+      // Chuyến chưa gán xe (totalSeats = 0) chưa có ghế nên không đổi sang được.
+      const others = found.filter((t) => t.id !== dto.tripId && t.totalSeats > 0);
       setChangeTrips(others);
       if (others.length === 0) {
         showInfo('Không có chuyến nào khác phù hợp trong ngày đã chọn.');

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { RotateCcw, Search, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -41,13 +42,13 @@ export const RefundManagementPage: React.FC = () => {
   const [external, setExternal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       setRefunds(await listRefunds());
       setLoadError(null);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Không tải được danh sách hoàn tiền.');
+      if (!silent) setLoadError(err instanceof Error ? err.message : 'Không tải được danh sách hoàn tiền.');
     } finally {
       setLoading(false);
     }
@@ -56,6 +57,9 @@ export const RefundManagementPage: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần bấm tải lại.
+  useAutoRefresh(() => load(true));
 
   const filtered = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();

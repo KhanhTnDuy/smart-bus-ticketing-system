@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { FileText, Search, Eye, Download, RefreshCw, Mail, Scale } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Modal } from '../../components/common/Modal';
@@ -61,8 +62,8 @@ export const InvoiceManagementPage: React.FC = () => {
     return () => c.abort();
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const [list, sum] = await Promise.all([listAllInvoices(applied), getInvoiceSummary(applied)]);
@@ -82,6 +83,7 @@ export const InvoiceManagementPage: React.FC = () => {
         setRevenueGross(null);
       }
     } catch (err) {
+      if (silent) return;
       setError(err instanceof Error ? err.message : 'Không tải được danh sách hóa đơn.');
       setInvoices([]);
       setSummary(null);
@@ -91,6 +93,9 @@ export const InvoiceManagementPage: React.FC = () => {
   }, [applied]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần bấm tải lại.
+  useAutoRefresh(() => load(true));
 
   const resend = async (inv: InvoiceDto) => {
     setSendingId(inv.id);

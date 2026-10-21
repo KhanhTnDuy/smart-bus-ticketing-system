@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useAutoRefresh } from './useAutoRefresh';
 import { Role, User, UserStatus } from '../types';
 import { ApiError } from '../api/client';
 import * as acctApi from '../api/accountManagement';
@@ -35,17 +36,20 @@ export const useAccountManagement = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true);
-    setError(null);
+  // silent: lần tải nền khi tự làm mới, không bật vòng quay và không xóa lỗi đang hiện.
+  const load = useCallback(async (signal?: AbortSignal, silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const dtos = await acctApi.listAccounts(undefined, signal);
       setUsers(dtos.map(acctApi.toUser));
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      setError(describe(err));
+      if (!silent) setError(describe(err));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -54,6 +58,9 @@ export const useAccountManagement = () => {
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  // Dữ liệu do người khác thay đổi ở máy khác thì tự cập nhật, không cần tải lại trang.
+  useAutoRefresh(() => load(undefined, true));
 
   const reload = useCallback(() => load(), [load]);
 

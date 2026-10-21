@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { BadgeDollarSign, Route as RouteIcon, Ruler } from 'lucide-react';
 import { PageHeader } from '../../components/common/PageHeader';
 import { EmptyState } from '../../components/common/EmptyState';
@@ -33,6 +34,10 @@ export const FareTablePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Tự làm mới nền: quản lý đổi bảng giá thì khách thấy giá mới, không phải tải lại trang.
+  const [tick, setTick] = useState(0);
+  useAutoRefresh(() => setTick((n) => n + 1));
+
   useEffect(() => {
     const controller = new AbortController();
     Promise.all([listDistanceFares(controller.signal), listPassengerTypes(controller.signal), listRoutes(controller.signal)])
@@ -41,15 +46,17 @@ export const FareTablePage: React.FC = () => {
         setTypes(t);
         const active = r.filter((x) => x.active);
         setRoutes(active);
-        if (active.length > 0) setRouteId(active[0].id);
+        // Giữ tuyến người dùng đang chọn khi nạp lại nền.
+        if (active.length > 0) setRouteId((prev) => (prev !== null && active.some((x) => x.id === prev) ? prev : active[0].id));
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (tick > 0) return;
         setError(err instanceof Error ? err.message : 'Không tải được bảng giá.');
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, []);
+  }, [tick]);
 
   useEffect(() => {
     if (routeId === null) return;
@@ -58,10 +65,11 @@ export const FareTablePage: React.FC = () => {
       .then(setMatrix)
       .catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (tick > 0) return;
         setMatrix(null);
       });
     return () => controller.abort();
-  }, [routeId]);
+  }, [routeId, tick]);
 
   const standard = types.find((t) => t.code === 'STANDARD') ?? types[0];
   const others = useMemo(() => types.filter((t) => t.id !== standard?.id), [types, standard]);
