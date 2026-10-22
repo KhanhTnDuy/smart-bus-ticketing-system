@@ -5,7 +5,7 @@
  */
 
 import { api } from './client';
-import { Role, User, UserStatus } from '../types';
+import { AccountKind, Role, User, UserStatus } from '../types';
 
 export enum BackendAccountRole {
   Admin = 0,
@@ -50,8 +50,10 @@ export interface UpdateRoleRequest {
   role: BackendAccountRole | number;
 }
 
-export const roleToBackend = (role: Role): BackendAccountRole => {
+export const roleToBackend = (role: AccountKind): BackendAccountRole => {
   switch (role) {
+    case 'CONDUCTOR':
+      return BackendAccountRole.Conductor;
     case 'ADMIN':
       return BackendAccountRole.Admin;
     case 'MANAGER':
@@ -79,14 +81,27 @@ export const backendToRole = (role: BackendAccountRole | number | string): Role 
   return 'PASSENGER';
 };
 
+/** Loại tài khoản để hiển thị và chỉnh sửa: tách Phụ xe khỏi Tài xế dù cả hai có chung quyền truy cập ở giao diện. */
+export const kindOfUser = (user: Pick<User, 'role' | 'isConductor'>): AccountKind =>
+  user.isConductor ? 'CONDUCTOR' : user.role;
+
+export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
+  ADMIN: 'Quản trị viên',
+  MANAGER: 'Quản lý',
+  DRIVER: 'Tài xế',
+  CONDUCTOR: 'Phụ xe',
+  PASSENGER: 'Hành khách',
+};
+
 export const toUser = (dto: AccountDto): User => {
   const role = backendToRole(dto.role);
   let department = 'Khách hàng';
   const rawRoleStr = String(dto.role).toUpperCase();
+  const isConductor = dto.role === BackendAccountRole.Conductor || dto.role === 3 || rawRoleStr === 'CONDUCTOR';
   if (role === 'ADMIN') department = 'Ban Giám đốc';
   else if (role === 'MANAGER') department = 'Phòng Điều hành';
   else if (role === 'DRIVER') {
-    if (dto.role === BackendAccountRole.Conductor || dto.role === 3 || rawRoleStr === 'CONDUCTOR') {
+    if (isConductor) {
       department = 'Đội Soát vé';
     } else {
       department = 'Đội Xe buýt';
@@ -100,6 +115,7 @@ export const toUser = (dto: AccountDto): User => {
     email: dto.email || '',
     phone: dto.phone || '',
     role,
+    isConductor,
     status: dto.active ? ('ACTIVE' as UserStatus) : ('INACTIVE' as UserStatus),
     createdAt: dto.createdAt ? dto.createdAt.split('T')[0] : '',
     department,
