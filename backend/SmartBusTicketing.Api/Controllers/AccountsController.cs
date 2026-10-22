@@ -44,6 +44,17 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Quản trị viên không được tự khóa, tự xóa hay tự hạ vai trò của chính mình: làm vậy token đang dùng bị ngắt ngay (JWT được đối chiếu
+    /// với CSDL mỗi yêu cầu) và có thể không còn ai đăng nhập được trang quản trị. Muốn đổi thì nhờ một quản trị viên khác.
+    /// </summary>
+    private IActionResult? RejectSelfLockout(Account account, bool newActive, AccountRole newRole)
+    {
+        if (account.Id != GetActorId() || account.Role != AccountRole.Admin) return null;
+        if (newActive && newRole == AccountRole.Admin) return null;
+        return Conflict(new { message = "Bạn không thể tự khóa hoặc tự hạ quyền tài khoản quản trị đang đăng nhập. Hãy nhờ quản trị viên khác thực hiện." });
+    }
+
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] string? search, [FromQuery] AccountRole? role, [FromQuery] bool? active, CancellationToken ct)
     {
@@ -127,6 +138,9 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
         var account = await db.Accounts.FindAsync([id], ct);
         if (account is null) return NotFound(new { message = "Không tìm thấy tài khoản!" });
 
+        var selfLock = RejectSelfLockout(account, req.Active ?? account.Active, req.Role ?? account.Role);
+        if (selfLock is not null) return selfLock;
+
         if (!string.IsNullOrWhiteSpace(req.FullName))
             account.FullName = req.FullName.Trim();
 
@@ -168,6 +182,9 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
         var account = await db.Accounts.FindAsync([id], ct);
         if (account is null) return NotFound(new { message = "Không tìm thấy tài khoản!" });
 
+        var selfLock = RejectSelfLockout(account, account.Active, req.Role);
+        if (selfLock is not null) return selfLock;
+
         var oldRole = account.Role;
         account.Role = req.Role;
         account.UpdatedAt = DateTime.UtcNow;
@@ -184,6 +201,9 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
     {
         var account = await db.Accounts.FindAsync([id], ct);
         if (account is null) return NotFound(new { message = "Không tìm thấy tài khoản!" });
+
+        var selfLock = RejectSelfLockout(account, false, account.Role);
+        if (selfLock is not null) return selfLock;
 
         var wasActive = account.Active;
         account.Active = false;

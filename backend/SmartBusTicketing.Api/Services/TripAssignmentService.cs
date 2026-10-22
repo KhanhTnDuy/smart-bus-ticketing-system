@@ -62,6 +62,13 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
     /// Tính thời gian hành trình dự kiến của tuyến dựa trên danh sách trạm dừng.
     /// Nếu chưa cấu hình trạm dừng, mặc định là 60 phút.
     /// </summary>
+    private const string BusSlotTakenMessage =
+        "Xe buýt đã có một chuyến (kể cả chuyến đã hủy) khởi hành đúng giờ này. Hãy chọn giờ khác hoặc xóa chuyến đã hủy trước.";
+
+    /// <summary>Bảng trips có khóa duy nhất (xe, giờ xuất bến) và tính cả chuyến đã hủy, còn phép kiểm trùng lịch thì bỏ qua chuyến đã hủy.</summary>
+    private static bool IsBusSlotTaken(DbUpdateException ex) =>
+        ex.InnerException?.Message.Contains("IX_trips_BusId_DepartureAt", StringComparison.Ordinal) == true;
+
     private async Task<int> GetRouteDurationMinutesAsync(long routeId, CancellationToken ct)
     {
         var maxMinutes = await db.RouteStops
@@ -484,6 +491,13 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                 }
             }
 
+            // Vé đã đặt gắn với ghế của chiếc xe hiện tại: đổi hoặc gỡ xe sẽ để vé trỏ vào sơ đồ ghế không còn thuộc chuyến.
+            if (targetBusId != trip.BusId && trip.Bookings.Any(b => b.Status is BookingStatus.Pending or BookingStatus.Confirmed))
+            {
+                return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Conflict,
+                    $"Chuyến chạy #{tripId} đã có vé đặt trên xe hiện tại nên không thể đổi hoặc gỡ xe. Hãy hủy chuyến nếu cần dùng xe khác.");
+            }
+
             // 1. Kiểm tra xe buýt
             if (targetBusId.HasValue)
             {
@@ -615,6 +629,12 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
             var dto = await GetAssignmentByIdAsync(tripId, ct);
             return ServiceResult<TripAssignmentDto>.Success(dto!);
         }
+        catch (DbUpdateException ex) when (IsBusSlotTaken(ex))
+        {
+            if (tx != null) await tx.RollbackAsync(ct);
+            db.ChangeTracker.Clear();
+            return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Conflict, BusSlotTakenMessage);
+        }
         catch
         {
             if (tx != null) await tx.RollbackAsync(ct);
@@ -678,6 +698,13 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
         {
             return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Conflict,
                 $"Chuyến chạy #{tripId} đang ở trạng thái '{FormatTripStatus(trip.Status)}', không thể gỡ phân công.");
+        }
+
+        if (request.UnassignBus && trip.BusId.HasValue
+            && await db.Bookings.AnyAsync(b => b.TripId == tripId && (b.Status == BookingStatus.Pending || b.Status == BookingStatus.Confirmed), ct))
+        {
+            return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Conflict,
+                $"Chuyến chạy #{tripId} đã có vé đặt nên không thể gỡ xe. Hãy hủy chuyến nếu cần dùng xe khác.");
         }
 
         if (request.UnassignBus)
@@ -794,11 +821,14 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
             Notes = request.Notes
         };
 
-        var assignRes = await AssignTripAsync(trip.Id, assignReq, ct);
+        var tripId = trip.Id;
+        var assignRes = await AssignTripAsync(tripId, assignReq, ct);
         if (!assignRes.Ok)
         {
-            db.Trips.Remove(trip);
-            await db.SaveChangesAsync(ct);
+            // Bỏ chuyến nháp vừa tạo. Xóa theo khóa thay vì Remove(trip): AssignTripAsync có thể đã làm bẩn đồ thị đối tượng
+            // (xe, nhân sự gán dở) và lần lưu thất bại làm EF còn nhớ các thay đổi đó.
+            db.ChangeTracker.Clear();
+            await db.Trips.Where(t => t.Id == tripId).ExecuteDeleteAsync(ct);
             return assignRes;
         }
 
@@ -870,6 +900,11 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
             if (request.DelayMinutes.HasValue) trip.DelayMinutes = request.DelayMinutes.Value;
             await db.SaveChangesAsync(ct);
             if (tx != null) await tx.CommitAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsBusSlotTaken(ex))
+        {
+            db.ChangeTracker.Clear();
+            return ServiceResult<TripAssignmentDto>.Fail(ServiceError.Conflict, BusSlotTakenMessage);
         }
         finally
         {
