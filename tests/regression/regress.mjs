@@ -572,9 +572,15 @@ try {
     is('VNPay IPN: giao dịch thất bại vẫn trả 00 cho cổng', fail.j?.RspCode, '00');
     is('VNPay: giao dịch Failed', stat(pv1.j?.id), 'Failed');
     check('VNPay: lưu lý do thất bại', (sql(`select FailureReason from payments where Id=${pv1.j?.id}`) || '').length > 0);
+    is('VNPay: lý do thất bại kèm mã của cổng để tra lại', sql(`select FailureReason like '%mã VNPay 24%' from payments where Id=${pv1.j?.id}`), '1');
+    is('VNPay: kết quả của cổng được ghi nhật ký (mã 24, nguồn IPN)',
+      sql(`select count(*) from audit_logs where TargetResource='PAYMENT-${pv1.j?.id}' and Action like 'Nhận kết quả VNPay%' and Details like '%mã phản hồi 24%' and Details like '%Nguồn IPN%'`), '1');
     is('VNPay: lượt đặt vẫn Pending sau khi thất bại', sql(`select Status from bookings where Id=${v1.bookingId}`), 'Pending');
     is('VNPay: vé vẫn Held sau khi thất bại', sql(`select distinct Status from tickets where BookingId=${v1.bookingId}`), 'Held');
     is('VNPay: IPN thành công đến sau giao dịch đã Failed -> 02', (await ipn(cb(ref1, FARE))).j?.RspCode, '02');
+    // Kết quả về muộn không đổi giao dịch nhưng vẫn phải để lại dấu vết, nếu không sẽ không tra được cổng đã báo gì.
+    is('VNPay: kết quả đến trễ sau khi giao dịch đã chốt vẫn được ghi nhật ký',
+      sql(`select count(*) from audit_logs where TargetResource='PAYMENT-${pv1.j?.id}' and Action like 'Nhận kết quả VNPay%' and Details like '%mã phản hồi 00%' and Details like '%AlreadyProcessed%'`), '1');
 
     // 4. Thử lại: giao dịch mới, mã mới, rồi thanh toán thành công qua ReturnUrl (máy dev không nhận được IPN).
     const pv1b = await payV(p1, v1.bookingId);

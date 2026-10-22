@@ -301,7 +301,7 @@ public class PaymentsController(
     [AllowAnonymous]
     public async Task<IActionResult> VnPayIpn(CancellationToken ct)
     {
-        var result = await settlement.SettleVnPayCallbackAsync(QueryToDictionary(), ct);
+        var result = await settlement.SettleVnPayCallbackAsync(QueryToDictionary(), ct, "IPN");
         var (code, message) = result.Outcome switch
         {
             SettlementOutcome.Confirmed or SettlementOutcome.RefundQueued or SettlementOutcome.Failed => ("00", "Confirm Success"),
@@ -324,7 +324,7 @@ public class PaymentsController(
     [AllowAnonymous]
     public async Task<ActionResult<PaymentResultDto>> VnPayReturn(CancellationToken ct)
     {
-        var result = await settlement.SettleVnPayCallbackAsync(QueryToDictionary(), ct);
+        var result = await settlement.SettleVnPayCallbackAsync(QueryToDictionary(), ct, "ReturnUrl");
         if (result.Outcome is SettlementOutcome.InvalidSignature or SettlementOutcome.NotFound or SettlementOutcome.AmountMismatch)
             return BadRequest(new { message = result.Message });
 
