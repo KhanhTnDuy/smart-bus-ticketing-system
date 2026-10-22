@@ -131,7 +131,7 @@ export const useDashboardData = (role: Role | null | undefined): DashboardData =
         fareCount: valueOf(faresR)?.length ?? null,
         accountCount: valueOf(accountsR)?.length ?? null,
         upcomingTripCount: upcoming ? upcoming.length : null,
-        unassignedTripCount: upcoming ? upcoming.filter((t) => !t.bus || !t.driver).length : null,
+        unassignedTripCount: upcoming ? upcoming.filter((t) => !t.bus || !t.driver || !!t.staffWarning).length : null,
         pendingChangeRequestCount: valueOf(changeR)?.length ?? null,
         pendingFeedbackCount: feedbacks
           ? feedbacks.filter((f) => f.status === FeedbackStatusCode.ChuaXuLy).length

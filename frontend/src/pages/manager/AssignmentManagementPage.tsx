@@ -564,6 +564,12 @@ export const AssignmentManagementPage: React.FC = () => {
                           {asn.driverName}
                         </div>
                         <div className="text-[10px] text-slate-400">ID: {asn.driverId}</div>
+                        {asn.staffWarning && (
+                          <div className="mt-1 inline-flex items-start gap-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 max-w-xs whitespace-normal" title={asn.staffWarning}>
+                            <span aria-hidden>⚠</span>
+                            <span>{asn.staffWarning}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <div className="font-medium text-slate-700 dark:text-slate-300">

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAutoRefresh } from './useAutoRefresh';
-import { Role, User, UserStatus } from '../types';
+import { AccountKind, User, UserStatus } from '../types';
 import { ApiError } from '../api/client';
 import * as acctApi from '../api/accountManagement';
 
@@ -8,6 +8,8 @@ export interface MutationResult {
   success: boolean;
   message?: string;
   data?: User;
+  /** Mật khẩu tạm do hệ thống sinh khi admin bỏ trống ô mật khẩu; chỉ trả về một lần ở lần tạo để admin gửi cho người dùng. */
+  temporaryPassword?: string;
 }
 
 export interface AccountFormValues {
@@ -15,7 +17,7 @@ export interface AccountFormValues {
   username: string;
   email: string;
   phone: string;
-  role: Role;
+  role: AccountKind;
   status: UserStatus;
   password?: string;
 }
@@ -84,11 +86,13 @@ export const useAccountManagement = () => {
 
   const addAccount = useCallback(
     async (formData: AccountFormValues): Promise<MutationResult> => {
+      // Máy chủ bắt buộc có mật khẩu: nếu quản trị không nhập thì sinh một mật khẩu tạm ngẫu nhiên và trả về để hiện cho admin.
+      const typed = formData.password?.trim();
+      const generated = typed ? undefined : `SmartBus@${Math.floor(100000 + Math.random() * 900000)}`;
       const res = await mutate(() =>
         acctApi.createAccount({
           username: formData.username.trim(),
-          // Máy chủ bắt buộc có mật khẩu: nếu quản trị không nhập thì sinh một mật khẩu tạm ngẫu nhiên.
-          password: formData.password?.trim() || `SmartBus@${Math.floor(100000 + Math.random() * 900000)}`,
+          password: typed || generated,
           fullName: formData.fullName.trim(),
           email: formData.email.trim() || undefined,
           phone: formData.phone.trim() || undefined,
@@ -96,7 +100,9 @@ export const useAccountManagement = () => {
           active: formData.status === 'ACTIVE',
         }),
       );
-      return res.success ? { success: true, data: res.value ? acctApi.toUser(res.value) : undefined } : res;
+      return res.success
+        ? { success: true, data: res.value ? acctApi.toUser(res.value) : undefined, temporaryPassword: generated }
+        : res;
     },
     [mutate],
   );
@@ -120,7 +126,7 @@ export const useAccountManagement = () => {
   );
 
   const assignRole = useCallback(
-    async (id: string, newRole: Role): Promise<MutationResult> => {
+    async (id: string, newRole: AccountKind): Promise<MutationResult> => {
       const numId = toNumericId(id);
       if (numId === null) return { success: false, message: 'Mã tài khoản không hợp lệ.' };
       return mutate(() => acctApi.updateAccountRole(numId, acctApi.roleToBackend(newRole)));
