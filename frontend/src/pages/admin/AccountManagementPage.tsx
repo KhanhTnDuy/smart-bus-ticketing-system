@@ -14,7 +14,9 @@ import {
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
-import { User, Role, UserStatus } from '../../types';
+import { User, UserStatus, AccountKind } from '../../types';
+import { kindOfUser, ACCOUNT_KIND_LABEL } from '../../api/accountManagement';
+import { AccountRoleTag } from '../../components/admin/AccountRoleTag';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
@@ -46,13 +48,17 @@ export const AccountManagementPage: React.FC = () => {
     username: '',
     email: '',
     phone: '',
-    role: 'PASSENGER' as Role,
+    role: 'PASSENGER' as AccountKind,
     status: 'ACTIVE' as UserStatus,
     department: '',
+    password: '',
   });
 
+  // Mật khẩu tạm do hệ thống sinh khi admin tạo tài khoản mà không nhập mật khẩu; hiện đúng một lần.
+  const [tempPassword, setTempPassword] = useState<{ username: string; password: string } | null>(null);
+
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-  const [targetRole, setTargetRole] = useState<Role>('PASSENGER');
+  const [targetRole, setTargetRole] = useState<AccountKind>('PASSENGER');
 
   // Filtered users
   const filteredUsers = useMemo(() => {
@@ -63,7 +69,7 @@ export const AccountManagementPage: React.FC = () => {
         u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
         u.phone.includes(searchTerm);
 
-      const matchRole = filterRole === 'ALL' || u.role === filterRole;
+      const matchRole = filterRole === 'ALL' || kindOfUser(u) === filterRole;
       const matchStatus = filterStatus === 'ALL' || u.status === filterStatus;
 
       return matchSearch && matchRole && matchStatus;
@@ -86,6 +92,7 @@ export const AccountManagementPage: React.FC = () => {
       role: 'PASSENGER',
       status: 'ACTIVE',
       department: '',
+      password: '',
     });
     setFormErrors({});
     setIsAddModalOpen(true);
@@ -103,9 +110,10 @@ export const AccountManagementPage: React.FC = () => {
       username: user.username,
       email: user.email,
       phone: user.phone,
-      role: user.role,
+      role: kindOfUser(user),
       status: user.status,
       department: user.department || '',
+      password: '',
     });
     setFormErrors({});
     setIsEditModalOpen(true);
@@ -113,7 +121,7 @@ export const AccountManagementPage: React.FC = () => {
 
   const handleOpenRoleAssign = (user: User) => {
     setSelectedUser(user);
-    setTargetRole(user.role);
+    setTargetRole(kindOfUser(user));
     setIsRoleModalOpen(true);
   };
 
@@ -133,9 +141,8 @@ export const AccountManagementPage: React.FC = () => {
     if (!formData.username.trim()) errs.username = 'Tên đăng nhập không được để trống.';
     
     const emailTrimmed = formData.email.trim();
-    if (!emailTrimmed) {
-      errs.email = 'Email không được để trống.';
-    } else if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(emailTrimmed)) {
+    // Email không bắt buộc: tài khoản nhân sự tạo sẵn không có email, và backend cho phép để trống.
+    if (emailTrimmed && !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(emailTrimmed)) {
       errs.email = 'Định dạng email không hợp lệ (VD: user@example.com).';
     }
 
@@ -144,6 +151,10 @@ export const AccountManagementPage: React.FC = () => {
       errs.phone = 'Số điện thoại không được để trống.';
     } else if (!/^[0-9]{9,11}$/.test(phoneTrimmed)) {
       errs.phone = 'Số điện thoại phải từ 9 đến 11 chữ số.';
+    }
+    const passwordTrimmed = formData.password.trim();
+    if (passwordTrimmed && passwordTrimmed.length < 8) {
+      errs.password = 'Mật khẩu phải có ít nhất 8 ký tự.';
     }
     setFormErrors(errs);
     return Object.keys(errs).length === 0;
@@ -160,12 +171,14 @@ export const AccountManagementPage: React.FC = () => {
       username: formData.username.trim(),
       email: formData.email.trim(),
       phone: formData.phone.trim(),
+      password: formData.password.trim(),
     };
 
     const res = await addAccount(sanitizedData);
     if (res.success) {
       success(`Tạo mới tài khoản [${sanitizedData.username}] thành công!`);
       setIsAddModalOpen(false);
+      if (res.temporaryPassword) setTempPassword({ username: sanitizedData.username, password: res.temporaryPassword });
     } else {
       error(res.message || 'Thêm tài khoản thất bại.');
     }
@@ -184,7 +197,14 @@ export const AccountManagementPage: React.FC = () => {
       phone: formData.phone.trim(),
     };
 
-    const res = await updateAccount(selectedUser.id, sanitizedData);
+    // Không gửi lại vai trò khi không đổi: trước đây form luôn gửi kèm vai trò, và vì giao diện gộp Phụ xe thành Tài xế nên chỉ sửa
+    // tên hay số điện thoại của phụ xe cũng làm tài khoản bị đổi thành Tài xế.
+    const roleChanged = formData.role !== kindOfUser(selectedUser);
+    const res = await updateAccount(selectedUser.id, {
+      ...sanitizedData,
+      role: roleChanged ? formData.role : undefined,
+      password: formData.password.trim() || undefined,
+    });
     if (res.success) {
       success(`Cập nhật thông tin tài khoản [${sanitizedData.username}] thành công!`);
       setIsEditModalOpen(false);
@@ -199,7 +219,7 @@ export const AccountManagementPage: React.FC = () => {
 
     const res = await assignRole(selectedUser.id, targetRole);
     if (res.success) {
-      success(`Đã cập nhật vai trò cho [${selectedUser.fullName}] thành ${targetRole}!`);
+      success(`Đã cập nhật vai trò cho [${selectedUser.fullName}] thành ${ACCOUNT_KIND_LABEL[targetRole]}!`);
       setIsRoleModalOpen(false);
     } else {
       error(res.message || 'Phân quyền thất bại.');
@@ -280,6 +300,7 @@ export const AccountManagementPage: React.FC = () => {
               <option value="ADMIN">Quản trị viên (Admin)</option>
               <option value="MANAGER">Quản lý tuyến (Manager)</option>
               <option value="DRIVER">Tài xế (Driver)</option>
+              <option value="CONDUCTOR">Phụ xe (Conductor)</option>
               <option value="PASSENGER">Hành khách (Passenger)</option>
             </select>
           </div>
@@ -385,7 +406,7 @@ export const AccountManagementPage: React.FC = () => {
                       {user.phone}
                     </td>
                     <td className="px-4 py-3">
-                      <Badge variant="role" value={user.role} size="sm" />
+                      <AccountRoleTag kind={kindOfUser(user)} size="sm" />
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant="userStatus" value={user.status} size="sm" />
@@ -503,7 +524,7 @@ export const AccountManagementPage: React.FC = () => {
             {/* Email */}
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Email liên hệ <span className="text-rose-500">*</span>
+                Email liên hệ
               </label>
               <input
                 type="email"
@@ -541,11 +562,12 @@ export const AccountManagementPage: React.FC = () => {
               </label>
               <select
                 value={formData.role}
-                onChange={(e) => setFormData({ ...formData, role: e.target.value as Role })}
+                onChange={(e) => setFormData({ ...formData, role: e.target.value as AccountKind })}
                 className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
               >
                 <option value="PASSENGER">Hành khách (PASSENGER)</option>
                 <option value="DRIVER">Tài xế xe buýt (DRIVER)</option>
+                <option value="CONDUCTOR">Phụ xe soát vé (CONDUCTOR)</option>
                 <option value="MANAGER">Quản lý tuyến & hạ tầng (MANAGER)</option>
                 <option value="ADMIN">Quản trị viên hệ thống (ADMIN)</option>
               </select>
@@ -568,6 +590,21 @@ export const AccountManagementPage: React.FC = () => {
             </div>
 
             {/* Đơn vị công tác */}
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                Mật khẩu đăng nhập
+              </label>
+              <input
+                type="text"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                placeholder="Để trống để hệ thống tự sinh mật khẩu tạm và hiện cho bạn một lần"
+                autoComplete="new-password"
+                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+              />
+              {formErrors.password && <p className="text-[11px] text-rose-500 mt-1">{formErrors.password}</p>}
+            </div>
+
             <div className="sm:col-span-2">
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
                 Phòng ban / Đơn vị công tác
@@ -631,7 +668,7 @@ export const AccountManagementPage: React.FC = () => {
                   Mã tài khoản: {selectedUser.id}
                 </div>
                 <div className="flex items-center gap-2 mt-2">
-                  <Badge variant="role" value={selectedUser.role} />
+                  <AccountRoleTag kind={kindOfUser(selectedUser)} />
                   <Badge variant="userStatus" value={selectedUser.status} />
                 </div>
               </div>
@@ -730,7 +767,7 @@ export const AccountManagementPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
-                Email liên hệ <span className="text-rose-500">*</span>
+                Email liên hệ
               </label>
               <input
                 type="email"
@@ -764,12 +801,13 @@ export const AccountManagementPage: React.FC = () => {
               </label>
               <select
                 value={formData.role}
-                onChange={(e) => setFormData({ ...formData, role: e.target.value as Role })}
+                onChange={(e) => setFormData({ ...formData, role: e.target.value as AccountKind })}
                 className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
               >
                 <option value="ADMIN">Quản trị viên (ADMIN)</option>
                 <option value="MANAGER">Quản lý tuyến (MANAGER)</option>
                 <option value="DRIVER">Tài xế (DRIVER)</option>
+                <option value="CONDUCTOR">Phụ xe (CONDUCTOR)</option>
                 <option value="PASSENGER">Hành khách (PASSENGER)</option>
               </select>
             </div>
@@ -787,6 +825,21 @@ export const AccountManagementPage: React.FC = () => {
                 <option value="INACTIVE">Tạm ngưng (INACTIVE)</option>
                 <option value="LOCKED">Đã khóa (LOCKED)</option>
               </select>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                Đặt lại mật khẩu
+              </label>
+              <input
+                type="text"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                placeholder="Để trống nếu không đổi mật khẩu"
+                autoComplete="new-password"
+                className="w-full px-3 py-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0c162d] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-institutional-500"
+              />
+              {formErrors.password && <p className="text-[11px] text-rose-500 mt-1">{formErrors.password}</p>}
             </div>
 
             <div className="sm:col-span-2">
@@ -843,7 +896,7 @@ export const AccountManagementPage: React.FC = () => {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-500">Vai trò hiện tại:</span>
-                <Badge variant="role" value={selectedUser.role} />
+                <AccountRoleTag kind={kindOfUser(selectedUser)} />
               </div>
             </div>
 
@@ -852,7 +905,7 @@ export const AccountManagementPage: React.FC = () => {
                 Chọn vai trò mới:
               </label>
               <div className="space-y-2">
-                {(['ADMIN', 'MANAGER', 'DRIVER', 'PASSENGER'] as Role[]).map((r) => {
+                {(['ADMIN', 'MANAGER', 'DRIVER', 'CONDUCTOR', 'PASSENGER'] as AccountKind[]).map((r) => {
                   const label =
                     r === 'ADMIN'
                       ? 'Quản trị viên (Toàn quyền hệ thống & Audit Logs)'
@@ -860,6 +913,8 @@ export const AccountManagementPage: React.FC = () => {
                       ? 'Quản lý tuyến (Tuyến, Trạm dừng, Giá vé, Khiếu nại)'
                       : r === 'DRIVER'
                       ? 'Tài xế vận hành (Theo dõi lịch trình & trạm đón)'
+                      : r === 'CONDUCTOR'
+                      ? 'Phụ xe (Soát vé & hỗ trợ hành khách trên chuyến)'
                       : 'Hành khách (Gửi khiếu nại & Đánh giá chuyến đi)';
 
                   return (
@@ -924,6 +979,52 @@ export const AccountManagementPage: React.FC = () => {
         cancelLabel="Hủy"
         isDangerous={true}
       />
+
+      {/* Mật khẩu tạm của tài khoản vừa tạo: chỉ hiện một lần */}
+      <Modal
+        isOpen={tempPassword !== null}
+        onClose={() => setTempPassword(null)}
+        title="Mật khẩu tạm của tài khoản mới"
+        subtitle="Chỉ hiện một lần, hãy gửi cho người dùng"
+        maxWidth="md"
+        icon={<ShieldCheck className="w-5 h-5 text-emerald-600" />}
+      >
+        {tempPassword && (
+          <div className="space-y-4 text-xs">
+            <p className="text-slate-600 dark:text-slate-300">
+              Tài khoản <strong>@{tempPassword.username}</strong> đã được tạo. Hệ thống không lưu mật khẩu dạng đọc được nên sau khi đóng
+              hộp này sẽ không xem lại được; nếu quên, vào <strong>Sửa</strong> tài khoản để đặt lại mật khẩu.
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 px-3 py-2 rounded border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 font-mono text-sm select-all">
+                {tempPassword.password}
+              </code>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard
+                    ?.writeText(tempPassword.password)
+                    .then(() => success('Đã sao chép mật khẩu.'))
+                    .catch(() => warning('Không sao chép được, hãy bôi đen và sao chép thủ công.'));
+                }}
+                className="px-3 py-2 rounded border border-slate-300 dark:border-slate-600 font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                Sao chép
+              </button>
+            </div>
+            <div className="flex justify-end pt-3 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setTempPassword(null)}
+                className="px-4 py-2 rounded bg-institutional-700 hover:bg-institutional-800 text-white font-bold"
+              >
+                Đã ghi lại mật khẩu
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
     </div>
   );
 };

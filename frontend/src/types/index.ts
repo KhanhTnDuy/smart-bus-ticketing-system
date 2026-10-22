@@ -1,5 +1,11 @@
 export type Role = 'ADMIN' | 'MANAGER' | 'DRIVER' | 'PASSENGER';
 
+/**
+ * Loại tài khoản khi quản trị. Phụ xe (CONDUCTOR) dùng chung quyền truy cập với Tài xế (Role 'DRIVER') ở giao diện nên không là một Role,
+ * nhưng admin phải chọn và thấy được đúng loại này vì backend phân biệt hai vai trò.
+ */
+export type AccountKind = Role | 'CONDUCTOR';
+
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'LOCKED';
 
 export interface User {
@@ -9,6 +15,8 @@ export interface User {
   email: string;
   phone: string;
   role: Role;
+  /** true khi vai trò ở backend là Phụ xe (giao diện coi như Tài xế để định tuyến và phân quyền). */
+  isConductor?: boolean;
   status: UserStatus;
   createdAt: string;
   avatarUrl?: string;
@@ -373,6 +381,8 @@ export interface BusAssignment {
   shiftHours: string; // e.g. "05:00 — 13:30"
   status: AssignmentStatus;
   notes?: string;
+  /** Cảnh báo khi nhân sự đã gán bị khóa tài khoản hoặc đổi vai trò, cần phân công lại. */
+  staffWarning?: string;
 }
 
 export type BusStatus = 'ACTIVE' | 'MAINTENANCE' | 'INACTIVE';

@@ -323,7 +323,9 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                     Username = driver.Account.Username,
                     FullName = driver.Account.FullName,
                     Phone = driver.Account.Phone,
-                    Duty = StaffDuty.Driver
+                    Duty = StaffDuty.Driver,
+                    IsActive = driver.Account.Active,
+                    RoleMatchesDuty = driver.Account.Role == AccountRole.Driver
                 } : null,
                 Conductor = conductor != null ? new StaffAssignmentInfo
                 {
@@ -331,7 +333,9 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                     Username = conductor.Account.Username,
                     FullName = conductor.Account.FullName,
                     Phone = conductor.Account.Phone,
-                    Duty = StaffDuty.Conductor
+                    Duty = StaffDuty.Conductor,
+                    IsActive = conductor.Account.Active,
+                    RoleMatchesDuty = conductor.Account.Role == AccountRole.Conductor
                 } : null,
                 BookedTicketsCount = t.Bookings.Count(b => b.Status == BookingStatus.Confirmed || b.Status == BookingStatus.Pending)
             };
@@ -390,7 +394,9 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                 Username = driver.Account.Username,
                 FullName = driver.Account.FullName,
                 Phone = driver.Account.Phone,
-                Duty = StaffDuty.Driver
+                Duty = StaffDuty.Driver,
+                IsActive = driver.Account.Active,
+                RoleMatchesDuty = driver.Account.Role == AccountRole.Driver
             } : null,
             Conductor = conductor != null ? new StaffAssignmentInfo
             {
@@ -398,7 +404,9 @@ public sealed class TripAssignmentService(AppDbContext db) : ITripAssignmentServ
                 Username = conductor.Account.Username,
                 FullName = conductor.Account.FullName,
                 Phone = conductor.Account.Phone,
-                Duty = StaffDuty.Conductor
+                Duty = StaffDuty.Conductor,
+                IsActive = conductor.Account.Active,
+                RoleMatchesDuty = conductor.Account.Role == AccountRole.Conductor
             } : null,
             BookedTicketsCount = t.Bookings.Count(b => b.Status == BookingStatus.Confirmed || b.Status == BookingStatus.Pending)
         };

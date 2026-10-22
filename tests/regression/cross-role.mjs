@@ -216,6 +216,31 @@ check('Khách (chưa đăng nhập cũng được) thấy tuyến mới trong da
 check('Khách thấy hai trạm mới', has(await call(pax1.token, 'GET', '/api/stops?pageSize=100'), (s) => s.id === s1.j?.id) && has(await call(pax1.token, 'GET', '/api/stops?pageSize=100'), (s) => s.id === s2.j?.id));
 is('Khách không tạo được tuyến -> 403', (await call(pax1.token, 'POST', '/api/routes', { code: 'QAXX', name: 'x', startPoint: 'a', endPoint: 'b', distanceKm: 1, active: true })).s, 403);
 
+// ---------------------------------------------------------------------------------------------------------------------
+sec('L. Khóa tài khoản hoặc đổi vai trò khi đang có chuyến -> quản lý được cảnh báo để phân công lại');
+const staffUser = `qa_staff${Date.now().toString().slice(-5)}`;
+const sa = await call(admin, 'POST', '/api/accounts', { username: staffUser, password: 'QaPass@12345', fullName: 'QA Tài xế cảnh báo', role: 2 });
+is('Admin tạo tài xế thử', ok(sa), true);
+const mk3 = await call(manager, 'POST', '/api/assignments', { routeId: 1, departureAt: plusDays(22).toISOString(), busId: 3, driverId: sa.j?.id });
+is('Quản lý gán tài xế thử vào một chuyến', mk3.s, 201);
+const T3 = mk3.j?.tripId;
+const warnOf = async () => rows(await call(manager, 'GET', '/api/assignments?pageSize=100')).find((a) => a.tripId === T3)?.staffWarning ?? null;
+is('Nhân sự bình thường thì chuyến không có cảnh báo', await warnOf(), null);
+is('Admin khóa tài xế -> 200', (await call(admin, 'PUT', `/api/accounts/${sa.j?.id}`, { active: false })).s, 200);
+const lockedWarn = await warnOf();
+check('Quản lý thấy cảnh báo "đã bị khóa" trên chuyến của tài xế đó', /đã bị khóa/i.test(lockedWarn ?? ''), JSON.stringify(lockedWarn));
+check('Quản lý được thông báo có nhân sự cần phân công lại', (await notifs(manager)).some((n) => n.tripId === T3 && /phân công lại/i.test(n.title)));
+is('Admin mở khóa -> 200', (await call(admin, 'PUT', `/api/accounts/${sa.j?.id}`, { active: true })).s, 200);
+is('Mở khóa xong thì cảnh báo biến mất', await warnOf(), null);
+is('Admin đổi vai trò sang Phụ xe -> 200', (await call(admin, 'PATCH', `/api/accounts/${sa.j?.id}/role`, { role: 3 })).s, 200);
+const roleWarn = await warnOf();
+check('Quản lý thấy cảnh báo "đã đổi vai trò" khi người đứng tên tài xế thành phụ xe', /đã đổi vai trò/i.test(roleWarn ?? ''), JSON.stringify(roleWarn));
+is('Đổi lại vai Tài xế thì cảnh báo biến mất', ((await call(admin, 'PATCH', `/api/accounts/${sa.j?.id}/role`, { role: 2 })).s === 200) && (await warnOf()) === null, true);
+const noTripUser = await call(admin, 'POST', '/api/accounts', { username: `${staffUser}b`, password: 'QaPass@12345', fullName: 'QA không chuyến', role: 2 });
+const before = (await notifs(manager)).length;
+is('Khóa người không có chuyến nào -> 200', (await call(admin, 'PUT', `/api/accounts/${noTripUser.j?.id}`, { active: false })).s, 200);
+is('Khóa người không có chuyến thì không gây thông báo thừa cho quản lý', (await notifs(manager)).length, before);
+
 for (const f of uploadedFiles) {
   try { unlinkSync(join(process.env.UPLOAD_DIR || 'backend/SmartBusTicketing.Api/App_Data/uploads', f)); } catch { /* backend chạy ở thư mục khác */ }
 }
