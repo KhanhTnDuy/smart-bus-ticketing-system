@@ -31,6 +31,27 @@ public sealed class TripAssignmentDto
 
     public bool IsFullyAssigned => Bus != null && Driver != null;
     public bool HasConductor => Conductor != null;
+
+    /// <summary>
+    /// Cảnh báo khi tài xế hoặc phụ xe đã gán cho chuyến nhưng tài khoản sau đó bị khóa hoặc bị đổi sang vai trò khác.
+    /// Chuyến vẫn giữ nhân sự đó (không tự gỡ) nên quản lý cần phân công lại; null khi mọi thứ bình thường.
+    /// </summary>
+    public string? StaffWarning
+    {
+        get
+        {
+            var warnings = new List<string>();
+            void Check(StaffAssignmentInfo? staff, string label)
+            {
+                if (staff is null) return;
+                if (!staff.IsActive) warnings.Add($"{label} {staff.FullName} đã bị khóa tài khoản");
+                else if (!staff.RoleMatchesDuty) warnings.Add($"{label} {staff.FullName} đã đổi vai trò");
+            }
+            Check(Driver, "Tài xế");
+            Check(Conductor, "Phụ xe");
+            return warnings.Count == 0 ? null : string.Join("; ", warnings) + ". Cần phân công lại.";
+        }
+    }
     public int BookedTicketsCount { get; init; }
 
     // Các thuộc tính tiện ích tương thích với Frontend & báo cáo
@@ -67,6 +88,10 @@ public sealed class StaffAssignmentInfo
     public string FullName { get; init; } = string.Empty;
     public string? Phone { get; init; }
     public StaffDuty Duty { get; init; }
+    /// <summary>Tài khoản còn hoạt động. false khi admin đã khóa sau khi gán chuyến.</summary>
+    public bool IsActive { get; init; } = true;
+    /// <summary>Vai trò hiện tại của tài khoản còn khớp nhiệm vụ trên chuyến (Tài xế hay Phụ xe).</summary>
+    public bool RoleMatchesDuty { get; init; } = true;
 }
 
 public sealed class AssignTripRequest

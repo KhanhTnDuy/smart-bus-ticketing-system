@@ -465,6 +465,12 @@ export const ScheduleManagementPage: React.FC = () => {
                             <div className="font-mono font-bold text-amber-600 dark:text-amber-400">{t.busPlate || 'Chưa gán xe'}</div>
                             <div className="text-[11px] text-slate-500">TX: {t.driverName || 'Chưa gán'}</div>
                             {t.assistantName && <div className="text-[11px] text-slate-400">Phụ xe: {t.assistantName}</div>}
+                            {t.staffWarning && (
+                              <div className="mt-1 inline-flex items-start gap-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400" title={t.staffWarning}>
+                                <span aria-hidden>⚠</span>
+                                <span>{t.staffWarning}</span>
+                              </div>
+                            )}
                           </td>
                           <td className="py-3 px-4">
                             <div className="font-bold text-slate-900 dark:text-white">{t.startTime}</div>

@@ -53,6 +53,8 @@ export interface TripAssignmentDto {
 
   isFullyAssigned?: boolean;
   hasConductor?: boolean;
+  /** Cảnh báo khi tài xế/phụ xe đã gán nhưng tài khoản bị khóa hoặc đổi vai trò; null khi bình thường. */
+  staffWarning?: string | null;
   bookedTicketsCount?: number;
 
   busPlate: string;
@@ -207,6 +209,7 @@ export const toBusAssignment = (dto: TripAssignmentDto): BusAssignment => ({
   shiftHours: dto.shiftHours || '',
   status: mapStatusToAssignmentStatus(dto.status),
   notes: dto.notes || undefined,
+  staffWarning: dto.staffWarning || undefined,
 });
 
 export const toCreateTripRequest = (

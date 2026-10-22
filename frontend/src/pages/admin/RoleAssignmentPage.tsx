@@ -13,7 +13,9 @@ import {
 } from 'lucide-react';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { useToast } from '../../context/ToastContext';
-import { Role, User } from '../../types';
+import { AccountKind, User } from '../../types';
+import { kindOfUser } from '../../api/accountManagement';
+import { AccountRoleTag } from '../../components/admin/AccountRoleTag';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
@@ -24,7 +26,7 @@ export const RoleAssignmentPage: React.FC = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [targetRole, setTargetRole] = useState<Role>('PASSENGER');
+  const [targetRole, setTargetRole] = useState<AccountKind>('PASSENGER');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
   const filteredUsers = users.filter(
@@ -34,7 +36,7 @@ export const RoleAssignmentPage: React.FC = () => {
       u.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleOpenAssignModal = (user: User, newRole: Role) => {
+  const handleOpenAssignModal = (user: User, newRole: AccountKind) => {
     setSelectedUser(user);
     setTargetRole(newRole);
     setIsConfirmModalOpen(true);
@@ -107,7 +109,7 @@ export const RoleAssignmentPage: React.FC = () => {
             <span>DRIVER (TÀI XẾ XE BUÝT)</span>
           </div>
           <div className="text-xl font-bold text-slate-900 dark:text-white">
-            {users.filter((u) => u.role === 'DRIVER').length} tài khoản
+            {users.filter((u) => kindOfUser(u) === 'DRIVER').length} tài xế · {users.filter((u) => kindOfUser(u) === 'CONDUCTOR').length} phụ xe
           </div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
             Truy cập lịch trình điều xe, danh mục lộ trình các trạm dừng và thời gian vận hành được phân bổ.
@@ -176,12 +178,12 @@ export const RoleAssignmentPage: React.FC = () => {
                     {user.email}
                   </td>
                   <td className="px-4 py-3">
-                    <Badge variant="role" value={user.role} />
+                    <AccountRoleTag kind={kindOfUser(user)} />
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
-                      {(['ADMIN', 'MANAGER', 'DRIVER', 'PASSENGER'] as Role[]).map((r) => {
-                        const isCurrent = user.role === r;
+                      {(['ADMIN', 'MANAGER', 'DRIVER', 'CONDUCTOR', 'PASSENGER'] as AccountKind[]).map((r) => {
+                        const isCurrent = kindOfUser(user) === r;
                         return (
                           <button
                             key={r}
@@ -202,7 +204,7 @@ export const RoleAssignmentPage: React.FC = () => {
                   <td className="px-4 py-3 text-center">
                     <button
                       type="button"
-                      onClick={() => handleOpenAssignModal(user, user.role)}
+                      onClick={() => handleOpenAssignModal(user, kindOfUser(user))}
                       className="px-3 py-1 text-xs font-semibold rounded bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/80 transition-colors"
                     >
                       Đổi vai trò
@@ -235,11 +237,11 @@ export const RoleAssignmentPage: React.FC = () => {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-slate-500">Vai trò hiện tại:</span>
-                <Badge variant="role" value={selectedUser.role} size="sm" />
+                <AccountRoleTag kind={kindOfUser(selectedUser)} size="sm" />
               </div>
               <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-800">
                 <span className="text-slate-500 font-semibold">Vai trò sau khi chuyển:</span>
-                <Badge variant="role" value={targetRole} size="sm" />
+                <AccountRoleTag kind={targetRole} size="sm" />
               </div>
             </div>
 

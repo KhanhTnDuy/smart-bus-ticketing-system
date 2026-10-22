@@ -16,6 +16,34 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
     private long? GetActorId() => User.AccountId();
     private string GetActorName() => User.Username() ?? "system";
 
+    /// <summary>
+    /// Khóa tài khoản hoặc đổi vai trò không tự gỡ nhân sự khỏi các chuyến đã gán. Nếu người đó còn chuyến sắp chạy không còn hợp lệ
+    /// (tài khoản bị khóa, hoặc vai trò mới không khớp nhiệm vụ trên chuyến) thì báo cho Admin và Quản lý để phân công lại.
+    /// </summary>
+    private async Task NotifyManagersAboutAssignedTripsAsync(Account account, string reason, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var assigned = await db.TripStaff.AsNoTracking()
+            .Where(ts => ts.AccountId == account.Id
+                         && ts.Trip.DepartureAt > now
+                         && ts.Trip.Status != TripStatus.Completed
+                         && ts.Trip.Status != TripStatus.Cancelled)
+            .Select(ts => new { ts.TripId, ts.Duty })
+            .ToListAsync(ct);
+
+        var affected = assigned
+            .Where(a => !account.Active
+                        || (a.Duty == StaffDuty.Driver ? account.Role != AccountRole.Driver : account.Role != AccountRole.Conductor))
+            .Select(a => a.TripId)
+            .ToList();
+        if (affected.Count == 0) return;
+
+        await NotificationRules.NotifyManagementAsync(db, "Nhân sự có chuyến cần phân công lại",
+            $"{account.FullName} {reason}, còn {affected.Count} chuyến sắp chạy cần phân công lại.",
+            "/manager/schedules", GetActorId(), ct, tripId: affected[0]);
+        await db.SaveChangesAsync(ct);
+    }
+
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] string? search, [FromQuery] AccountRole? role, [FromQuery] bool? active, CancellationToken ct)
     {
@@ -118,6 +146,8 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
             account.Phone = phone;
         }
 
+        var wasActive = account.Active;
+        var oldRole = account.Role;
         if (req.Role.HasValue) account.Role = req.Role.Value;
         if (req.Active.HasValue) account.Active = req.Active.Value;
         if (!string.IsNullOrWhiteSpace(req.Password)) account.PasswordHash = PasswordService.Hash(req.Password);
@@ -126,6 +156,8 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
 
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync(GetActorId(), GetActorName(), "UPDATE_ACCOUNT", AuditActionType.Update, $"USR-{account.Id}", ct: ct);
+        if (wasActive && !account.Active) await NotifyManagersAboutAssignedTripsAsync(account, "đã bị khóa tài khoản", ct);
+        else if (account.Active && oldRole != account.Role) await NotifyManagersAboutAssignedTripsAsync(account, $"đã đổi vai trò sang {account.Role}", ct);
 
         return Ok(new { account.Id, account.Username, account.FullName, account.Email, account.Phone, account.Role, account.Active, account.CreatedAt, account.UpdatedAt });
     }
@@ -142,6 +174,7 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
 
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync(GetActorId(), GetActorName(), "UPDATE_ROLE", AuditActionType.StatusChange, $"USR-{account.Id}: {oldRole} -> {req.Role}", ct: ct);
+        if (oldRole != account.Role) await NotifyManagersAboutAssignedTripsAsync(account, $"đã đổi vai trò sang {account.Role}", ct);
 
         return Ok(new { account.Id, account.Username, account.FullName, account.Email, account.Phone, account.Role, account.Active, account.CreatedAt, account.UpdatedAt });
     }
@@ -152,11 +185,13 @@ public class AccountsController(AppDbContext db, AuditLogService audit) : Contro
         var account = await db.Accounts.FindAsync([id], ct);
         if (account is null) return NotFound(new { message = "Không tìm thấy tài khoản!" });
 
+        var wasActive = account.Active;
         account.Active = false;
         account.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync(GetActorId(), GetActorName(), "DISABLE_ACCOUNT", AuditActionType.Delete, $"USR-{account.Id}", ct: ct);
+        if (wasActive) await NotifyManagersAboutAssignedTripsAsync(account, "đã bị khóa tài khoản", ct);
 
         return NoContent();
     }
