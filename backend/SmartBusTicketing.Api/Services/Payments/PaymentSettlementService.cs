@@ -37,8 +37,11 @@ public sealed record SettlementResult(SettlementOutcome Outcome, Payment? Paymen
 public sealed class PaymentSettlementService(
     AppDbContext db, VnPayClient vnPay, AuditLogService audit, IInvoiceMailQueue invoiceMail, ILogger<PaymentSettlementService> logger)
 {
-    /// <summary>Xử lý lời gọi từ VNPay (đã gồm bước kiểm chữ ký và đối chiếu số tiền).</summary>
-    public async Task<SettlementResult> SettleVnPayCallbackAsync(IReadOnlyDictionary<string, string> query, CancellationToken ct)
+    /// <summary>
+    /// Xử lý lời gọi từ VNPay (đã gồm bước kiểm chữ ký và đối chiếu số tiền). <paramref name="source"/> cho biết lời gọi đến
+    /// từ IPN hay ReturnUrl, chỉ để ghi nhật ký.
+    /// </summary>
+    public async Task<SettlementResult> SettleVnPayCallbackAsync(IReadOnlyDictionary<string, string> query, CancellationToken ct, string source = "VNPay")
     {
         var callback = vnPay.ParseCallback(query);
         if (callback is null)
@@ -58,9 +61,37 @@ public sealed class PaymentSettlementService(
             return new SettlementResult(SettlementOutcome.AmountMismatch, payment, "Số tiền không khớp.");
         }
 
-        return callback.IsSuccess
+        var result = callback.IsSuccess
             ? await SettleSuccessAsync(payment.Id, callback.TransactionNo, callback.PayDate, ct)
-            : await SettleFailureAsync(payment.Id, VnPayClient.DescribeResponseCode(callback.ResponseCode), ct);
+            : await SettleFailureAsync(payment.Id, FailureReasonFor(callback.ResponseCode), ct);
+        await RecordCallbackAsync(payment.Id, callback, result, source, ct);
+        return result;
+    }
+
+    /// <summary>Lý do thất bại kèm mã của cổng để tra lại sau, ví dụ "Tài khoản không đủ số dư. (mã VNPay 51)".</summary>
+    private static string FailureReasonFor(string responseCode)
+    {
+        var text = VnPayClient.DescribeResponseCode(responseCode);
+        // Mã lạ đã có sẵn "(mã xx)" trong câu mô tả, không thêm lần nữa.
+        return text.Contains($"mã {responseCode}", StringComparison.Ordinal) ? text : $"{text.TrimEnd('.')}. (mã VNPay {responseCode})";
+    }
+
+    /// <summary>
+    /// Ghi nhật ký mọi kết quả VNPay đã qua kiểm chữ ký và số tiền, kể cả kết quả về muộn khi giao dịch đã được chốt hoặc đã hết hạn
+    /// (lúc đó SettleFailureAsync không ghi gì). Nhờ vậy sau này tra được cổng đã báo mã nào cho giao dịch nào.
+    /// </summary>
+    private async Task RecordCallbackAsync(long paymentId, VnPayCallback callback, SettlementResult result, string source, CancellationToken ct)
+    {
+        var who = await db.Payments.AsNoTracking()
+            .Where(p => p.Id == paymentId)
+            .Select(p => new { PassengerId = (long?)p.Booking!.PassengerId, Username = p.Booking!.Passenger.Username })
+            .FirstOrDefaultAsync(ct);
+
+        var status = callback.IsSuccess ? AuditStatus.Success : AuditStatus.Failure;
+        var details = $"Nguồn {source}; mã phản hồi {callback.ResponseCode} ({VnPayClient.DescribeResponseCode(callback.ResponseCode)}); " +
+                      $"trạng thái giao dịch {callback.TransactionStatus}; số tiền {callback.Amount:N0} VND; kết quả xử lý: {result.Outcome}";
+        await audit.WriteAsync(who?.PassengerId, who?.Username ?? "vnpay", $"Nhận kết quả VNPay {callback.TxnRef}",
+            AuditActionType.Payment, $"PAYMENT-{paymentId}", status, details, ct);
     }
 
     /// <summary>Đánh dấu giao dịch thành công và xác nhận lượt đặt tương ứng.</summary>
