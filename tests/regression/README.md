@@ -13,7 +13,7 @@ và CSDL MySQL đang chạy. Nhật ký từng kịch bản nằm ở `tests/res
 
 | Giai đoạn | Cấu hình backend | Kịch bản |
 |---|---|---|
-| 1 | Giả lập thanh toán bật, bảng phí hoàn để trống (luôn hoàn 100%) | `seat-lock`, `refund-flow`, `permissions`, `invoices`, `cross-role` |
+| 1 | Giả lập thanh toán bật, bảng phí hoàn để trống (luôn hoàn 100%) | `seat-lock`, `refund-flow`, `permissions`, `invoices`, `cross-role`, `operations` |
 | 2 | Như trên nhưng thêm khóa VNPay thử, SMTP và API hoàn tiền giả, tài khoản ngân hàng giả, bảng phí hoàn 24h=100%, 2h=50% | `regress` (đủ nhóm G2-G6) |
 | 3 | Bật dịch vụ chỉ đường, trỏ vào máy chủ OSRM giả do kịch bản dựng ở cổng 2527 (các giai đoạn khác tắt dịch vụ này để không phụ thuộc mạng) | `routing` (ước tính cự ly giữa hai trạm, km trạm chia theo đường đi thực tế, quay về đường chim bay khi dịch vụ tắt) |
 
@@ -51,6 +51,20 @@ Mỗi bước một vai trò ghi dữ liệu, rồi các vai trò khác phải t
 | K | Tuyến và trạm quản lý vừa thêm hiện ngay cho khách |
 
 Kịch bản tự dựng chuyến và dữ liệu riêng ở các ngày xa trong tương lai nên chạy được vào bất kỳ ngày nào. Chạy một mình: `CONFIRM_TEST_DB=1 node tests/regression/cross-role.mjs`.
+
+## `operations.mjs` – vận hành của admin và quản lý, kiểm thẳng trong MySQL
+
+Khác `cross-role.mjs` (một vai ghi, vai khác thấy), kịch bản này đối chiếu **từng thao tác ghi với dòng dữ liệu thật trong MySQL** và dồn vào các đường biên hay gây hỏng buổi demo: dữ liệu sai, trùng, tranh chấp, sai quyền.
+
+| Nhóm | Nội dung |
+|---|---|
+| A | Xe: phân quyền; 13 kiểu dữ liệu sai (sức chứa, lưới ghế, biển số, trạng thái 99) không ghi gì vào MySQL; chuẩn hóa biển số và chống trùng; sinh sơ đồ ghế (kể cả xe 208 ghế); tìm kiếm và phân trang; sửa, thu nhỏ hoặc đổi lưới ghế; chặn bảo trì khi còn chuyến sắp chạy, chặn đổi sức chứa và xóa khi đã bán vé; xóa xe và ghế |
+| B | Chuyến: dữ liệu sai khi tạo (không để chuyến nháp), xe hoặc tài xế hoặc phụ xe trùng giờ, `check-conflict`, gán sau, gán hàng loạt, gỡ phân công, đổi giờ, báo trễ, hủy, mở lại, hoàn thành, xóa; chuyến đã có vé không được đổi hoặc gỡ xe; trùng giờ với chuyến đã hủy trả 409 thay vì 500 |
+| C | Tài khoản: dữ liệu sai khi tạo, trùng tên đăng nhập, email, số điện thoại; phản hồi không lộ mật khẩu; đổi mật khẩu, vai trò, khóa và mở khóa; token cũ bị ngắt; admin không tự khóa, tự xóa hay tự hạ quyền mình; giá trị enum 99 bị từ chối ở mọi chỗ nhận enum |
+| D | Đặt vé và thanh toán: sai điểm lên xuống, ghế xe khác, hai khách tranh một ghế cùng lúc, trả hai lần cùng lúc, đổi ý giữa chuyển khoản và MoMo (khoản thu thừa phải có yêu cầu hoàn tiền), giữ chỗ hết hạn, voucher giới hạn lượt và tranh lượt cuối, voucher hết hạn hoặc giảm vượt giá vé, doanh thu và lấp đầy khớp MySQL |
+| E | Toàn vẹn dữ liệu sau tất cả thao tác (quét cả CSDL): không ghế nào có hai vé, vé và lượt đặt cùng trạng thái, mỗi lượt đặt đúng một khoản tiền vé và một hóa đơn, khoản hoàn không vượt tiền thu, không xe hay nhân sự đứng hai chuyến trùng giờ, không vai trò hay trạng thái lạ |
+
+Chạy một mình: `CONFIRM_TEST_DB=1 node tests/regression/operations.mjs` (cần backend bật bộ giả lập thanh toán và tài khoản chuyển khoản; `npm test` dựng sẵn). Kịch bản tự tạo xe, nhân sự, chuyến, voucher ở các ngày xa trong tương lai và dọn hết sau khi chạy.
 
 ## Ma trận kiểm thử thanh toán (SCRUM-94)
 
